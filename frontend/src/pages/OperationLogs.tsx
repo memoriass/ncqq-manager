@@ -14,35 +14,21 @@ import {
     Chip,
     CircularProgress,
 } from '@mui/material';
-import { Refresh as RefreshIcon, FiberManualRecord as DotIcon } from '@mui/icons-material';
-
-interface OperationLog {
-    id: string;
-    type: string;
-    level: 'info' | 'warning' | 'error';
-    time: string;
-    timestamp: number;
-    operator?: string;
-    operator_ip?: string;
-    target?: string;
-    [key: string]: any;
-}
+import { Refresh as RefreshIcon, FiberManualRecord as DotIcon, Download as DownloadIcon } from '@mui/icons-material';
+import { operationLogsApi, type OperationLog } from '../services/api';
+import { useTranslate } from '../i18n';
 
 const OperationLogs: React.FC = () => {
     const [logs, setLogs] = useState<OperationLog[]>([]);
     const [loading, setLoading] = useState(false);
     const [limit, setLimit] = useState(50);
+    const t = useTranslate();
 
     const fetchLogs = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`/api/operation_logs?limit=${limit}`, {
-                credentials: 'include',
-            });
-            if (response.ok) {
-                const data = await response.json();
-                setLogs(data.reverse());
-            }
+            const data = await operationLogsApi.list(limit);
+            setLogs((data.logs || []).reverse());
         } catch (error) {
             console.error('Failed to fetch operation logs:', error);
         } finally {
@@ -54,7 +40,7 @@ const OperationLogs: React.FC = () => {
         fetchLogs();
     }, [limit]);
 
-    const getLevelColor = (level: string): 'info' | 'warning' | 'error' | 'grey' => {
+    const getLevelColor = (level: string): 'info' | 'warning' | 'error' | 'default' => {
         switch (level) {
             case 'info':
                 return 'info';
@@ -63,7 +49,7 @@ const OperationLogs: React.FC = () => {
             case 'error':
                 return 'error';
             default:
-                return 'grey';
+                return 'default';
         }
     };
 
@@ -73,29 +59,29 @@ const OperationLogs: React.FC = () => {
 
         switch (log.type) {
             case 'container_start':
-                return `${operator} 启动了容器 ${target}`;
+                return t('opLogs.containerStart').replace('{operator}', operator).replace('{target}', target);
             case 'container_stop':
-                return `${operator} 停止了容器 ${target}`;
+                return t('opLogs.containerStop').replace('{operator}', operator).replace('{target}', target);
             case 'container_restart':
-                return `${operator} 重启了容器 ${target}`;
+                return t('opLogs.containerRestart').replace('{operator}', operator).replace('{target}', target);
             case 'container_create':
-                return `${operator} 创建了容器 ${target}`;
+                return t('opLogs.containerCreate').replace('{operator}', operator).replace('{target}', target);
             case 'container_delete':
-                return `${operator} 删除了容器 ${target}`;
+                return t('opLogs.containerDelete').replace('{operator}', operator).replace('{target}', target);
             case 'user_login':
-                return `${operator} 登录系统 (${log.operator_ip || 'unknown'})`;
+                return t('opLogs.userLogin').replace('{operator}', operator).replace('{ip}', log.operator_ip || 'unknown');
             case 'user_create':
-                return `${operator} 创建了用户 ${target}`;
+                return t('opLogs.userCreate').replace('{operator}', operator).replace('{target}', target);
             case 'user_delete':
-                return `${operator} 删除了用户 ${target}`;
+                return t('opLogs.userDelete').replace('{operator}', operator).replace('{target}', target);
             case 'config_change':
-                return `${operator} 修改了配置`;
+                return t('opLogs.configChange').replace('{operator}', operator);
             case 'node_create':
-                return `${operator} 创建了节点 ${target}`;
+                return t('opLogs.nodeCreate').replace('{operator}', operator).replace('{target}', target);
             case 'node_delete':
-                return `${operator} 删除了节点 ${target}`;
+                return t('opLogs.nodeDelete').replace('{operator}', operator).replace('{target}', target);
             default:
-                return `${operator} 执行了操作: ${log.type}`;
+                return t('opLogs.unknownAction').replace('{operator}', operator).replace('{type}', log.type);
         }
     };
 
@@ -103,17 +89,17 @@ const OperationLogs: React.FC = () => {
         <Box sx={{ p: 3 }}>
             <Paper sx={{ p: 3 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-                    <Typography variant="h5">操作日志</Typography>
+                    <Typography variant="h5">{t('opLogs.title')}</Typography>
                     <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                         <FormControl size="small" sx={{ minWidth: 120 }}>
                             <Select
                                 value={limit}
                                 onChange={(e) => setLimit(Number(e.target.value))}
                             >
-                                <MenuItem value={20}>20 条</MenuItem>
-                                <MenuItem value={50}>50 条</MenuItem>
-                                <MenuItem value={100}>100 条</MenuItem>
-                                <MenuItem value={200}>200 条</MenuItem>
+                                <MenuItem value={20}>20 {t('opLogs.records')}</MenuItem>
+                                <MenuItem value={50}>50 {t('opLogs.records')}</MenuItem>
+                                <MenuItem value={100}>100 {t('opLogs.records')}</MenuItem>
+                                <MenuItem value={200}>200 {t('opLogs.records')}</MenuItem>
                             </Select>
                         </FormControl>
                         <Button
@@ -122,7 +108,14 @@ const OperationLogs: React.FC = () => {
                             onClick={fetchLogs}
                             disabled={loading}
                         >
-                            刷新
+                            {t('admin.refresh')}
+                        </Button>
+                        <Button
+                            variant="outlined"
+                            startIcon={<DownloadIcon />}
+                            onClick={() => window.open(`/api/operation_logs/download?limit=${limit}`, '_blank')}
+                        >
+                            {t('config.exportLogs')}
                         </Button>
                  </Box>
                 </Box>
@@ -133,9 +126,9 @@ const OperationLogs: React.FC = () => {
                     </Box>
                 ) : logs.length === 0 ? (
                     <Box sx={{ textAlign: 'center', py: 5, color: 'text.secondary' }}>
-                        <Typography variant="body1">暂无操作日志</Typography>
+                        <Typography variant="body1">{t('opLogs.noLogs')}</Typography>
                         <Typography variant="body2" sx={{ mt: 1 }}>
-                            系统操作记录将显示在这里
+                            {t('opLogs.noLogsHint')}
                         </Typography>
                     </Box>
                 ) : (
@@ -149,7 +142,7 @@ const OperationLogs: React.FC = () => {
                                     primary={formatLogText(log)}
                                     secondary={log.time}
                                 />
-                                <Chip label={log.level} size="small" color={getLevelColor(log.level) as any} variant="outlined" />
+                                <Chip label={log.level} size="small" color={getLevelColor(log.level)} variant="outlined" />
                             </ListItem>
                         ))}
                     </List>

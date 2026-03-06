@@ -1,10 +1,5 @@
 {
-    "admin_username": "admin",
-    "admin_password": "admin",
-    "webui_base_port": 6001,
-    "http_base_port": 3000,
-    "ws_base_port": 3001,
-    "docker_image": "mlikiowa/napcat-docker:latest",
-    "api_key": "1240f51ca87b4f478461b6f799533ad6",
-    "data_dir": "C:\\git\\ncqq-manager\\data"
+    "initialized": true,
+    "host": "0.0.0.0",
+    "port": 8000
 }

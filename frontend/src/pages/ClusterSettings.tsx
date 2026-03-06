@@ -6,10 +6,12 @@ import SaveIcon from '@mui/icons-material/Save';
 import InfoIcon from '@mui/icons-material/Info';
 import { useTranslate } from '../i18n';
 import { useToast } from '../components/Toast';
+import { nodeApi } from '../services/api';
 
 export default function ClusterSettings() {
     const theme = useTheme();
     const t = useTranslate();
+    const toast = useToast();
     const [config, setConfig] = useState({ docker_image: "mlikiowa/napcat-docker:latest", webui_base_port: 6000, http_base_port: 3000, ws_base_port: 3001, api_key: "", data_dir: "" });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -17,11 +19,8 @@ export default function ClusterSettings() {
     useEffect(() => {
         const fetchConfig = async () => {
             try {
-                const res = await fetch('/api/cluster/config', { credentials: 'include' });
-                if (res.ok) {
-                    const data = await res.json();
-                    setConfig(data.config);
-                }
+                const data = await nodeApi.getClusterConfig();
+                setConfig((data as Record<string, unknown>).config as typeof config);
             } catch (e) {
                 console.error("Failed to fetch cluster config", e);
             } finally {
@@ -31,7 +30,7 @@ export default function ClusterSettings() {
         fetchConfig();
     }, []);
 
-    const handleChange = (e: any) => {
+    const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const value = (e.target.type === 'number') ? (parseInt(e.target.value) || 0) : e.target.value;
         setConfig({ ...config, [e.target.name]: value });
     };
@@ -39,20 +38,11 @@ export default function ClusterSettings() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const res = await fetch('/api/cluster/config', {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
-            });
-            if (res.ok) {
-                alert(t('config.saved') || 'Saved Successfully');
-            } else {
-                alert('Save failed');
-            }
+            await nodeApi.saveClusterConfig(config);
+            toast.success(t('config.saved') || 'Saved Successfully');
         } catch (e) {
             console.error(e);
-            alert('Save failed');
+            toast.error(t('config.saveFailed') || 'Save failed');
         } finally {
             setSaving(false);
         }
@@ -66,10 +56,10 @@ export default function ClusterSettings() {
         <Box sx={{ maxWidth: 900, mx: 'auto', p: { xs: 2, md: 4 } }}>
             <Box sx={{ mb: 4, pb: 2, borderBottom: `1px solid ${theme.palette.divider}` }}>
                 <Typography variant="h4" sx={{ fontWeight: 800, color: 'text.primary', mb: 1 }}>
-                    实例初始化设置
+                    {t('clusterConfig.title')}
                 </Typography>
                 <Typography variant="body1" color="text.secondary">
-                    配置快速创建实例时的默认参数模板，新建实例将自动从基础端口递增分配。
+                    {t('clusterConfig.description')}
                 </Typography>
             </Box>
 
@@ -84,7 +74,7 @@ export default function ClusterSettings() {
                     <Grid container spacing={4}>
                         <Grid item xs={12}>
                             <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: 'text.primary' }}>
-                                Docker Image (部署镜像)
+                                {t('clusterConfig.dockerImage')}
                             </Typography>
                             <TextField
                                 fullWidth
@@ -92,7 +82,7 @@ export default function ClusterSettings() {
                                 value={config.docker_image || ''}
                                 onChange={handleChange}
                                 placeholder="mlikiowa/napcat-docker:latest"
-                                helperText="每次「初始化 Agent」时默认拉取并部署的 NapCat Docker 镜像地址。"
+                                helperText={t('clusterConfig.dockerImageHelp')}
                                 size="medium"
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : '#fff' } }}
                             />
@@ -100,7 +90,7 @@ export default function ClusterSettings() {
 
                         <Grid item xs={12} md={4}>
                             <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: 'text.primary' }}>
-                                WebUI Base Port
+                                {t('clusterConfig.webuiBasePort')}
                             </Typography>
                             <TextField
                                 fullWidth
@@ -108,7 +98,7 @@ export default function ClusterSettings() {
                                 type="number"
                                 value={config.webui_base_port}
                                 onChange={handleChange}
-                                helperText="WebUI 访问端口起始值"
+                                helperText={t('clusterConfig.webuiBasePortHelp')}
                                 size="medium"
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : '#fff' } }}
                             />
@@ -116,7 +106,7 @@ export default function ClusterSettings() {
 
                         <Grid item xs={12} md={4}>
                             <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: 'text.primary' }}>
-                                HTTP Base Port
+                                {t('clusterConfig.httpBasePort')}
                             </Typography>
                             <TextField
                                 fullWidth
@@ -124,7 +114,7 @@ export default function ClusterSettings() {
                                 type="number"
                                 value={config.http_base_port}
                                 onChange={handleChange}
-                                helperText="分配给 HTTP API"
+                                helperText={t('clusterConfig.httpBasePortHelp')}
                                 size="medium"
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : '#fff' } }}
                             />
@@ -132,7 +122,7 @@ export default function ClusterSettings() {
 
                         <Grid item xs={12} md={4}>
                             <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: 'text.primary' }}>
-                                WebSocket Base Port
+                                {t('clusterConfig.wsBasePort')}
                             </Typography>
                             <TextField
                                 fullWidth
@@ -140,7 +130,7 @@ export default function ClusterSettings() {
                                 type="number"
                                 value={config.ws_base_port}
                                 onChange={handleChange}
-                                helperText="分配给 WebSocket API"
+                                helperText={t('clusterConfig.wsBasePortHelp')}
                                 size="medium"
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : '#fff' } }}
                             />
@@ -148,14 +138,14 @@ export default function ClusterSettings() {
 
                         <Grid item xs={12}>
                             <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: 'text.primary' }}>
-                                实例挂载目录 (DATA_DIR)
+                                {t('clusterConfig.dataDirLabel')}
                             </Typography>
                             <TextField
                                 fullWidth
                                 name="data_dir"
                                 value={config.data_dir}
                                 onChange={handleChange}
-                                helperText="实例的数据挂载目录。不同系统下可手动指定，如 /opt/ncqq_data。更改后请注意迁移原有数据。"
+                                helperText={t('clusterConfig.dataDirHelp')}
                                 size="medium"
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : '#fff' } }}
                             />

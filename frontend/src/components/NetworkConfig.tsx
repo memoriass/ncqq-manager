@@ -29,8 +29,34 @@ interface NetworkConfigProps {
     node_id: string;
 }
 
+interface EndpointConfig {
+    name: string;
+    enable: boolean;
+    host?: string;
+    port?: number;
+    url?: string;
+    [key: string]: unknown;
+}
+
+interface NapcatNetworkConfig {
+    http?: EndpointConfig[];
+    http_client?: EndpointConfig[];
+    http_sse?: EndpointConfig[];
+    ws?: EndpointConfig[];
+    ws_client?: EndpointConfig[];
+    [key: string]: EndpointConfig[] | undefined;
+}
+
+interface EditDialogState {
+    open: boolean;
+    isNew: boolean;
+    type: string;
+    index: number;
+    data: EndpointConfig;
+}
+
 export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
-    const [config, setConfig] = useState<any>(null);
+    const [config, setConfig] = useState<NapcatNetworkConfig | null>(null);
     const [loading, setLoading] = useState(false);
     const t = useTranslate();
     const theme = useTheme();
@@ -56,26 +82,26 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
         setLoading(true);
         try {
             await containerApi.saveConfig(name, 'config/napcat.json', JSON.stringify(config, null, 2), node_id);
-            toast.success('配置保存成功');
+            toast.success(t('network.saveSuccess'));
         } catch (error) {
             console.error('Failed to save config:', error);
-            toast.error('配置保存失败，请重试');
+            toast.error(t('network.saveFailed'));
         } finally {
             setLoading(false);
         }
     };
 
-    const [editDialog, setEditDialog] = useState({ open: false, isNew: false, type: 'http', index: -1, data: {} as any });
+    const [editDialog, setEditDialog] = useState<EditDialogState>({ open: false, isNew: false, type: 'http', index: -1, data: { name: '', enable: true } });
 
-    const saveToServer = async (newConfig: any) => {
+    const saveToServer = async (newConfig: NapcatNetworkConfig) => {
         setLoading(true);
         try {
             await containerApi.saveConfig(name, 'config/napcat.json', JSON.stringify(newConfig, null, 2), node_id);
-            toast.success('配置已保存生效');
+            toast.success(t('network.saveApplied'));
             setConfig(newConfig);
         } catch (error) {
             console.error('Failed to save config:', error);
-            toast.error('保存失败，请重试');
+            toast.error(t('network.saveRetryFailed'));
             // revert
             loadConfig();
         } finally {
@@ -121,47 +147,43 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
     };
 
     const openAddDialog = () => {
-        setEditDialog({ open: true, isNew: true, type: 'http', index: -1, data: { name: 'HTTP服务器', enable: true, host: '0.0.0.0', port: 3000 } });
+        setEditDialog({ open: true, isNew: true, type: 'http', index: -1, data: { name: t('network.httpServer'), enable: true, host: '0.0.0.0', port: 3000 } });
     };
 
     const openEditDialog = (type: string, index: number) => {
         setEditDialog({ open: true, isNew: false, type, index, data: { ...config[type][index] } });
     };
 
-    const updateDialogData = (key: string, value: any) => {
+    const updateDialogData = (key: string, value: string | number | boolean) => {
         setEditDialog(prev => ({ ...prev, data: { ...prev.data, [key]: value } }));
     };
 
     const handleTypeChange = (newType: string) => {
         const isClient = newType === 'http_client' || newType === 'ws_client';
-        const newData = { name: '新建端点', enable: true };
-        if (isClient) {
-            (newData as any).url = 'http://127.0.0.1:8080';
-        } else {
-            (newData as any).host = '0.0.0.0';
-            (newData as any).port = 3000;
-        }
+        const newData: EndpointConfig = isClient
+            ? { name: t('network.newEndpoint'), enable: true, url: 'http://127.0.0.1:8080' }
+            : { name: t('network.newEndpoint'), enable: true, host: '0.0.0.0', port: 3000 };
         setEditDialog(prev => ({ ...prev, type: newType, data: newData }));
     };
 
     const endpointMeta = [
-        { type: 'http', label: 'HTTP 服务器', icon: <HttpIcon sx={{ color: '#10b981' }}/>, bg: 'rgba(16,185,129,0.1)' },
-        { type: 'http_client', label: 'HTTP 客户端', icon: <CloudUploadIcon sx={{ color: '#3b82f6' }}/>, bg: 'rgba(59,130,246,0.1)' },
-        { type: 'http_sse', label: 'HTTP SSE 服务器', icon: <SensorsIcon sx={{ color: '#f59e0b' }}/>, bg: 'rgba(245,158,11,0.1)' },
-        { type: 'ws', label: 'WebSocket 服务器', icon: <SettingsInputComponentIcon sx={{ color: '#8b5cf6' }}/>, bg: 'rgba(139,92,246,0.1)' },
-        { type: 'ws_client', label: 'WebSocket 客户端', icon: <CloudDownloadIcon sx={{ color: '#ec4899' }}/>, bg: 'rgba(236,72,153,0.1)' }
+        { type: 'http', label: t('network.httpServer'), icon: <HttpIcon sx={{ color: '#10b981' }}/>, bg: 'rgba(16,185,129,0.1)' },
+        { type: 'http_client', label: t('network.httpClient'), icon: <CloudUploadIcon sx={{ color: '#3b82f6' }}/>, bg: 'rgba(59,130,246,0.1)' },
+        { type: 'http_sse', label: t('network.httpSseServer'), icon: <SensorsIcon sx={{ color: '#f59e0b' }}/>, bg: 'rgba(245,158,11,0.1)' },
+        { type: 'ws', label: t('network.wsServer'), icon: <SettingsInputComponentIcon sx={{ color: '#8b5cf6' }}/>, bg: 'rgba(139,92,246,0.1)' },
+        { type: 'ws_client', label: t('network.wsClient'), icon: <CloudDownloadIcon sx={{ color: '#ec4899' }}/>, bg: 'rgba(236,72,153,0.1)' }
     ];
 
     if (!config) {
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', py: 10 }}>
-                <Typography color="text.secondary">{t('正在加载网络配置...')}</Typography>
+                <Typography color="text.secondary">{t('network.loading')}</Typography>
             </Box>
         );
     }
 
     const allEndpoints = endpointMeta.flatMap(meta =>
-        (config[meta.type] || []).map((item: any, idx: number) => ({
+        (config[meta.type] || []).map((item: EndpointConfig, idx: number) => ({
             ...meta,
             item,
             index: idx
@@ -184,8 +206,8 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                         <CableIcon sx={{ fontSize: 24, color: '#3b82f6' }} />
                     </Box>
                     <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{t('网络端点配置')}</Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>配置和管理各种类型的通信端点</Typography>
+                        <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{t('network.title')}</Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>{t('network.subtitle')}</Typography>
                     </Box>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1 }}>
@@ -196,7 +218,7 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                         variant="outlined"
                         sx={{ borderRadius: 2, textTransform: 'none', px: 2 }}
                     >
-                        {t('刷新')}
+                        {t('network.refresh')}
                     </Button>
                     <Button
                         startIcon={<AddIcon />}
@@ -204,7 +226,7 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                         variant="contained"
                         sx={{ borderRadius: 2, background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', boxShadow: '0 4px 14px rgba(59,130,246,0.3)', textTransform: 'none', px: 3 }}
                     >
-                        {t('新建')}
+                        {t('network.create')}
                     </Button>
                 </Box>
             </Box>
@@ -214,7 +236,7 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                 {allEndpoints.length === 0 ? (
                     <Grid item xs={12}>
                         <Box sx={{ textAlign: 'center', py: 8, color: 'text.secondary' }}>
-                            <Typography variant="body1">{t('暂无端点配置，请点击右上角新建。')}</Typography>
+                            <Typography variant="body1">{t('network.noEndpoints')}</Typography>
                         </Box>
                     </Grid>
                 ) : allEndpoints.map((endpoint, i) => (
@@ -257,22 +279,22 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
                                             <Typography variant="caption" color="text.secondary" sx={{ width: 60, flexShrink: 0 }}>URL:</Typography>
                                             <Typography variant="body2" sx={{ fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                {endpoint.item.url || '未配置'}
+                                                {endpoint.item.url || t('network.notConfigured')}
                                             </Typography>
                                         </Box>
                                     ) : (
                                         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                                            <Typography variant="caption" color="text.secondary" sx={{ width: 60, flexShrink: 0 }}>地址:</Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ width: 60, flexShrink: 0 }}>{t('network.address')}</Typography>
                                             <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                                                 {endpoint.item.host || '0.0.0.0'}:{endpoint.item.port || 0}
                                             </Typography>
                                         </Box>
                                     )}
                                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 0.5 }}>
-                                        <Typography variant="caption" color="text.secondary">状态:</Typography>
+                                        <Typography variant="caption" color="text.secondary">{t('network.status')}</Typography>
                                         <FormControlLabel
                                             control={<Switch size="small" checked={endpoint.item.enable || false} onChange={(e) => handleToggleEnable(endpoint.type, endpoint.index, e.target.checked)} color="primary" />}
-                                            label={<Typography variant="caption" sx={{ fontWeight: 600 }}>{endpoint.item.enable ? t('已启用') : t('已禁用')}</Typography>}
+                                            label={<Typography variant="caption" sx={{ fontWeight: 600 }}>{endpoint.item.enable ? t('network.enabled') : t('network.disabled')}</Typography>}
                                             sx={{ m: 0 }}
                                         />
                                     </Box>
@@ -286,17 +308,17 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
             {/* 新建/编辑弹窗 */}
             <Dialog open={editDialog.open} onClose={() => setEditDialog({ ...editDialog, open: false })} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none' } }}>
                 <DialogTitle sx={{ pb: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                    {editDialog.isNew ? t('新建端点') : t('编辑端点')}
+                    {editDialog.isNew ? t('network.createEndpoint') : t('network.editEndpoint')}
                 </DialogTitle>
                 <DialogContent sx={{ pt: '24px !important' }}>
                     <Grid container spacing={2}>
                         {editDialog.isNew && (
                             <Grid item xs={12}>
                                 <FormControl fullWidth size="small">
-                                    <InputLabel>{t('端点类型')}</InputLabel>
+                                    <InputLabel>{t('network.endpointType')}</InputLabel>
                                     <Select
                                         value={editDialog.type}
-                                        label={t('端点类型')}
+                                        label={t('network.endpointType')}
                                         onChange={(e) => handleTypeChange(e.target.value)}
                                         sx={{ borderRadius: 2 }}
                                     >
@@ -313,27 +335,27 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                         )}
 
                         <Grid item xs={12} sm={8}>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('名称')}</Typography>
-                            <TextField fullWidth size="small" placeholder="端点名称" value={editDialog.data?.name || ''} onChange={(e) => updateDialogData('name', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('network.name')}</Typography>
+                            <TextField fullWidth size="small" placeholder={t('network.namePlaceholder')} value={editDialog.data?.name || ''} onChange={(e) => updateDialogData('name', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                         </Grid>
 
                         <Grid item xs={12} sm={4} sx={{ display: 'flex', alignItems: 'flex-end', pb: 0.5 }}>
-                            <FormControlLabel control={<Switch checked={editDialog.data?.enable !== false} onChange={(e) => updateDialogData('enable', e.target.checked)} color="primary" />} label={<Typography variant="body2" sx={{ fontWeight: 600 }}>{t('启用')}</Typography>} />
+                            <FormControlLabel control={<Switch checked={editDialog.data?.enable !== false} onChange={(e) => updateDialogData('enable', e.target.checked)} color="primary" />} label={<Typography variant="body2" sx={{ fontWeight: 600 }}>{t('network.enable')}</Typography>} />
                         </Grid>
 
                         {isClientConfig ? (
                             <Grid item xs={12}>
-                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('目标地址 (URL)')}</Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('network.targetUrl')}</Typography>
                                 <TextField fullWidth size="small" placeholder="http://127.0.0.1:8080" value={editDialog.data?.url || ''} onChange={(e) => updateDialogData('url', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                             </Grid>
                         ) : (
                             <>
                                 <Grid item xs={12} sm={8}>
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('监听主机 (Host)')}</Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('network.listenHost')}</Typography>
                                     <TextField fullWidth size="small" placeholder="0.0.0.0" value={editDialog.data?.host || ''} onChange={(e) => updateDialogData('host', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                                 </Grid>
                                 <Grid item xs={12} sm={4}>
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('监听端口 (Port)')}</Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('network.listenPort')}</Typography>
                                     <TextField fullWidth size="small" type="number" placeholder="3000" value={editDialog.data?.port || ''} onChange={(e) => updateDialogData('port', parseInt(e.target.value) || 0)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                                 </Grid>
                             </>
@@ -341,14 +363,14 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
 
                         <Grid item xs={12}>
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('Token')}</Typography>
-                            <TextField fullWidth size="small" placeholder="[可选] 通信密钥" value={editDialog.data?.token || ''} onChange={(e) => updateDialogData('token', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                            <TextField fullWidth size="small" placeholder={t('network.tokenPlaceholder')} value={editDialog.data?.token || ''} onChange={(e) => updateDialogData('token', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                         </Grid>
 
                         {editDialog.type === 'http' && (
                             <Grid item xs={12}>
                                 <Box sx={{ display: 'flex', gap: 3, mt: 1 }}>
-                                    <FormControlLabel control={<Switch size="small" checked={editDialog.data?.enableCors !== false} onChange={(e) => updateDialogData('enableCors', e.target.checked)} />} label={<Typography variant="caption">{t('允许跨域(CORS)')}</Typography>} />
-                                    <FormControlLabel control={<Switch size="small" checked={editDialog.data?.enableWebsocket || false} onChange={(e) => updateDialogData('enableWebsocket', e.target.checked)} />} label={<Typography variant="caption">{t('启用附带WS')}</Typography>} />
+                                    <FormControlLabel control={<Switch size="small" checked={editDialog.data?.enableCors !== false} onChange={(e) => updateDialogData('enableCors', e.target.checked)} />} label={<Typography variant="caption">{t('network.enableCors')}</Typography>} />
+                                    <FormControlLabel control={<Switch size="small" checked={editDialog.data?.enableWebsocket || false} onChange={(e) => updateDialogData('enableWebsocket', e.target.checked)} />} label={<Typography variant="caption">{t('network.enableWs')}</Typography>} />
                                 </Box>
                             </Grid>
                         )}
@@ -362,16 +384,16 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                             onClick={handleDeleteEndpoint}
                             sx={{ borderRadius: 2, textTransform: 'none' }}
                         >
-                            {t('删除')}
+                            {t('network.delete')}
                         </Button>
                     ) : <Box />}
 
                     <Box sx={{ display: 'flex', gap: 1 }}>
                         <Button onClick={() => setEditDialog({ ...editDialog, open: false })} color="inherit" sx={{ borderRadius: 2, textTransform: 'none' }}>
-                            {t('取消')}
+                            {t('network.cancel')}
                         </Button>
                         <Button onClick={handleSaveEndpoint} variant="contained" color="primary" sx={{ borderRadius: 2, textTransform: 'none', px: 3, boxShadow: '0 4px 10px rgba(59,130,246,0.2)' }}>
-                            {t('保存')}
+                            {t('network.save')}
                         </Button>
                     </Box>
                 </DialogActions>

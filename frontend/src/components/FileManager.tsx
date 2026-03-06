@@ -1,44 +1,76 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Box,
     Typography,
     Button,
     CircularProgress,
-    Table,
-    TableBody,
-    TableCell,
-    TableContainer,
-    TableHead,
-    TableRow,
-    Paper,
     Dialog,
     DialogTitle,
     DialogContent,
     DialogActions,
     TextField,
+    IconButton,
     useTheme,
 } from '@mui/material';
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import FolderIcon from '@mui/icons-material/Folder';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import EditIcon from '@mui/icons-material/Edit';
+import DataObjectIcon from '@mui/icons-material/DataObject';
+import DescriptionIcon from '@mui/icons-material/Description';
+import SettingsIcon from '@mui/icons-material/Settings';
+import ImageIcon from '@mui/icons-material/Image';
+import CodeIcon from '@mui/icons-material/Code';
+import StorageIcon from '@mui/icons-material/Storage';
+import HomeIcon from '@mui/icons-material/Home';
+import NavigateNextIcon from '@mui/icons-material/NavigateNext';
 import { useTranslate } from '../i18n';
 import { useToast } from './Toast';
+import { containerApi, type FileItem, type FolderItem } from '../services/api';
 
 interface FileManagerProps {
     name: string;
     node_id: string;
 }
 
-interface FileItem {
-    name: string;
-    size: number;
-    mtime: number;
-}
+// 文件类型图标映射
+const getFileIcon = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    const iconMap: Record<string, { icon: React.ReactElement; color: string }> = {
+        json: { icon: <DataObjectIcon fontSize="small" />, color: '#f59e0b' },
+        jsonl: { icon: <DataObjectIcon fontSize="small" />, color: '#f59e0b' },
+        js: { icon: <CodeIcon fontSize="small" />, color: '#eab308' },
+        mjs: { icon: <CodeIcon fontSize="small" />, color: '#eab308' },
+        ts: { icon: <CodeIcon fontSize="small" />, color: '#3b82f6' },
+        py: { icon: <CodeIcon fontSize="small" />, color: '#22c55e' },
+        md: { icon: <DescriptionIcon fontSize="small" />, color: '#6366f1' },
+        txt: { icon: <DescriptionIcon fontSize="small" />, color: '#64748b' },
+        log: { icon: <DescriptionIcon fontSize="small" />, color: '#94a3b8' },
+        yml: { icon: <SettingsIcon fontSize="small" />, color: '#ec4899' },
+        yaml: { icon: <SettingsIcon fontSize="small" />, color: '#ec4899' },
+        toml: { icon: <SettingsIcon fontSize="small" />, color: '#ec4899' },
+        ini: { icon: <SettingsIcon fontSize="small" />, color: '#ec4899' },
+        png: { icon: <ImageIcon fontSize="small" />, color: '#06b6d4' },
+        jpg: { icon: <ImageIcon fontSize="small" />, color: '#06b6d4' },
+        jpeg: { icon: <ImageIcon fontSize="small" />, color: '#06b6d4' },
+        gif: { icon: <ImageIcon fontSize="small" />, color: '#06b6d4' },
+        svg: { icon: <ImageIcon fontSize="small" />, color: '#06b6d4' },
+        db: { icon: <StorageIcon fontSize="small" />, color: '#8b5cf6' },
+        sqlite: { icon: <StorageIcon fontSize="small" />, color: '#8b5cf6' },
+    };
+    return iconMap[ext] || { icon: <InsertDriveFileIcon fontSize="small" />, color: '#94a3b8' };
+};
 
-interface FolderItem {
-    name: string;
-}
+// 文件大小格式化
+const formatSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+// Grid 列定义
+const GRID_COLS = '1fr 100px 160px 60px';
 
 const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
     const [files, setFiles] = useState<FileItem[]>([]);
@@ -55,13 +87,10 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
     const loadFiles = async (pathStr = currentPath) => {
         setLoading(true);
         try {
-            const res = await fetch(`/api/containers/${name}/files?path=${encodeURIComponent(pathStr)}&node_id=${node_id}`, { credentials: 'include' });
-            if (res.ok) {
-                const data = await res.json();
-                setFiles(data.files || []);
-                setFolders(data.folders || []);
-                setCurrentPath(data.current_path || '');
-            }
+            const data = await containerApi.listFiles(name, pathStr, node_id);
+            setFiles(data.files || []);
+            setFolders(data.folders || []);
+            setCurrentPath(data.current_path || '');
         } catch (e) {
             console.error(e);
         } finally {
@@ -73,12 +102,9 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
         const fullPath = currentPath ? `${currentPath}/${filename}` : filename;
         setLoading(true);
         try {
-            const res = await fetch(`/api/containers/${name}/config/${encodeURIComponent(fullPath)}?node_id=${node_id}`, { credentials: 'include' });
-            if (res.ok) {
-                const data = await res.json();
-                setEditContent(data.content || '');
-                setEditingFile(fullPath);
-            }
+            const data = await containerApi.getConfig(name, fullPath, node_id);
+            setEditContent(data.content || '');
+            setEditingFile(fullPath);
         } catch (e) {
             console.error(e);
         } finally {
@@ -90,22 +116,13 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
         if (!editingFile) return;
         setSavingFile(true);
         try {
-            const res = await fetch(`/api/containers/${name}/config/${encodeURIComponent(editingFile)}?node_id=${node_id}`, {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ content: editContent })
-            });
-            if (res.ok) {
-                setEditingFile(null);
-                loadFiles(currentPath);
-                toast.success('文件保存成功');
-            } else {
-                toast.error('保存失败，请重试');
-            }
+            await containerApi.saveConfig(name, editingFile, editContent, node_id);
+            setEditingFile(null);
+            loadFiles(currentPath);
+            toast.success(t('config.saveSuccess'));
         } catch (e) {
             console.error(e);
-            toast.error('保存失败，请检查网络连接');
+            toast.error(t('config.saveFailed'));
         } finally {
             setSavingFile(false);
         }
@@ -127,122 +144,182 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
         loadFiles();
     }, [name]);
 
+    // 排序：文件夹按名称排序，文件按名称排序
+    const sortedFolders = useMemo(() => [...folders].sort((a, b) => a.name.localeCompare(b.name)), [folders]);
+    const sortedFiles = useMemo(() => [...files].sort((a, b) => a.name.localeCompare(b.name)), [files]);
+
+    // 面包屑路径段
+    const breadcrumbs = useMemo(() => {
+        if (!currentPath) return [];
+        return currentPath.split('/').filter(Boolean);
+    }, [currentPath]);
+
+    const navigateToBreadcrumb = (index: number) => {
+        if (index < 0) { loadFiles(''); return; }
+        const target = breadcrumbs.slice(0, index + 1).join('/');
+        loadFiles(target);
+    };
+
+    const isDark = theme.palette.mode === 'dark';
+    const hoverBg = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)';
+    const itemCount = sortedFolders.length + sortedFiles.length;
+
     return (
         <Box sx={{ mt: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            {/* ── 顶部工具栏：面包屑 + 刷新 ── */}
             <Box sx={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3,
-                p: 2.5, borderRadius: 3,
-                background: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : '#fff',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2,
+                px: 2, py: 1.5, borderRadius: 2,
+                bgcolor: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
                 border: `1px solid ${theme.palette.divider}`,
-                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 4px 20px rgba(0,0,0,0.03)'
             }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(99,102,241,0.1)', display: 'flex' }}>
-                        <InsertDriveFileIcon sx={{ fontSize: 24, color: '#6366f1' }} />
-                    </Box>
-                    <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{t('config.configFileList')}</Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                            {currentPath ? `/ ${currentPath}` : '根目录'}
-                        </Typography>
-                    </Box>
+                {/* 面包屑导航 */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, overflow: 'hidden' }}>
+                    <IconButton size="small" onClick={() => navigateToBreadcrumb(-1)} sx={{ color: '#6366f1', flexShrink: 0 }}>
+                        <HomeIcon fontSize="small" />
+                    </IconButton>
+                    {breadcrumbs.map((seg, i) => (
+                        <React.Fragment key={i}>
+                            <NavigateNextIcon sx={{ fontSize: 16, color: 'text.disabled', flexShrink: 0 }} />
+                            <Typography
+                                variant="body2"
+                                onClick={() => navigateToBreadcrumb(i)}
+                                noWrap
+                                sx={{
+                                    cursor: 'pointer', fontWeight: i === breadcrumbs.length - 1 ? 700 : 400,
+                                    color: i === breadcrumbs.length - 1 ? 'text.primary' : 'text.secondary',
+                                    '&:hover': { color: '#6366f1', textDecoration: 'underline' },
+                                    maxWidth: 160,
+                                }}
+                            >
+                                {seg}
+                            </Typography>
+                        </React.Fragment>
+                    ))}
+                    {breadcrumbs.length === 0 && (
+                        <Typography variant="body2" color="text.secondary" sx={{ ml: 0.5 }}>{t('config.rootDir')}</Typography>
+                    )}
                 </Box>
-                <Button
-                    startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
-                    onClick={() => loadFiles(currentPath)}
-                    disabled={loading}
-                    variant="outlined"
-                    sx={{ borderRadius: 2, textTransform: 'none', px: 3, fontWeight: 600 }}
-                >
-                    {t('config.refreshDir')}
-                </Button>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+                    {!loading && <Typography variant="caption" color="text.disabled">{itemCount} {t('config.items')}</Typography>}
+                    <IconButton size="small" onClick={() => loadFiles(currentPath)} disabled={loading} sx={{ color: 'text.secondary' }}>
+                        {loading ? <CircularProgress size={18} thickness={4} /> : <RefreshIcon fontSize="small" />}
+                    </IconButton>
+                </Box>
             </Box>
 
-            <TableContainer
-                component={Paper}
-                variant="outlined"
-                sx={{
-                    borderRadius: 3,
-                    border: `1px solid ${theme.palette.divider}`,
-                    background: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.01)' : '#fff',
-                    boxShadow: 'none',
-                    overflow: 'hidden'
-                }}
-            >
-                <Table size="medium" sx={{ minWidth: 600 }}>
-                    <TableHead>
-                        <TableRow sx={{ bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : '#f8fafc' }}>
-                            <TableCell sx={{ fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}`, color: 'text.secondary' }}>{t('config.fileName')}</TableCell>
-                            <TableCell sx={{ fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}`, color: 'text.secondary' }}>{t('config.fileSize')}</TableCell>
-                            <TableCell sx={{ fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}`, color: 'text.secondary' }}>{t('config.lastModified')}</TableCell>
-                            <TableCell align="right" sx={{ fontWeight: 600, borderBottom: `1px solid ${theme.palette.divider}`, color: 'text.secondary' }}>{t('config.actions')}</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {loading ? (
-                            <TableRow><TableCell colSpan={4} align="center" sx={{ py: 6 }}><CircularProgress size={32} thickness={4} color="primary" /></TableCell></TableRow>
-                        ) : files.length === 0 && folders.length === 0 && !currentPath ? (
-                            <TableRow><TableCell colSpan={4} align="center" sx={{ py: 6, color: 'text.secondary' }}>{t('config.noFiles')}</TableCell></TableRow>
-                        ) : (
-                            <>
-                                {currentPath && (
-                                    <TableRow hover onClick={handleUpFolder} sx={{ cursor: 'pointer', transition: 'background-color 0.2s', '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)' } }}>
-                                        <TableCell colSpan={4} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                                            <ArrowUpwardIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                                            <Typography variant="body2" fontWeight={600} color="text.primary">返回上一级</Typography>
-                                        </TableCell>
-                                    </TableRow>
-                                )}
-                                {folders.map(f => (
-                                    <TableRow key={`dir-${f.name}`} hover onClick={() => handleFolderClick(f.name)} sx={{ cursor: 'pointer', transition: 'background-color 0.2s', '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)' } }}>
-                                        <TableCell colSpan={4} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                                            <FolderIcon fontSize="small" sx={{ color: '#f59e0b' }} />
-                                            <Typography variant="body2" fontWeight={600} color="text.primary">{f.name}</Typography>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                                {files.map(f => (
-                                    <TableRow key={`file-${f.name}`} hover sx={{ transition: 'background-color 0.2s', '&:hover': { bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)' }, '&:last-child td, &:last-child th': { border: 0 } }}>
-                                        <TableCell sx={{ display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `1px solid ${theme.palette.divider}` }}>
-                                            <InsertDriveFileIcon fontSize="small" sx={{ color: '#6366f1' }} />
-                                            <Typography variant="body2" fontWeight={600} sx={{ fontFamily: 'monospace', color: 'text.primary' }}>{f.name}</Typography>
-                                        </TableCell>
-                                        <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
-                                            <Typography variant="body2" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                                                {(f.size / 1024).toFixed(2)} KB
-                                            </Typography>
-                                        </TableCell>
-                                        <TableCell sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
-                                            <Typography variant="body2" color="text.secondary">
-                                                {new Date(f.mtime * 1000).toLocaleString()}
-                                            </Typography>
-                                        </TableCell>
-                                        <TableCell align="right" sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>
-                                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-                                                <Button
-                                                    size="small"
-                                                    variant="outlined"
-                                                    sx={{
-                                                        borderRadius: 2, textTransform: 'none', px: 2, py: 0.5,
-                                                        fontWeight: 600, borderColor: theme.palette.divider, color: 'text.primary',
-                                                        '&:hover': { bgcolor: 'rgba(59,130,246,0.05)', borderColor: '#3b82f6', color: '#3b82f6' }
-                                                    }}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleEdit(f.name);
-                                                    }}
-                                                >
-                                                    {t('编辑')}
-                                                </Button>
-                                            </Box>
-                                        </TableCell>
-                                    </TableRow>
-                                ))}
-                            </>
-                        )}
-                    </TableBody>
-                </Table>
-            </TableContainer>
+            {/* ── 文件列表容器 ── */}
+            <Box sx={{
+                flex: 1, borderRadius: 2, border: `1px solid ${theme.palette.divider}`,
+                bgcolor: isDark ? 'rgba(255,255,255,0.01)' : '#fff', overflow: 'hidden',
+                display: 'flex', flexDirection: 'column',
+            }}>
+                {/* 列头 */}
+                <Box sx={{
+                    display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center',
+                    px: 2, py: 1, bgcolor: isDark ? 'rgba(0,0,0,0.2)' : '#f8fafc',
+                    borderBottom: `1px solid ${theme.palette.divider}`,
+                }}>
+                    <Typography variant="caption" fontWeight={600} color="text.secondary">{t('config.fileName')}</Typography>
+                    <Typography variant="caption" fontWeight={600} color="text.secondary">{t('config.fileSize')}</Typography>
+                    <Typography variant="caption" fontWeight={600} color="text.secondary">{t('config.lastModified')}</Typography>
+                    <Box />
+                </Box>
+
+                {/* 内容区 */}
+                <Box sx={{ flex: 1, overflowY: 'auto' }}>
+                    {loading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                            <CircularProgress size={28} thickness={4} />
+                        </Box>
+                    ) : itemCount === 0 && !currentPath ? (
+                        <Box sx={{ textAlign: 'center', py: 8 }}>
+                            <InsertDriveFileIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                            <Typography variant="body2" color="text.secondary">{t('config.noFiles')}</Typography>
+                        </Box>
+                    ) : (
+                        <>
+                            {/* 返回上级 */}
+                            {currentPath && (
+                                <Box
+                                    onClick={handleUpFolder}
+                                    sx={{
+                                        display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center',
+                                        px: 2, py: 1.2, cursor: 'pointer', transition: 'background 0.15s',
+                                        borderBottom: `1px solid ${theme.palette.divider}`,
+                                        '&:hover': { bgcolor: hoverBg },
+                                    }}
+                                >
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                        <ArrowBackIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                                        <Typography variant="body2" color="text.secondary">..</Typography>
+                                    </Box>
+                                    <Box /><Box /><Box />
+                                </Box>
+                            )}
+
+                            {/* 文件夹列表 */}
+                            {sortedFolders.map(f => (
+                                <Box
+                                    key={`d-${f.name}`}
+                                    onClick={() => handleFolderClick(f.name)}
+                                    sx={{
+                                        display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center',
+                                        px: 2, py: 1.2, cursor: 'pointer', transition: 'background 0.15s',
+                                        borderBottom: `1px solid ${theme.palette.divider}`,
+                                        '&:hover': { bgcolor: hoverBg },
+                                    }}
+                                >
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                                        <FolderIcon fontSize="small" sx={{ color: '#f59e0b', flexShrink: 0 }} />
+                                        <Typography variant="body2" fontWeight={600} noWrap>{f.name}</Typography>
+                                    </Box>
+                                    <Typography variant="caption" color="text.disabled">—</Typography>
+                                    <Typography variant="caption" color="text.disabled">—</Typography>
+                                    <Box />
+                                </Box>
+                            ))}
+
+                            {/* 文件列表 */}
+                            {sortedFiles.map(f => {
+                                const fi = getFileIcon(f.name);
+                                return (
+                                    <Box
+                                        key={`f-${f.name}`}
+                                        sx={{
+                                            display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center',
+                                            px: 2, py: 1.2, transition: 'background 0.15s',
+                                            borderBottom: `1px solid ${theme.palette.divider}`,
+                                            '&:hover': { bgcolor: hoverBg },
+                                            '&:last-child': { borderBottom: 'none' },
+                                        }}
+                                    >
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                                            <Box sx={{ color: fi.color, display: 'flex', flexShrink: 0 }}>{fi.icon}</Box>
+                                            <Typography variant="body2" noWrap sx={{ fontFamily: 'monospace' }}>{f.name}</Typography>
+                                        </Box>
+                                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                                            {formatSize(f.size)}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            {new Date(f.mtime * 1000).toLocaleString()}
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => handleEdit(f.name)}
+                                                sx={{ color: 'text.secondary', '&:hover': { color: '#3b82f6' } }}
+                                            >
+                                                <EditIcon fontSize="small" />
+                                            </IconButton>
+                                        </Box>
+                                    </Box>
+                                );
+                            })}
+                        </>
+                    )}
+                </Box>
+            </Box>
 
             <Dialog
                 open={!!editingFile}
@@ -263,7 +340,7 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
                     <Box sx={{ p: 0.5, borderRadius: 1.5, bgcolor: 'rgba(99,102,241,0.1)', display: 'flex' }}>
                         <InsertDriveFileIcon fontSize="small" sx={{ color: '#6366f1' }} />
                     </Box>
-                    编辑文件 / {editingFile}
+                    {t('config.editFile')} / {editingFile}
                 </DialogTitle>
                 <DialogContent sx={{ p: 0 }}>
                     <TextField
@@ -287,14 +364,14 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
                     />
                 </DialogContent>
                 <DialogActions sx={{ p: 2, borderTop: `1px solid ${theme.palette.divider}` }}>
-                    <Button onClick={() => setEditingFile(null)} color="inherit" sx={{ borderRadius: 2, fontWeight: 600 }}>取消</Button>
+                    <Button onClick={() => setEditingFile(null)} color="inherit" sx={{ borderRadius: 2, fontWeight: 600 }}>{t('config.cancel')}</Button>
                     <Button
                         onClick={handleSaveFile}
                         disabled={savingFile}
                         variant="contained"
                         sx={{ px: 4, borderRadius: 2, fontWeight: 600, background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', boxShadow: '0 4px 14px rgba(59,130,246,0.3)', textTransform: 'none' }}
                     >
-                        {savingFile ? '保存中...' : '保存修改'}
+                        {savingFile ? t('config.saving') : t('config.saveChanges')}
                     </Button>
                 </DialogActions>
             </Dialog>

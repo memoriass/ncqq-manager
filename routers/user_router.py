@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from middleware.auth import require_admin, get_current_user, _active_tokens
+from middleware.auth import require_admin, get_current_user, remove_user_tokens
 from services.user_manager import user_manager
 from services.operation_logger import operation_logger
 
@@ -91,9 +91,7 @@ async def api_delete_user(
     if not user_manager.delete_user(user_uuid):
         raise HTTPException(status_code=404, detail="User not found")
     # 清除该用户的所有活跃 token
-    tokens_to_remove = [t for t, s in _active_tokens.items() if s["uuid"] == user_uuid]
-    for t in tokens_to_remove:
-        del _active_tokens[t]
+    remove_user_tokens(user_uuid)
     operation_logger.warning("user_delete", {
         "operator_ip": request.client.host if request.client else "unknown",
         "operator_name": session["userName"],

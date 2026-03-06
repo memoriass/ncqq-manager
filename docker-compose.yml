@@ -1,0 +1,25 @@
+services:
+  ncqq-manager:
+    build: .
+    container_name: ncqq-manager
+    ports:
+      - "8000:8000"
+    volumes:
+      # Docker socket — 必须挂载以管理宿主机容器
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 持久化配置与数据
+      - ./config:/app/config
+      - ./data:/app/data
+    environment:
+      # 可选：指定允许的 CORS 源（生产环境建议设置）
+      - CORS_ORIGINS=
+      # 可选：HTTPS 环境下启用安全 Cookie
+      - COOKIE_SECURE=false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+

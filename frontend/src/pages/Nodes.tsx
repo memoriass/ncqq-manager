@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Box, Typography, Button, TextField, Skeleton, IconButton, useTheme, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { Box, Typography, Button, TextField, Skeleton, IconButton, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, CircularProgress, Chip } from '@mui/material';
 import HubIcon from '@mui/icons-material/Hub';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DesktopWindowsIcon from '@mui/icons-material/DesktopWindows';
@@ -8,15 +7,19 @@ import AddIcon from '@mui/icons-material/Add';
 import SettingsIcon from '@mui/icons-material/Settings';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import TerminalIcon from '@mui/icons-material/Terminal';
-import LinearProgress from '@mui/material/LinearProgress';
+import CloseIcon from '@mui/icons-material/Close';
+import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import { nodeApi, type Node } from '../services/api';
+import { useTranslate } from '../i18n';
+import MiniChart from '../components/MiniChart';
 
 export default function Nodes() {
-    const navigate = useNavigate();
     const theme = useTheme();
+    const t = useTranslate();
     const [loading, setLoading] = useState(true);
-    const [nodes, setNodes] = useState<any[]>([]);
+    const [nodes, setNodes] = useState<Node[]>([]);
     const [openDialog, setOpenDialog] = useState(false);
 
     // form state
@@ -25,15 +28,22 @@ export default function Nodes() {
     const [nodeAddress, setNodeAddress] = useState('');
     const [nodeApiKey, setNodeApiKey] = useState('');
 
+    // console log dialog state
+    const [logDialogOpen, setLogDialogOpen] = useState(false);
+    const [logNodeId, setLogNodeId] = useState('');
+    const [logNodeName, setLogNodeName] = useState('');
+    const [logContent, setLogContent] = useState('');
+    const [logLoading, setLogLoading] = useState(false);
+    const [logLines, setLogLines] = useState(500);
+    const [logAutoRefresh, setLogAutoRefresh] = useState(false);
+    const logEndRef = useRef<HTMLDivElement>(null);
+    const logIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
     const fetchNodes = async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/nodes', { credentials: 'include' });
-            if (res.status === 401) { navigate('/login'); return; }
-            const data = await res.json();
-            if (data.status === 'ok') {
-                setNodes(data.nodes || []);
-            }
+            const data = await nodeApi.list();
+            setNodes(data.nodes || []);
         } catch (e) {
             console.error(e);
         } finally {
@@ -45,6 +55,63 @@ export default function Nodes() {
         fetchNodes();
     }, []);
 
+    // ============ Console Log Handlers ============
+
+    const fetchLogContent = useCallback(async (nodeId: string, lines: number) => {
+        setLogLoading(true);
+        try {
+            const data = await nodeApi.getLogs(nodeId, lines);
+            setLogContent(data.logs || '');
+            setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+        } catch {
+            setLogContent(t('nodePanel.logFetchError'));
+        } finally {
+            setLogLoading(false);
+        }
+    }, [t]);
+
+    const handleOpenConsole = async (node: Node) => {
+        setLogNodeId(node.id);
+        setLogNodeName(node.name);
+        setLogContent('');
+        setLogDialogOpen(true);
+        await fetchLogContent(node.id, logLines);
+    };
+
+    const handleCloseConsole = () => {
+        setLogDialogOpen(false);
+        setLogAutoRefresh(false);
+        if (logIntervalRef.current) {
+            clearInterval(logIntervalRef.current);
+            logIntervalRef.current = null;
+        }
+    };
+
+    const toggleAutoRefresh = () => {
+        if (logAutoRefresh) {
+            setLogAutoRefresh(false);
+            if (logIntervalRef.current) {
+                clearInterval(logIntervalRef.current);
+                logIntervalRef.current = null;
+            }
+        } else {
+            setLogAutoRefresh(true);
+            logIntervalRef.current = setInterval(() => {
+                fetchLogContent(logNodeId, logLines);
+            }, 5000);
+        }
+    };
+
+    useEffect(() => {
+        return () => {
+            if (logIntervalRef.current) clearInterval(logIntervalRef.current);
+        };
+    }, []);
+
+    // count error/warning lines in logs
+    const errorCount = (logContent.match(/error/gi) || []).length;
+    const warnCount = (logContent.match(/warn/gi) || []).length;
+
     const handleOpenAdd = () => {
         setEditNodeId(null);
         setNodeName('');
@@ -53,19 +120,18 @@ export default function Nodes() {
         setOpenDialog(true);
     };
 
-    const handleOpenEdit = (node: any) => {
+    const handleOpenEdit = (node: Node) => {
         setEditNodeId(node.id);
         setNodeName(node.name);
         setNodeAddress(node.address);
-        setNodeApiKey(''); // Don't show existing key 
+        setNodeApiKey(''); // Don't show existing key
         setOpenDialog(true);
     };
 
     const handleDelete = async (id: string, name: string) => {
-        if (!window.confirm(`确定要删除节点 ${name} 吗？`)) return;
+        if (!window.confirm(t('admin.confirmDelete').replace('{name}', name))) return;
         try {
-            const res = await fetch(`/api/nodes/${id}`, { method: 'DELETE', credentials: 'include' });
-            if (res.status === 401) { navigate('/login'); return; }
+            await nodeApi.delete(id);
             fetchNodes();
         } catch (e) {
             console.error(e);
@@ -74,28 +140,11 @@ export default function Nodes() {
 
     const handleSave = async () => {
         try {
-            const payload = {
-                name: nodeName,
-                address: nodeAddress,
-                api_key: nodeApiKey
-            };
-            let res;
             if (editNodeId) {
-                res = await fetch(`/api/nodes/${editNodeId}`, {
-                    method: 'PUT',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                await nodeApi.edit(editNodeId, nodeName, nodeAddress, nodeApiKey);
             } else {
-                res = await fetch('/api/nodes', {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
+                await nodeApi.add(nodeName, nodeAddress, nodeApiKey);
             }
-            if (res.status === 401) { navigate('/login'); return; }
             setOpenDialog(false);
             fetchNodes();
         } catch (e) {
@@ -106,27 +155,26 @@ export default function Nodes() {
     return (
         <Box sx={{ p: { xs: 3, md: 6 }, maxWidth: 1200, mx: 'auto' }}>
             <Box sx={{ mb: 4 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>管理面板 / 节点</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{t('nodePanel.breadcrumb')}</Typography>
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, justifyContent: 'space-between', alignItems: 'center' }}>
                     <Typography variant="h5" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <HubIcon sx={{ color: '#3b82f6' }} /> 远程节点列表
+                        <HubIcon sx={{ color: '#3b82f6' }} /> {t('nodePanel.title')}
                     </Typography>
 
                     <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
                         <Button variant="outlined" color="inherit" onClick={fetchNodes} startIcon={<RefreshIcon />} sx={{ borderRadius: 2, height: 38, borderColor: theme.palette.divider, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff' }}>
-                            刷新
+                            {t('admin.refresh')}
                         </Button>
                         <Button variant="contained" onClick={handleOpenAdd} startIcon={<AddIcon />} sx={{ borderRadius: 2, background: '#2563eb', height: 38, px: 3, boxShadow: 'none', '&:hover': { background: '#1d4ed8', boxShadow: 'none' } }}>
-                            新增节点
+                            {t('nodePanel.addNode')}
                         </Button>
-                        <Button variant="outlined" color="inherit" sx={{ borderRadius: 2, height: 38, borderColor: theme.palette.divider, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff' }}>
-                            使用手册
+                        <Button variant="outlined" color="inherit" onClick={() => window.open('/manual', '_blank')} sx={{ borderRadius: 2, height: 38, borderColor: theme.palette.divider, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff' }}>
+                            {t('nodePanel.manual')}
                         </Button>
                     </Box>
                 </Box>
                 <Typography variant="body2" color="text.secondary" sx={{ mt: 3, maxWidth: 600, lineHeight: 1.6 }}>
-                    远程节点上的应用实例的控制台，文件上传，文件下载都需要网页能够直接连接远程节点。
-                    因此必须避免使用除 localhost 外的局域网段任何 IP，必须使用外网 IP 或域名进行连接。
+                    {t('nodePanel.description')}
                 </Typography>
             </Box>
 
@@ -146,60 +194,59 @@ export default function Nodes() {
                                     )}
                                 </Typography>
                                 <Box sx={{ display: 'flex', gap: 0.5 }}>
-                                    <IconButton size="small" title="文件管理" onClick={() => navigate(`/admin?node=${node.id}`)}><FolderOpenIcon fontSize="small" /></IconButton>
-                                    <IconButton size="small" title="控制台" onClick={() => navigate(`/admin?node=${node.id}`)}><TerminalIcon fontSize="small" /></IconButton>
-                                    <IconButton size="small" title="节点设置" onClick={() => handleOpenEdit(node)}><SettingsIcon fontSize="small" /></IconButton>
+                                    <IconButton size="small" title={t('nodePanel.console')} onClick={() => handleOpenConsole(node)}><TerminalIcon fontSize="small" /></IconButton>
+                                    <IconButton size="small" title={t('nodePanel.nodeSettings')} onClick={() => handleOpenEdit(node)}><SettingsIcon fontSize="small" /></IconButton>
                                     {node.id !== 'local' && (
-                                        <IconButton size="small" title="删除节点" onClick={() => handleDelete(node.id, node.name)} color="error"><DeleteOutlineIcon fontSize="small" /></IconButton>
+                                        <IconButton size="small" title={t('nodePanel.deleteNode')} onClick={() => handleDelete(node.id, node.name)} color="error"><DeleteOutlineIcon fontSize="small" /></IconButton>
                                     )}
                                 </Box>
                             </Box>
 
                             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, mb: 3 }}>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">连接地址</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.address')}</Typography>
                                     <Typography variant="body2">{node.address}</Typography>
                                 </Box>
                                 {node.api_key && (
                                     <Box sx={{ gridColumn: 'span 2' }}>
-                                        <Typography variant="caption" color="text.secondary" display="block">唯一标识 / 节点指纹 (API Key)</Typography>
-                                        <Typography variant="body2" sx={{ filter: 'blur(3px)', transition: '0.3s', cursor: 'pointer', '&:hover': { filter: 'blur(0)' } }} title="悬停查看">{node.api_key}</Typography>
+                                        <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.apiKeyLabel')}</Typography>
+                                        <Typography variant="body2" sx={{ filter: 'blur(3px)', transition: '0.3s', cursor: 'pointer', '&:hover': { filter: 'blur(0)' } }} title={t('nodePanel.hoverToView')}>{node.api_key}</Typography>
                                     </Box>
                                 )}
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">节点状态</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.nodeStatus')}</Typography>
                                     <Typography variant="body2" sx={{ color: node.status === 'online' ? '#10b981' : '#f43f5e', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                         <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: node.status === 'online' ? '#10b981' : '#f43f5e' }} />
-                                        {node.status === 'online' ? '在线' : '离线'}
+                                        {node.status === 'online' ? t('admin.online') : t('admin.offline')}
                                     </Typography>
                                 </Box>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">网页直连</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.directConnect')}</Typography>
                                     <Typography variant="body2" sx={{ color: node.status === 'online' ? '#10b981' : '#f43f5e', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                         <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: node.status === 'online' ? '#10b981' : '#f43f5e' }} />
-                                        {node.status === 'online' ? '正常' : '不可达'}
+                                        {node.status === 'online' ? t('nodePanel.reachable') : t('nodePanel.unreachable')}
                                     </Typography>
                                 </Box>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">延迟</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.latency')}</Typography>
                                     <Typography variant="body2" sx={{ color: node.ping < 100 ? '#10b981' : (node.ping < 300 ? '#f59e0b' : '#f43f5e') }}>
                                         {node.status === 'online' ? `${node.ping}ms` : '-'}
                                     </Typography>
                                 </Box>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">平台</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.platform')}</Typography>
                                     <Typography variant="body2">{node.system?.platform || '-'} / {node.system?.python_version || '-'}</Typography>
                                 </Box>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">负载 (CPU / MEM)</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.loadCpuMem')}</Typography>
                                     <Typography variant="body2">{node.system?.cpu_percent?.toFixed(1) || 0}% / {node.system?.mem_percent?.toFixed(1) || 0}%</Typography>
                                 </Box>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">实例状态</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.instanceStatus')}</Typography>
                                     <Typography variant="body2">{node.instances?.running || 0} / {node.instances?.total || 0}</Typography>
                                 </Box>
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" display="block">核心版本</Typography>
+                                    <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.coreVersion')}</Typography>
                                     <Typography variant="body2" sx={{ color: '#10b981' }}>{node.system?.python_version ? `v${node.system?.python_version}` : '-'}</Typography>
                                 </Box>
                                 <Box sx={{ gridColumn: 'span 2' }}>
@@ -210,21 +257,19 @@ export default function Nodes() {
                                 </Box>
                             </Box>
 
-                            <Box sx={{ display: 'flex', gap: 4 }}>
-                                <Box sx={{ flex: 1 }}>
-                                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>CPU 使用率</Typography>
-                                    <LinearProgress variant="determinate" value={node.system?.cpu_percent || 0} sx={{
-                                        height: 6, borderRadius: 3, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
-                                        '& .MuiLinearProgress-bar': { borderRadius: 3, bgcolor: node.system?.cpu_percent > 80 ? '#f43f5e' : (node.system?.cpu_percent > 50 ? '#f59e0b' : '#3b82f6') }
-                                    }} />
-                                </Box>
-                                <Box sx={{ flex: 1 }}>
-                                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>内存使用率</Typography>
-                                    <LinearProgress variant="determinate" value={node.system?.mem_percent || 0} sx={{
-                                        height: 6, borderRadius: 3, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
-                                        '& .MuiLinearProgress-bar': { borderRadius: 3, bgcolor: node.system?.mem_percent > 80 ? '#f43f5e' : (node.system?.mem_percent > 50 ? '#f59e0b' : '#10b981') }
-                                    }} />
-                                </Box>
+                            <Box sx={{ display: 'flex', gap: 2 }}>
+                                <MiniChart
+                                    data={node.chart?.cpu || []}
+                                    label={t('nodePanel.cpuUsage')}
+                                    color={node.system?.cpu_percent && node.system.cpu_percent > 80 ? '#f43f5e' : '#3b82f6'}
+                                    height={64}
+                                />
+                                <MiniChart
+                                    data={node.chart?.mem || []}
+                                    label={t('nodePanel.memUsage')}
+                                    color={node.system?.mem_percent && node.system.mem_percent > 80 ? '#f43f5e' : '#10b981'}
+                                    height={64}
+                                />
                             </Box>
                         </Box>
                     </Box>
@@ -233,34 +278,124 @@ export default function Nodes() {
 
             <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none', bgcolor: theme.palette.mode === 'dark' ? '#1e1e1e' : '#fff' } }}>
                 <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 700 }}>
-                    <SettingsIcon color="primary" /> {editNodeId ? '编辑节点信息' : '新增节点配置'}
+                    <SettingsIcon color="primary" /> {editNodeId ? t('nodePanel.editNode') : t('nodePanel.addNodeConfig')}
                 </DialogTitle>
                 <DialogContent>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
                         <Box>
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>备注信息 *</Typography>
-                            <TextField fullWidth size="small" placeholder="机器人" value={nodeName} onChange={e => setNodeName(e.target.value)} />
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('nodePanel.remarkInfo')}</Typography>
+                            <TextField fullWidth size="small" placeholder={t('nodePanel.remarkPlaceholder')} value={nodeName} onChange={e => setNodeName(e.target.value)} />
                         </Box>
                         <Box>
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>远程节点连接地址 *</Typography>
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('nodePanel.remoteAddress')}</Typography>
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                                必须使用外网地址或 localhost 地址，否则将导致远程实例无法连接。包含端口号。
+                                {t('nodePanel.remoteAddressHelp')}
                             </Typography>
-                            <TextField fullWidth size="small" placeholder="127.0.0.1:8000" value={nodeAddress} onChange={e => setNodeAddress(e.target.value)} />
+                            <TextField fullWidth size="small" placeholder={t('nodePanel.remoteAddressPlaceholder')} value={nodeAddress} onChange={e => setNodeAddress(e.target.value)} />
                         </Box>
                         <Box>
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>唯一标识 / 节点指纹 (API Key)</Typography>
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('nodePanel.apiKeyLabel')}</Typography>
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                                通过远程节点生成的密钥来认证身份，以确保多台机器集成工作的安全性。
+                                {t('nodePanel.apiKeyHelp')}
                             </Typography>
-                            <TextField fullWidth size="small" type="password" placeholder="填写远程节点指纹" value={nodeApiKey} onChange={e => setNodeApiKey(e.target.value)} />
+                            <TextField fullWidth size="small" type="password" placeholder={t('nodePanel.apiKeyPlaceholder')} value={nodeApiKey} onChange={e => setNodeApiKey(e.target.value)} />
                         </Box>
                     </Box>
                 </DialogContent>
                 <DialogActions sx={{ p: 3, pt: 0 }}>
-                    <Button onClick={() => setOpenDialog(false)} color="inherit" sx={{ borderRadius: 2 }}>取消</Button>
-                    <Button variant="contained" onClick={handleSave} disabled={!nodeName || !nodeAddress} sx={{ borderRadius: 2, boxShadow: 'none' }}>保存节点</Button>
+                    <Button onClick={() => setOpenDialog(false)} color="inherit" sx={{ borderRadius: 2 }}>{t('nodePanel.cancel')}</Button>
+                    <Button variant="contained" onClick={handleSave} disabled={!nodeName || !nodeAddress} sx={{ borderRadius: 2, boxShadow: 'none' }}>{t('nodePanel.saveNode')}</Button>
                 </DialogActions>
+            </Dialog>
+
+            {/* ============ Console Log Dialog ============ */}
+            <Dialog open={logDialogOpen} onClose={handleCloseConsole} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none', bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : '#fff', height: '80vh' } }}>
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <TerminalIcon sx={{ color: '#3b82f6' }} />
+                        <Box>
+                            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{t('nodePanel.consoleTitle')}</Typography>
+                            <Typography variant="caption" color="text.secondary">{logNodeName} ({logNodeId})</Typography>
+                        </Box>
+                    </Box>
+                    <IconButton size="small" onClick={handleCloseConsole}><CloseIcon /></IconButton>
+                </DialogTitle>
+                <DialogContent sx={{ display: 'flex', flexDirection: 'column', p: 0, overflow: 'hidden' }}>
+                    {/* Toolbar */}
+                    <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', px: 3, py: 1.5, borderBottom: `1px solid ${theme.palette.divider}`, flexWrap: 'wrap' }}>
+                        <TextField
+                            size="small"
+                            type="number"
+                            value={logLines}
+                            onChange={(e) => setLogLines(Math.max(50, Math.min(5000, parseInt(e.target.value) || 500)))}
+                            sx={{ width: 100, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
+                            label={t('nodePanel.logLines')}
+                        />
+                        <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => fetchLogContent(logNodeId, logLines)}
+                            startIcon={<RefreshIcon />}
+                            sx={{ borderRadius: 2, textTransform: 'none' }}
+                        >
+                            {t('nodePanel.logRefresh')}
+                        </Button>
+                        <Button
+                            size="small"
+                            variant={logAutoRefresh ? 'contained' : 'outlined'}
+                            onClick={toggleAutoRefresh}
+                            sx={{ borderRadius: 2, textTransform: 'none', ...(logAutoRefresh ? { bgcolor: '#10b981', '&:hover': { bgcolor: '#059669' } } : {}) }}
+                        >
+                            {logAutoRefresh ? t('nodePanel.autoRefreshOn') : t('nodePanel.autoRefreshOff')}
+                        </Button>
+                        <Box sx={{ flex: 1 }} />
+                        {errorCount > 0 && (
+                            <Chip icon={<ErrorOutlineIcon />} label={`${errorCount} errors`} size="small" color="error" variant="outlined" />
+                        )}
+                        {warnCount > 0 && (
+                            <Chip icon={<WarningAmberIcon />} label={`${warnCount} warns`} size="small" color="warning" variant="outlined" />
+                        )}
+                    </Box>
+                    {/* Log Content */}
+                    <Box sx={{ flex: 1, overflow: 'auto', px: 2, py: 1, bgcolor: theme.palette.mode === 'dark' ? '#0d1117' : '#f8f9fa' }}>
+                        {logLoading && !logContent ? (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                                <CircularProgress size={32} />
+                            </Box>
+                        ) : !logContent ? (
+                            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+                                <Typography color="text.secondary">{t('nodePanel.noLogs')}</Typography>
+                            </Box>
+                        ) : (
+                            <Box component="pre" sx={{
+                                m: 0, p: 2, fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace',
+                                fontSize: '0.78rem', lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                                color: theme.palette.mode === 'dark' ? '#c9d1d9' : '#24292f',
+                                '& .log-error': { color: '#f85149', fontWeight: 600 },
+                                '& .log-warn': { color: '#d29922', fontWeight: 600 },
+                            }}>
+                                {logContent.split('\n').map((line, i) => {
+                                    const isError = /error/i.test(line);
+                                    const isWarn = !isError && /warn/i.test(line);
+                                    return (
+                                        <Box key={i} component="span" sx={{
+                                            display: 'block',
+                                            ...(isError ? { color: '#f85149', bgcolor: 'rgba(248,81,73,0.1)' } : {}),
+                                            ...(isWarn ? { color: '#d29922', bgcolor: 'rgba(210,153,34,0.08)' } : {}),
+                                            px: 1, borderRadius: 0.5,
+                                        }}>
+                                            <Box component="span" sx={{ color: theme.palette.mode === 'dark' ? '#484f58' : '#8b949e', mr: 1, userSelect: 'none', fontSize: '0.7rem' }}>
+                                                {String(i + 1).padStart(4, ' ')}
+                                            </Box>
+                                            {line}
+                                        </Box>
+                                    );
+                                })}
+                                <div ref={logEndRef} />
+                            </Box>
+                        )}
+                    </Box>
+                </DialogContent>
             </Dialog>
         </Box>
     );

@@ -1,6 +1,9 @@
 """
-认证路由 - 登录/登出/状态检查
+认证路由 - 登录/登出/状态检查/首次初始化
 """
+import os
+import socket
+from typing import Optional
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -9,10 +12,14 @@ from middleware.auth import (
     get_current_user, create_token, remove_token,
 )
 from services.user_manager import user_manager
+from services.config import app_config
 from services.operation_logger import operation_logger
 from services.log import logger
 
 router = APIRouter(prefix="/api", tags=["auth"])
+
+# 生产环境建议设置 COOKIE_SECURE=true（需要 HTTPS）
+_COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "").lower() in ("1", "true", "yes")
 
 
 class LoginRequest(BaseModel):
@@ -49,6 +56,7 @@ async def api_login(req: LoginRequest, request: Request):
         response.set_cookie(
             key="auth_token", value=token,
             max_age=86400 * 7, httponly=True, samesite="lax",
+            secure=_COOKIE_SECURE,
         )
         return response
 
@@ -86,4 +94,121 @@ async def api_auth_status(session: dict = Depends(get_current_user)):
             "permission": session["permission"],
         },
     }
+
+
+# ============ 首次初始化设置 ============
+
+def _get_local_ip() -> str:
+    """获取本机局域网 IP"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+class SetupRequest(BaseModel):
+    admin_username: str
+    admin_password: str
+    host: str = "0.0.0.0"
+    port: int = 8000
+    data_dir: Optional[str] = None
+
+
+@router.get("/setup/status")
+async def api_setup_status():
+    """检查系统是否已完成首次初始化"""
+    initialized = app_config.get("initialized", False)
+
+    # 兼容旧版本升级：如果 DB 中已有用户但 config 中未标记 initialized，
+    # 则自动标记为已初始化（旧版本用默认 admin/admin 创建过用户）
+    if not initialized:
+        import services.database as db
+        row = db.fetchone("SELECT 1 FROM users LIMIT 1")
+        if row:
+            app_config.set("initialized", True)
+            initialized = True
+
+    return {
+        "status": "ok",
+        "initialized": initialized,
+        "local_ip": _get_local_ip(),
+        "default_data_dir": app_config.get("data_dir", ""),
+        "default_port": app_config.get("port", 8000),
+    }
+
+
+@router.post("/setup/init")
+async def api_setup_init(req: SetupRequest, request: Request):
+    """首次初始化系统 — 设置管理员账号和运行参数"""
+    if app_config.get("initialized", False):
+        return JSONResponse(
+            {"status": "error", "message": "System already initialized"},
+            status_code=400,
+        )
+
+    if not req.admin_username or not req.admin_password:
+        return JSONResponse(
+            {"status": "error", "message": "Username and password are required"},
+            status_code=400,
+        )
+
+    if len(req.admin_password) < 6:
+        return JSONResponse(
+            {"status": "error", "message": "Password must be at least 6 characters"},
+            status_code=400,
+        )
+
+    # 创建管理员账号
+    from services.user_manager import user_manager, ROLE
+    user = user_manager.create_user(
+        username=req.admin_username,
+        password=req.admin_password,
+        permission=ROLE.ADMIN,
+    )
+    if not user:
+        return JSONResponse(
+            {"status": "error", "message": "Failed to create admin user"},
+            status_code=500,
+        )
+
+    # 更新配置
+    updates = {
+        "initialized": True,
+        "host": req.host,
+        "port": req.port,
+    }
+    if req.data_dir:
+        updates["data_dir"] = req.data_dir
+    app_config.update(updates)
+
+    ip = request.client.host if request.client else "unknown"
+    operation_logger.info("system_initialized", {
+        "operator_ip": ip,
+        "admin_user": req.admin_username,
+        "host": req.host,
+        "port": req.port,
+    })
+    logger.info("系统初始化完成: admin=%s, host=%s, port=%d", req.admin_username, req.host, req.port)
+
+    # 自动登录
+    token = create_token(user)
+    response = JSONResponse({
+        "status": "ok",
+        "message": "System initialized successfully",
+        "user": {
+            "uuid": user["uuid"],
+            "userName": user["userName"],
+            "permission": user["permission"],
+        },
+    })
+    response.set_cookie(
+        key="auth_token", value=token,
+        max_age=86400 * 7, httponly=True, samesite="lax",
+        secure=_COOKIE_SECURE,
+    )
+    return response
 

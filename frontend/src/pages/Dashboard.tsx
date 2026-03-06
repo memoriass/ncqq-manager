@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import {
     Box, Typography, Button, TextField, Skeleton, IconButton, useTheme,
     Select, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions,
-    Collapse, FormControlLabel, Checkbox, Chip, Divider, Pagination
+    FormControlLabel, Checkbox, Pagination
 } from '@mui/material';
 import { useNavigate, useOutletContext } from 'react-router-dom';
+import { containerApi, nodeApi, imageApi, type Container, type Node, type CreateContainerRequest, type DockerImage } from '../services/api';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
@@ -14,7 +15,6 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import NapCatIcon from '../components/NapCatIcon';
 import AddIcon from '@mui/icons-material/Add';
 import SettingsIcon from '@mui/icons-material/Settings';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useTranslate } from '../i18n';
 
@@ -22,9 +22,9 @@ export default function Dashboard() {
     const navigate = useNavigate();
     const theme = useTheme();
     const t = useTranslate();
-    const [containers, setContainers] = useState<any[]>([]);
+    const [containers, setContainers] = useState<Container[]>([]);
     const [loading, setLoading] = useState(true);
-    const [nodes, setNodes] = useState<any[]>([]);
+    const [nodes, setNodes] = useState<Node[]>([]);
     const [selectedNode, setSelectedNode] = useState('local');
 
     // 批量操作状态
@@ -63,8 +63,7 @@ export default function Dashboard() {
         try {
             await Promise.all(
                 selectedContainers.map(name =>
-                    fetch(`/api/containers/${name}/action?action=${action}&node_id=${selectedNode}`, { method: 'POST', credentials: 'include' })
-                        .then(res => { if (res.status === 401) navigate('/login'); })
+                    containerApi.action(name, action, selectedNode).catch(console.error)
                 )
             );
             fetchContainers();
@@ -78,6 +77,15 @@ export default function Dashboard() {
         name: '', docker_image: '', webui_port: 0, http_port: 0, ws_port: 0,
         memory_limit: 0, restart_policy: 'always', network_mode: 'bridge', env_vars: ''
     });
+    const [localImages, setLocalImages] = useState<DockerImage[]>([]);
+
+    const openCreateDialog = async () => {
+        setOpenCreate(true);
+        try {
+            const data = await imageApi.list();
+            setLocalImages(data.images || []);
+        } catch { /* ignore */ }
+    };
 
     // 删除确认对话框状态
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; name: string; node_id: string; deleteData: boolean }>({
@@ -88,12 +96,8 @@ export default function Dashboard() {
 
     const fetchNodes = async () => {
         try {
-            const res = await fetch('/api/nodes', { credentials: 'include' });
-            if (res.status === 401) { navigate('/login'); return; }
-            const data = await res.json();
-            if (data.status === 'ok') {
-                setNodes(data.nodes || []);
-            }
+            const data = await nodeApi.list();
+            setNodes(data.nodes || []);
         } catch (e) {
             console.error(e);
         }
@@ -101,31 +105,23 @@ export default function Dashboard() {
 
     const fetchContainers = async () => {
         try {
-            const res = await fetch('/api/containers', { credentials: 'include' });
-            if (res.status === 401) {
-                navigate('/login');
-                return;
-            }
-            const data = await res.json();
+            const data = await containerApi.list();
             const fetchedContainers = data.containers || [];
             setContainers(fetchedContainers);
 
             // Fetch stats for running containers to get QQ avatar (uin)
-            fetchedContainers.forEach(async (c: any) => {
+            fetchedContainers.forEach(async (c: Container) => {
                 if (c.status === 'running') {
                     try {
-                        const statsRes = await fetch(`/api/containers/${c.name}/stats?node_id=${c.node_id}`, { credentials: 'include' });
-                        if (statsRes.ok) {
-                            const statsData = await statsRes.json();
-                            if (statsData.uin && statsData.uin !== '未登录 / Not Logged In') {
-                                setContainers(prev => prev.map(container =>
-                                    (container.name === c.name && container.node_id === c.node_id)
-                                    ? { ...container, uin: statsData.uin }
-                                    : container
-                                ));
-                            }
+                        const statsData = await containerApi.getStats(c.name, c.node_id);
+                        if (statsData.uin && statsData.uin !== '未登录 / Not Logged In') {
+                            setContainers(prev => prev.map(container =>
+                                (container.name === c.name && container.node_id === c.node_id)
+                                ? { ...container, uin: statsData.uin }
+                                : container
+                            ));
                         }
-                    } catch (e) {
+                    } catch {
                         // ignore error for stats fetch
                     }
                 }
@@ -148,8 +144,28 @@ export default function Dashboard() {
             setSelectedNode(nodeParam);
         }
 
-        const interval = setInterval(fetchContainers, 5000);
-        return () => clearInterval(interval);
+        // 智能轮询：页面可见时 5s，不可见时暂停
+        let interval: ReturnType<typeof setInterval>;
+        const startPolling = () => {
+            interval = setInterval(fetchContainers, 5000);
+        };
+        const stopPolling = () => {
+            clearInterval(interval);
+        };
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                fetchContainers(); // 切回时立即刷新
+                startPolling();
+            } else {
+                stopPolling();
+            }
+        };
+        startPolling();
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => {
+            stopPolling();
+            document.removeEventListener('visibilitychange', handleVisibility);
+        };
     }, []);
 
     const handleAction = async (e: React.MouseEvent, name: string, action: string, node_id: string = 'local') => {
@@ -159,12 +175,9 @@ export default function Dashboard() {
             return;
         }
         try {
-            const res = await fetch(`/api/containers/${name}/action?action=${action}&node_id=${node_id}`, { method: 'POST', credentials: 'include' });
-            if (res.status === 401) { navigate('/login'); return; }
-            if (res.ok) {
-                fetchContainers();
-                if (context?.fetchContainers) context.fetchContainers();
-            }
+            await containerApi.action(name, action, node_id);
+            fetchContainers();
+            if (context?.fetchContainers) context.fetchContainers();
         } catch (e) {
             console.error(e);
         }
@@ -173,14 +186,9 @@ export default function Dashboard() {
     const confirmDelete = async () => {
         const { name, node_id, deleteData } = deleteDialog;
         try {
-            const res = await fetch(`/api/containers/${name}/action?action=delete&node_id=${node_id}&delete_data=${deleteData}`, {
-                method: 'POST', credentials: 'include'
-            });
-            if (res.status === 401) { navigate('/login'); return; }
-            if (res.ok) {
-                fetchContainers();
-                if (context?.fetchContainers) context.fetchContainers();
-            }
+            await containerApi.action(name, 'delete', node_id, deleteData);
+            fetchContainers();
+            if (context?.fetchContainers) context.fetchContainers();
         } catch (e) { console.error(e); }
         setDeleteDialog({ open: false, name: '', node_id: 'local', deleteData: false });
     };
@@ -188,7 +196,7 @@ export default function Dashboard() {
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!createForm.name) return;
-        const body: any = { name: createForm.name, node_id: selectedNode === 'all' ? 'local' : selectedNode };
+        const body: CreateContainerRequest = { name: createForm.name, node_id: selectedNode === 'all' ? 'local' : selectedNode };
         if (showAdvanced) {
             if (createForm.docker_image) body.docker_image = createForm.docker_image;
             if (createForm.webui_port > 0) body.webui_port = createForm.webui_port;
@@ -200,19 +208,12 @@ export default function Dashboard() {
             if (createForm.env_vars.trim()) body.env_vars = createForm.env_vars.split('\n').filter(Boolean);
         }
         try {
-            const res = await fetch('/api/containers', {
-                method: 'POST', credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            if (res.status === 401) { navigate('/login'); return; }
-            if (res.ok) {
-                setCreateForm({ name: '', docker_image: '', webui_port: 0, http_port: 0, ws_port: 0, memory_limit: 0, restart_policy: 'always', network_mode: 'bridge', env_vars: '' });
-                setOpenCreate(false);
-                setShowAdvanced(false);
-                fetchContainers();
-                if (context?.fetchContainers) context.fetchContainers();
-            }
+            await containerApi.create(body);
+            setCreateForm({ name: '', docker_image: '', webui_port: 0, http_port: 0, ws_port: 0, memory_limit: 0, restart_policy: 'always', network_mode: 'bridge', env_vars: '' });
+            setOpenCreate(false);
+            setShowAdvanced(false);
+            fetchContainers();
+            if (context?.fetchContainers) context.fetchContainers();
         } catch (e) { console.error(e); }
     };
 
@@ -232,7 +233,7 @@ export default function Dashboard() {
                     startIcon={<SettingsIcon fontSize="small" />}
                     sx={{ color: 'primary.main', fontWeight: 600, fontSize: '0.75rem', '&:hover': { bgcolor: 'rgba(37,99,235,0.05)' } }}
                 >
-                    实例初始化设置
+                    {t('admin.instanceSettings')}
                 </Button>
             </Box>
 
@@ -242,32 +243,32 @@ export default function Dashboard() {
                     {isBatchMode ? (
                         <>
                             <Button variant="outlined" color="primary" onClick={handleSelectAll} sx={{ borderRadius: 2, height: 38 }}>
-                                {selectedContainers.length === containers.length ? '取消全选' : '全选'}
+                                {selectedContainers.length === containers.length ? t('admin.deselectAll') : t('admin.selectAll')}
                             </Button>
                             <Button variant="outlined" color="inherit" onClick={() => setIsBatchMode(false)} sx={{ borderRadius: 2, height: 38 }}>
-                                取消
+                                {t('admin.cancelText')}
                             </Button>
                             <Button variant="contained" color="success" onClick={() => handleBatchAction('start')} disabled={selectedContainers.length === 0} sx={{ borderRadius: 2, height: 38 }}>
-                                启动
+                                {t('admin.start')}
                             </Button>
                             <Button variant="contained" color="warning" onClick={() => handleBatchAction('stop')} disabled={selectedContainers.length === 0} sx={{ borderRadius: 2, height: 38 }}>
-                                停止
+                                {t('admin.stop')}
                             </Button>
                             <Button variant="contained" color="error" onClick={() => handleBatchAction('delete')} disabled={selectedContainers.length === 0} sx={{ borderRadius: 2, height: 38 }}>
-                                删除
+                                {t('admin.deleteText')}
                             </Button>
-                            <Typography variant="body2" sx={{ ml: 1 }}>已选 {selectedContainers.length} 项</Typography>
+                            <Typography variant="body2" sx={{ ml: 1 }}>{t('admin.selected').replace('{count}', String(selectedContainers.length))}</Typography>
                         </>
                     ) : (
                         <Button variant="outlined" color="inherit" onClick={() => setIsBatchMode(true)} sx={{ borderRadius: 2, height: 38, fontSize: '0.875rem', color: 'text.primary', borderColor: theme.palette.divider, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff', whiteSpace: 'nowrap' }}>
-                            批量操作
+                            {t('admin.batchOps')}
                         </Button>
                     )}
                     <IconButton onClick={fetchContainers} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, height: 38, width: 38, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff' }}>
                         <RefreshIcon fontSize="small" />
                     </IconButton>
-                    <Button variant="contained" onClick={() => setOpenCreate(true)} startIcon={<AddIcon />} sx={{ borderRadius: 2, background: '#2563eb', height: 38, px: 3, fontSize: '0.875rem', whiteSpace: 'nowrap', boxShadow: 'none', '&:hover': { background: '#1d4ed8', boxShadow: 'none' } }}>
-                        新建实例
+                    <Button variant="contained" onClick={openCreateDialog} startIcon={<AddIcon />} sx={{ borderRadius: 2, background: '#2563eb', height: 38, px: 3, fontSize: '0.875rem', whiteSpace: 'nowrap', boxShadow: 'none', '&:hover': { background: '#1d4ed8', boxShadow: 'none' } }}>
+                        {t('admin.newInstance')}
                     </Button>
                 </Box>
 
@@ -280,10 +281,10 @@ export default function Dashboard() {
                     >
                         <MenuItem value="all">
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                所有节点
+                                {t('admin.allNodes')}
                             </Box>
                         </MenuItem>
-                        {nodes.map((node: any) => (
+                        {nodes.map((node) => (
                             <MenuItem key={node.id} value={node.id}>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                     <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: node.status === 'online' ? '#10b981' : '#f43f5e' }} />
@@ -319,7 +320,7 @@ export default function Dashboard() {
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                                     <Box sx={{ p: 0.5, borderRadius: 2, background: theme.palette.mode === 'dark' ? 'linear-gradient(135deg, #1e293b, #000)' : 'linear-gradient(135deg, #e0f2fe, #f0f9ff)', border: `1px solid ${theme.palette.divider}`, display: 'flex' }}>
                                         {c.uin && c.uin !== '未登录 / Not Logged In' ? (
-                                            <Box component="img" src={`https://q1.qlogo.cn/g?b=qq&nk=${String(c.uin).replace(/\D/g, '')}&s=640`} sx={{ width: 35, height: 35, borderRadius: 1.5 }} />
+                                            <Box component="img" src={`https://q1.qlogo.cn/g?b=qq&nk=${String(c.uin).replace(/\D/g, '')}&s=640`} sx={{ width: 35, height: 35, borderRadius: 1.5, bgcolor: '#fff' }} />
                                         ) : (
                                             <NapCatIcon fontSize="large" />
                                         )}
@@ -381,13 +382,13 @@ export default function Dashboard() {
 
             {/* 创建实例对话框 - 简洁版 */}
             <Dialog open={openCreate} onClose={() => setOpenCreate(false)} PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}>
-                <DialogTitle sx={{ fontWeight: 700 }}>新建实例</DialogTitle>
+                <DialogTitle sx={{ fontWeight: 700 }}>{t('admin.createInstance')}</DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        输入实例名称即可快速创建，端口将自动从初始化设置的基础端口递增分配（跳过已占用端口）。
+                        {t('admin.createHint')}
                     </Typography>
                     <TextField
-                        autoFocus fullWidth size="small" label="实例名称"
+                        autoFocus fullWidth size="small" label={t('admin.instanceName')}
                         placeholder="ncqq-bot-1"
                         value={createForm.name}
                         onChange={e => setCreateForm({ ...createForm, name: e.target.value })}
@@ -396,7 +397,7 @@ export default function Dashboard() {
                     {nodes.length > 1 && (
                         <Select fullWidth size="small" value={selectedNode} onChange={e => setSelectedNode(e.target.value)}
                             sx={{ mb: 2, borderRadius: 2 }}>
-                            {nodes.map((n: any) => (
+                            {nodes.map((n) => (
                                 <MenuItem key={n.id} value={n.id}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: n.status === 'online' ? '#10b981' : '#f43f5e' }} />
@@ -406,14 +407,25 @@ export default function Dashboard() {
                             ))}
                         </Select>
                     )}
+                    {localImages.length > 0 && (
+                        <Select fullWidth size="small" displayEmpty
+                            value={createForm.docker_image}
+                            onChange={e => setCreateForm({ ...createForm, docker_image: e.target.value })}
+                            sx={{ mb: 2, borderRadius: 2 }}>
+                            <MenuItem value="">{t('imageManager.useDefault')}</MenuItem>
+                            {localImages.flatMap(img => img.tags.map(tag => (
+                                <MenuItem key={tag} value={tag}>{tag}</MenuItem>
+                            )))}
+                        </Select>
+                    )}
                     <Typography variant="caption" color="text.secondary">
-                        数据目录：data/{createForm.name || '<实例名>'}/  ·  镜像/端口等默认参数在「实例初始化设置」中配置
+                        {t('admin.dataDir').replace('{name}', createForm.name || '<name>')}
                     </Typography>
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
-                    <Button onClick={() => setOpenCreate(false)} color="inherit" sx={{ borderRadius: 2 }}>取消</Button>
+                    <Button onClick={() => setOpenCreate(false)} color="inherit" sx={{ borderRadius: 2 }}>{t('admin.cancelText')}</Button>
                     <Button onClick={handleCreate} disabled={!createForm.name} variant="contained" disableElevation
-                        sx={{ borderRadius: 2, background: '#2563eb' }}>快速创建</Button>
+                        sx={{ borderRadius: 2, background: '#2563eb' }}>{t('admin.quickCreate')}</Button>
                 </DialogActions>
             </Dialog>
 
@@ -422,11 +434,11 @@ export default function Dashboard() {
                 PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}>
                 <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <WarningAmberIcon sx={{ color: '#ef4444' }} />
-                    确认删除实例
+                    {t('admin.confirmDeleteInstance')}
                 </DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" sx={{ mb: 2 }}>
-                        即将删除实例 <strong>{deleteDialog.name}</strong>，此操作将停止并移除 Docker 容器。
+                        <span dangerouslySetInnerHTML={{ __html: t('admin.deleteInstanceMsg').replace('{name}', deleteDialog.name) }} />
                     </Typography>
                     <FormControlLabel
                         control={
@@ -438,18 +450,18 @@ export default function Dashboard() {
                         }
                         label={
                             <Box>
-                                <Typography variant="body2" sx={{ fontWeight: 600 }}>同时删除本地数据</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{t('admin.deleteWithData')}</Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                    删除 data/{deleteDialog.name}/ 下所有文件（QQ数据、配置、插件、缓存），不可恢复
+                                    {t('admin.deleteDataWarning').replace('{name}', deleteDialog.name)}
                                 </Typography>
                             </Box>
                         }
                     />
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
-                    <Button onClick={() => setDeleteDialog({ ...deleteDialog, open: false })} color="inherit" sx={{ borderRadius: 2 }}>取消</Button>
+                    <Button onClick={() => setDeleteDialog({ ...deleteDialog, open: false })} color="inherit" sx={{ borderRadius: 2 }}>{t('admin.cancelText')}</Button>
                     <Button onClick={confirmDelete} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
-                        {deleteDialog.deleteData ? '删除实例和数据' : '仅删除实例'}
+                        {deleteDialog.deleteData ? t('admin.deleteInstanceAndData') : t('admin.deleteInstanceOnly')}
                     </Button>
                 </DialogActions>
             </Dialog>

@@ -1,94 +1,180 @@
+#!/usr/bin/env python3
+"""
+NapCat QQ Manager - 快速启动部署脚本
+用法:
+    python start.py              # 默认启动 (端口 8000)
+    python start.py --port 9000  # 指定端口
+    python start.py --skip-build # 跳过前端构建
+    python start.py --dev        # 开发模式 (热重载)
+"""
 import os
 import sys
 import subprocess
+import argparse
 import shutil
 
-def run_cmd(cmd, cwd=None, exit_on_fail=True, shell=False):
-    """跨平台执行系统命令的通用函数"""
-    print(f"\n>>> 执行命令: {' '.join(cmd) if isinstance(cmd, list) else cmd}")
-    try:
-        # 在 Windows 上执行 npm 或环境变量中的命令时经常需要 shell=True 或是带扩展名
-        result = subprocess.run(cmd, cwd=cwd, shell=shell)
-        if result.returncode != 0 and exit_on_fail:
-            print(f"命令执行失败，错误码 {result.returncode}")
-            sys.exit(result.returncode)
-        return result.returncode == 0
-    except Exception as e:
-        print(f"命令执行异常: {e}")
-        if exit_on_fail:
-            sys.exit(1)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
+FRONTEND_DIST = os.path.join(FRONTEND_DIR, "dist")
+
+# ─── 终端彩色输出 ───
+def _c(text: str, code: str) -> str:
+    if sys.platform == "win32":
+        _ = os.system("")  # 启用 Windows ANSI
+    return f"\033[{code}m{text}\033[0m"
+
+def info(msg: str) -> None:  print(_c(f"[✓] {msg}", "32"))
+def warn(msg: str) -> None:  print(_c(f"[!] {msg}", "33"))
+def fail(msg: str) -> None:  print(_c(f"[✗] {msg}", "31"))
+def step(msg: str) -> None:  print(_c(f"\n>>> {msg}", "36;1"))
+
+BANNER = r"""
+ _   _             ____      _     __  __
+| \ | | __ _ _ __ / ___|__ _| |_  |  \/  | __ _ _ __   __ _  __ _  ___ _ __
+|  \| |/ _` | '_ \ |   / _` | __| | |\/| |/ _` | '_ \ / _` |/ _` |/ _ \ '__|
+| |\  | (_| | |_) | |__| (_| | |_  | |  | | (_| | | | | (_| | (_| |  __/ |
+|_| \_|\__,_| .__/ \____\__,_|\__| |_|  |_|\__,_|_| |_|\__,_|\__, |\___|_|
+             |_|                                               |___/
+"""
+
+# ─── 检查项 ───
+
+def check_python():
+    """检查 Python 版本 >= 3.8"""
+    step("检查 Python 环境")
+    v = sys.version_info
+    if v < (3, 8):
+        fail(f"需要 Python >= 3.8，当前版本: {v.major}.{v.minor}.{v.micro}")
+        sys.exit(1)
+    info(f"Python {v.major}.{v.minor}.{v.micro}")
+
+
+def check_pip_deps():
+    """安装 Python 依赖"""
+    step("安装 Python 依赖")
+    req = os.path.join(BASE_DIR, "requirements.txt")
+    if not os.path.exists(req):
+        fail("requirements.txt 未找到")
+        sys.exit(1)
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "-q", "-r", req],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        fail("pip install 失败:\n" + r.stderr)
+        sys.exit(1)
+    info("Python 依赖已就绪")
+
+
+def check_node():
+    """检查 Node.js / npm"""
+    step("检查 Node.js 环境")
+    node = shutil.which("node")
+    npm = shutil.which("npm")
+    if not node or not npm:
+        warn("未检测到 Node.js / npm，无法构建前端")
+        warn("请安装 Node.js >= 16: https://nodejs.org/")
         return False
+    v = subprocess.run([node, "--version"], capture_output=True, text=True)
+    info(f"Node.js {v.stdout.strip()}")
+    return True
+
+
+def build_frontend():
+    """构建前端"""
+    step("构建前端资源")
+    if not os.path.exists(os.path.join(FRONTEND_DIR, "package.json")):
+        warn("frontend/package.json 不存在，跳过构建")
+        return
+    # npm install
+    info("正在安装前端依赖 (npm install)...")
+    r = subprocess.run(["npm", "install"], cwd=FRONTEND_DIR, shell=True)
+    if r.returncode != 0:
+        fail("npm install 失败")
+        sys.exit(1)
+    # npm run build
+    info("正在构建前端 (npm run build)...")
+    r = subprocess.run(["npm", "run", "build"], cwd=FRONTEND_DIR, shell=True)
+    if r.returncode != 0:
+        fail("前端构建失败")
+        sys.exit(1)
+    info("前端构建成功")
+
+
+def check_docker():
+    """检查 Docker 可用性"""
+    step("检查 Docker 环境")
+    docker = shutil.which("docker")
+    if not docker:
+        warn("未检测到 Docker，容器管理功能将不可用")
+        warn("请安装 Docker: https://docs.docker.com/get-docker/")
+        return
+    r = subprocess.run(["docker", "info"], capture_output=True, text=True)
+    if r.returncode != 0:
+        warn("Docker 已安装但未运行或无权限")
+    else:
+        info("Docker 运行正常")
+
+
+def start_server(port: int, dev: bool):
+    """启动后端服务"""
+    # 从配置读取 host（首次初始化设置中用户选择的绑定地址）
+    from services.config import app_config
+    host = app_config.get("host", "0.0.0.0")
+    configured_port = app_config.get("port", 8000)
+    # 命令行 --port 优先；否则使用配置文件中的端口
+    actual_port = port if port != 8000 else configured_port
+
+    step(f"启动 NapCat Manager 服务 (绑定 {host}:{actual_port})")
+    if not os.path.exists(FRONTEND_DIST):
+        warn("前端未构建 (frontend/dist 不存在)，页面将显示提示信息")
+    info(f"面板地址: http://{'localhost' if host == '0.0.0.0' else host}:{actual_port}")
+
+    if not app_config.get("initialized", False):
+        info("首次启动 — 请打开浏览器完成初始化设置")
+
+    info("按 Ctrl+C 停止服务\n")
+    try:
+        import uvicorn
+        uvicorn.run(
+            "main:app",
+            host=host,
+            port=actual_port,
+            reload=dev,
+            log_level="info",
+        )
+    except KeyboardInterrupt:
+        info("\n服务已停止")
+
+
+# ─── 主流程 ───
 
 def main():
-    print("=======================================")
-    print("=== 开始自动化配置并构建 Ncqq-Manager ===")
-    print("=======================================\n")
-    
-    # 检测系统环境
-    is_windows = sys.platform == "win32"
-    
-    # 1. 构建前端
-    print("[1/3] 检查前端环境并构建产物...")
-    frontend_dir = os.path.join(os.getcwd(), "frontend")
-    if not os.path.exists(frontend_dir):
-        print(f"错误: 找不到 frontend 目录 ({frontend_dir})! 请在项目根目录下运行此脚本。")
-        sys.exit(1)
-        
-    # Windows 环境下 npm 通常以 npm.cmd 形式存在
-    npm_cmd = "npm.cmd" if is_windows else "npm"
-    if not shutil.which(npm_cmd) and not shutil.which("npm"):
-        print("错误: 系统中未检测到 npm，请先安装 Node.js! 下载地址: https://nodejs.org/")
-        sys.exit(1)
+    print(BANNER)
+    parser = argparse.ArgumentParser(description="NapCat QQ Manager 快速启动")
+    parser.add_argument("--port", type=int, default=8000, help="服务端口 (默认 8000)")
+    parser.add_argument("--skip-build", action="store_true", help="跳过前端构建")
+    parser.add_argument("--dev", action="store_true", help="开发模式 (热重载)")
+    args = parser.parse_args()
 
-    print("开始安装前端依赖...")
-    # Windows 需要 shell=True 来正确解析 npm.cmd 路径
-    run_cmd([npm_cmd, "install"], cwd=frontend_dir, shell=is_windows)
-    print("开始构建前端应用...")
-    run_cmd([npm_cmd, "run", "build"], cwd=frontend_dir, shell=is_windows)
-    print("✅ 前端构建完成，产物已就绪。\n")
+    os.chdir(BASE_DIR)
 
-    # 2. 检查与安装 uv (Python 极速包管理器)
-    print("[2/3] 检查 Python 后端包管理工具 uv...")
-    
-    # 判断系统中是否存在 uv
-    uv_executable = shutil.which("uv.exe" if is_windows else "uv")
-    if not uv_executable:
-        print("未检测到 uv 工具，正在使用 pip 为您自动安装 uv...")
-        run_cmd([sys.executable, "-m", "pip", "install", "uv"])
-        uv_executable = shutil.which("uv.exe" if is_windows else "uv")
-    
-    # 若还是找不到可执行文件路径，则回退到通过 python module 调用
-    if uv_executable:
-        uv_base_cmd = [uv_executable]
-        print(f"✅ 找到 uv 工具: {uv_executable}")
+    check_python()
+    check_pip_deps()
+    check_docker()
+
+    if not args.skip_build:
+        if check_node():
+            if not os.path.exists(FRONTEND_DIST) or args.dev:
+                build_frontend()
+            else:
+                info("前端已构建，使用 --skip-build 跳过或删除 frontend/dist 重新构建")
     else:
-        print("✅ 找到 uv 工具，将使用 python 模块方式调用 (python -m uv)")
-        uv_base_cmd = [sys.executable, "-m", "uv"]
+        info("已跳过前端构建 (--skip-build)")
 
-    # 3. 安装后端依赖
-    print("\n[3/3] 配置后端 Python 虚拟环境并安装依赖...")
-    venv_dir = os.path.join(os.getcwd(), ".venv")
-    if not os.path.exists(venv_dir):
-        print("正在创建隔离的 Python 虚拟环境 .venv...")
-        run_cmd(uv_base_cmd + ["venv"])
-    else:
-        print("检测到虚拟环境已存在，跳过创建。")
-        
-    print("正在使用 uv 极速同步后端依赖...")
-    run_cmd(uv_base_cmd + ["pip", "install", "-r", "requirements.txt"])
-    print("✅ 后端依赖安装完成。\n")
-    
-    # 4. 启动服务
-    print("=======================================")
-    print("=== 环境准备就绪，正在一键启动服务! ===")
-    print("=======================================")
-    start_cmd = uv_base_cmd + ["run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-    run_cmd(start_cmd)
+    start_server(args.port, args.dev)
+
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n\n检测到中断信号，服务已停止。")
-        sys.exit(0)
+    main()
 

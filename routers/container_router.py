@@ -2,22 +2,27 @@
 容器管理路由 - CRUD + 操作 + 统计 + 日志 + QR + 配置
 """
 import os
+import re
 import base64
 import requests as http_requests
 
 from fastapi import APIRouter, HTTPException, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from middleware.auth import get_current_user, require_admin, check_instance_permission
+from middleware.rate_limiter import speed_limit
 from services.config import app_config, get_data_dir
-from services.docker_manager import docker_manager
+from services.docker_manager import docker_manager, read_login_cache
 from services.cluster_manager import cluster_manager
 from services.operation_logger import operation_logger
 from services.log import logger
 
 router = APIRouter(prefix="/api", tags=["containers"])
+
+# 容器名称校验：仅允许字母、数字、连字符、下划线、点号，1-64 字符
+_CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
 
 
 class CreateRequest(BaseModel):
@@ -52,21 +57,64 @@ def _safe_path(base: str, *parts: str) -> str:
     return real
 
 
+# ============ 公开容器状态（无需认证） ============
+
+@router.get("/public/containers")
+async def api_public_containers():
+    """公开容器列表 - 返回基本状态与登录信息，不需要认证。
+
+    对运行中的本地容器触发登录检测（有 15s 缓存保护，大部分请求秒回）。
+    首次调用或缓存过期时最坏约 2.5s（已压缩 timeout），可接受。
+    """
+    import asyncio
+    containers = await run_in_threadpool(cluster_manager.list_all_containers)
+
+    # 对运行中的本地容器并行触发登录检测（带缓存，大部分秒回）
+    running_local = [c for c in containers if c["status"] == "running" and c.get("node_id", "local") == "local"]
+    if running_local:
+        await asyncio.gather(*[
+            run_in_threadpool(docker_manager.check_login_status, c["name"])
+            for c in running_local
+        ])
+
+    result = []
+    for c in containers:
+        item = {
+            "id": c.get("id", ""),
+            "name": c["name"],
+            "status": c["status"],
+            "node_id": c.get("node_id", "local"),
+        }
+        # 读取刚刚写入/已有的缓存
+        cached = read_login_cache(c["name"])
+        if cached.get("logged_in") and cached.get("uin"):
+            item["uin"] = cached["uin"]
+        result.append(item)
+    return {"status": "ok", "containers": result}
+
+
 # ============ 容器列表 ============
 
 @router.get("/containers")
-async def api_list_containers():
+async def api_list_containers(session: dict = Depends(get_current_user)):
     containers = await run_in_threadpool(cluster_manager.list_all_containers)
     return {"status": "ok", "containers": containers}
 
 
 # ============ 创建容器 ============
 
-@router.post("/containers")
+@router.post("/containers", dependencies=[Depends(speed_limit(5.0))])
 async def api_create_container(
     req: CreateRequest, request: Request,
     session: dict = Depends(require_admin),
 ):
+    # 校验容器名称格式
+    if not _CONTAINER_NAME_RE.match(req.name):
+        raise HTTPException(
+            status_code=400,
+            detail="容器名称只能包含字母、数字、连字符、下划线和点号，长度 1-64 字符，且必须以字母或数字开头",
+        )
+
     if req.node_id != "local":
         nodes = cluster_manager.get_nodes()
         node = next((n for n in nodes if n["id"] == req.node_id), None)
@@ -154,7 +202,7 @@ async def api_create_container(
 
 # ============ 容器操作 (启动/停止/重启/删除...) ============
 
-@router.post("/containers/{name}/action")
+@router.post("/containers/{name}/action", dependencies=[Depends(speed_limit(2.0))])
 async def api_container_action(
     name: str, action: str,
     node_id: str = "local",
@@ -213,13 +261,37 @@ async def get_container_logs(
     return {"status": "ok", "logs": logs}
 
 
+@router.get("/containers/{name}/logs/download")
+async def download_container_logs(
+    name: str, lines: int = 2000, node_id: str = "local",
+    session: dict = Depends(get_current_user),
+):
+    """下载容器日志为纯文本文件"""
+    if not check_instance_permission(session, node_id, name):
+        raise HTTPException(status_code=403, detail="No permission for this instance")
+    logs = await run_in_threadpool(cluster_manager.get_logs, node_id, name, lines)
+    import time
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    filename = f"{name}_logs_{ts}.txt"
+    return PlainTextResponse(
+        content=logs or "",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ============ QR 码 ============
 
 @router.get("/containers/{name}/qrcode")
 async def get_qr_code(
     name: str, node_id: str = "local"
 ):
-    # 二维码接口允许未登录访问，用于 NapCat QQ 登录
+    """二维码接口（无需认证）。
+
+    策略：文件优先，零阻塞。
+    - 登录判断仅读内存缓存（由 get_stats 自动轮询写入），绝不在此触发 API 级联
+    - NapCat 未登录时会持续输出 qrcode.png 到挂载目录，直接读取最可靠
+    """
+    import re
 
     if node_id != "local":
         result = await run_in_threadpool(cluster_manager.get_qr_status, node_id, name)
@@ -227,59 +299,87 @@ async def get_qr_code(
             return result
         return {"status": "waiting"}
 
-    # 本地 QR 处理 - 先检查是否已登录
-    import re
+    # 0. 只读内存缓存判断是否已登录（不触发任何 API 调用，零阻塞）
+    cached = read_login_cache(name)
+    if cached.get("logged_in"):
+        return {"status": "logged_in", "uin": cached.get("uin", "")}
 
-    # 0. 检查登录状态：如果已登录，返回 logged_in 而非二维码
-    try:
-        config_dir = os.path.join(get_data_dir(), name, "config")
-        if os.path.exists(config_dir):
-            napcat_files = []
-            for f in os.listdir(config_dir):
-                if f.startswith("napcat_") and f.endswith(".json"):
-                    napcat_files.append(os.path.join(config_dir, f))
-            if napcat_files:
-                latest_file = max(napcat_files, key=os.path.getmtime)
-                uin = os.path.basename(latest_file).replace("napcat_", "").replace(".json", "")
-                return {"status": "logged_in", "uin": uin}
-    except OSError:
-        pass
-
-    # 1. 尝试从 NapCat WebUI API 获取二维码
-    try:
-        stats = await run_in_threadpool(docker_manager.get_napcat_info, name)
-        if stats.get('webui_port'):
-            webui_url = f"http://localhost:{stats['webui_port']}/api/qrcode"
-            response = http_requests.get(webui_url, timeout=2)
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('url'):
-                    return {"status": "ok", "url": data['url'], "type": "api"}
-    except Exception as e:
-        logger.debug(f"NapCat API 获取二维码失败: {e}")
-
-    # 2. 尝试读取本地 cache 目录的二维码文件
+    # 1. 优先读本地挂载目录中的二维码文件（NapCat 未登录时持续输出）
+    import time as _time
     try:
         qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
         if os.path.exists(qr_path):
-            with open(qr_path, "rb") as f:
-                data = base64.b64encode(f.read()).decode("utf-8")
-            return {"status": "ok", "url": f"data:image/png;base64,{data}", "type": "file"}
+            age = _time.time() - os.path.getmtime(qr_path)
+            if age < 120:
+                # 文件新鲜（2 分钟内更新过）→ NapCat 正在输出二维码 → 未登录
+                with open(qr_path, "rb") as f:
+                    data = base64.b64encode(f.read()).decode("utf-8")
+                return {"status": "ok", "url": f"data:image/png;base64,{data}", "type": "file"}
+            # 文件已过期（超过 2 分钟未更新）→ 可能已登录，不返回旧二维码
     except Exception as e:
         logger.debug(f"读取本地二维码文件失败: {e}")
 
-    # 3. 最后尝试从 Docker 日志提取二维码 URL
+    # 2. 回落：从 Docker 日志提取二维码 URL
     try:
-        container = docker_manager.client.containers.get(name)
-        logs = container.logs(tail=50).decode('utf-8', errors='ignore')
-        qr_url_match = re.search(r'二维码解码URL:\s*(https://[^\s]+)', logs)
-        if qr_url_match:
-            qr_url = qr_url_match.group(1)
-            return {"status": "ok", "url": qr_url, "type": "log"}
+        if docker_manager.client:
+            container = docker_manager.client.containers.get(name)
+            if container.status != "running":
+                return {"status": "waiting"}
+            logs = container.logs(tail=50).decode('utf-8', errors='ignore')
+            qr_url_match = re.search(r'二维码解码URL:\s*(https://[^\s]+)', logs)
+            if qr_url_match:
+                return {"status": "ok", "url": qr_url_match.group(1), "type": "log"}
     except Exception as e:
         logger.debug(f"从日志获取二维码失败: {e}")
 
     return {"status": "waiting"}
+
+
+# ============ 登录状态刷新（用户主动触发） ============
+
+@router.post("/containers/{name}/refresh-login")
+async def refresh_login_status(
+    name: str, node_id: str = "local",
+    session: dict = Depends(get_current_user),
+):
+    """用户主动刷新登录状态。
+    立即触发 A(OneBot) → B(WebUI) 级联检测，跳过缓存。
+    """
+    if node_id != "local":
+        # 远程节点暂不支持，返回未知状态
+        return {"status": "ok", "logged_in": False, "method": "remote_unsupported"}
+
+    login = await run_in_threadpool(docker_manager.check_login_status, name, True)
+    return {
+        "status": "ok",
+        "logged_in": login.get("logged_in", False),
+        "uin": login.get("uin", ""),
+        "nickname": login.get("nickname", ""),
+        "method": login.get("method", ""),
+    }
+
+
+# ============ 插件事件端点（方案 C 预留） ============
+
+@router.post("/internal/login-event")
+async def receive_login_event(request: Request):
+    """方案 C 预留：NapCat 插件推送登录/登出事件。
+    插件在容器内通过 HTTP 回调此端点，直接更新后端缓存。
+    需要 x-internal-key 头验证（防止外部滥用）。
+    """
+    # 简单的内部 API Key 验证
+    internal_key = request.headers.get("x-internal-key", "")
+    expected_key = app_config.get("internal_api_key", "")
+    if not expected_key or internal_key != expected_key:
+        raise HTTPException(status_code=403, detail="Invalid internal key")
+
+    body = await request.json()
+    container_name = body.get("name", "")
+    if not container_name:
+        raise HTTPException(status_code=400, detail="Missing container name")
+
+    docker_manager.update_login_cache(container_name, body)
+    return {"status": "ok"}
 
 
 # ============ 配置文件读写 ============

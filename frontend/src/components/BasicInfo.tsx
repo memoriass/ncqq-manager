@@ -19,6 +19,8 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useNavigate } from 'react-router-dom';
+import { containerApi, type ContainerStats } from '../services/api';
+import { useTranslate } from '../i18n';
 
 interface BasicInfoProps {
     name: string;
@@ -26,7 +28,7 @@ interface BasicInfoProps {
 }
 
 export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
-    const [stats, setStats] = useState<any>({});
+    const [stats, setStats] = useState<Partial<ContainerStats>>({});
     const [qrcode, setQrcode] = useState('');
     const [showQrcode, setShowQrcode] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -34,17 +36,15 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
     const [deleteDialog, setDeleteDialog] = useState({ open: false, deleteData: false });
     const theme = useTheme();
     const navigate = useNavigate();
+    const t = useTranslate();
 
     const fetchStats = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`/api/containers/${name}/stats?node_id=${node_id}`, { credentials: 'include' });
-            if (res.ok) {
-                const data = await res.json();
-                setStats(data);
-                if (data.uin && data.uin !== '未登录 / Not Logged In') {
-                    setShowQrcode(false);
-                }
+            const data = await containerApi.getStats(name, node_id);
+            setStats(data);
+            if (data.uin && data.uin !== '未登录 / Not Logged In') {
+                setShowQrcode(false);
             }
         } catch (error) {
             console.error('Stats fetch error:', error);
@@ -53,29 +53,42 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         }
     };
 
+    // 刷新按钮：直接读取容器状态 + 本地二维码文件（零阻塞）
+    const handleRefresh = async () => {
+        setLoading(true);
+        try {
+            await Promise.all([fetchStats(), fetchQrcode()]);
+        } catch (error) {
+            console.error('Refresh error:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const fetchQrcode = async () => {
         try {
-            const res = await fetch(`/api/containers/${name}/qrcode?node_id=${node_id}`);
-            if (res.ok) {
-                const data = await res.json();
-                if (data.status === 'logged_in') {
-                    // 已登录，隐藏二维码
-                    setShowQrcode(false);
-                    setQrcode('');
-                } else if (data.status === 'ok' && data.url) {
-                    if (data.type === 'file') {
-                        setQrcode(data.url);
-                    } else {
-                        setQrcode(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.url)}`);
-                    }
-                    setShowQrcode(true);
+            const data = await containerApi.getQR(name, node_id);
+            if (data.status === 'logged_in') {
+                setShowQrcode(false);
+                setQrcode('');
+            } else if (data.status === 'ok' && data.url) {
+                if (data.type === 'file') {
+                    setQrcode(data.url);
                 } else {
-                    setShowQrcode(true);
-                    setQrcode('');
+                    setQrcode(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.url)}`);
                 }
+                setShowQrcode(true);
+            } else {
+                // waiting 状态 — 容器启动中或 QR 尚未生成
+                setShowQrcode(true);
+                setQrcode('');
             }
         } catch (error) {
             console.error('QR fetch error:', error);
+            // 请求失败时仍显示二维码区域（等待/加载中），避免界面无反应
+            if (!stats.uin || stats.uin === '未登录 / Not Logged In') {
+                setShowQrcode(true);
+            }
         }
     };
 
@@ -86,10 +99,8 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         }
         setActionLoading(action);
         try {
-            const res = await fetch(`/api/containers/${name}/action?action=${action}&node_id=${node_id}`, {
-                method: 'POST', credentials: 'include'
-            });
-            if (res.ok) setTimeout(fetchStats, 1500);
+            await containerApi.action(name, action, node_id);
+            setTimeout(fetchStats, 1500);
         } catch (e) { console.error(e); }
         finally { setActionLoading(''); }
     };
@@ -97,10 +108,8 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
     const confirmDelete = async () => {
         setActionLoading('delete');
         try {
-            const res = await fetch(`/api/containers/${name}/action?action=delete&node_id=${node_id}&delete_data=${deleteDialog.deleteData}`, {
-                method: 'POST', credentials: 'include'
-            });
-            if (res.ok) navigate('/admin');
+            await containerApi.action(name, 'delete', node_id, deleteDialog.deleteData);
+            navigate('/admin');
         } catch (e) { console.error(e); }
         finally {
             setActionLoading('');
@@ -119,8 +128,8 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
     useEffect(() => {
         fetchStats();
         fetchQrcode();
-        const si = setInterval(fetchStats, 5000);
-        const qi = setInterval(fetchQrcode, 8000);
+        const si = setInterval(fetchStats, 15000);
+        const qi = setInterval(fetchQrcode, 15000);
         return () => { clearInterval(si); clearInterval(qi); };
     }, [name, node_id]);
 
@@ -150,7 +159,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
             }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Box sx={{ position: 'relative' }}>
-                        <Box component="img" src={avatarUrl} sx={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', filter: isRunning ? 'none' : 'grayscale(100%)', opacity: isRunning ? 1 : 0.6 }} />
+                        <Box component="img" src={avatarUrl} sx={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', bgcolor: '#fff', filter: isRunning ? 'none' : 'grayscale(100%)', opacity: isRunning ? 1 : 0.6 }} />
                         <Box sx={{
                             position: 'absolute', bottom: 0, right: 0, width: 12, height: 12,
                             borderRadius: '50%', bgcolor: isRunning ? '#10b981' : '#94a3b8',
@@ -160,7 +169,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                     <Box>
                         <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{name}</Typography>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                            <Chip label={isRunning ? '运行中' : (stats.status || '未知')}
+                            <Chip label={isRunning ? t('basicInfo.running') : (stats.status || t('basicInfo.unknown'))}
                                 size="small"
                                 sx={{
                                     height: 20, fontSize: '0.7rem', fontWeight: 600,
@@ -180,15 +189,15 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                     {!isRunning ? (
                         <Button size="medium" variant="contained" color="success" startIcon={<PlayArrowIcon />}
                             onClick={() => handleAction('start')} disabled={!!actionLoading}
-                            sx={{ borderRadius: 2, boxShadow: 'none', textTransform: 'none' }}>启动</Button>
+                            sx={{ borderRadius: 2, boxShadow: 'none', textTransform: 'none' }}>{t('basicInfo.start')}</Button>
                     ) : (
                         <>
                             <Button size="medium" variant="outlined" color="warning" startIcon={<StopIcon />}
                                 onClick={() => handleAction('stop')} disabled={!!actionLoading}
-                                sx={{ borderRadius: 2, textTransform: 'none' }}>停止</Button>
+                                sx={{ borderRadius: 2, textTransform: 'none' }}>{t('basicInfo.stop')}</Button>
                             <Button size="medium" variant="outlined" color="info" startIcon={<RestartAltIcon />}
                                 onClick={() => handleAction('restart')} disabled={!!actionLoading}
-                                sx={{ borderRadius: 2, textTransform: 'none' }}>重启</Button>
+                                sx={{ borderRadius: 2, textTransform: 'none' }}>{t('basicInfo.restart')}</Button>
                         </>
                     )}
                     {stats.webui_port && stats.webui_token && (
@@ -198,15 +207,15 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                             WebUI
                         </Button>
                     )}
-                    <Tooltip title="刷新状态">
-                        <IconButton size="medium" onClick={() => { fetchStats(); fetchQrcode(); }} disabled={loading}
+                    <Tooltip title={t('basicInfo.refreshTooltip')}>
+                        <IconButton size="medium" onClick={handleRefresh} disabled={loading}
                             sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2 }}>
                             {loading ? <CircularProgress size={20} /> : <RefreshIcon fontSize="small" />}
                         </IconButton>
                     </Tooltip>
                     <Button size="medium" variant="outlined" color="error" startIcon={<DeleteOutlineIcon />}
                         onClick={() => handleAction('delete')} disabled={!!actionLoading}
-                        sx={{ borderRadius: 2, textTransform: 'none' }}>删除</Button>
+                        sx={{ borderRadius: 2, textTransform: 'none' }}>{t('basicInfo.delete')}</Button>
                 </Box>
             </Box>
 
@@ -223,8 +232,8 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                                 <QrCode2Icon sx={{ fontSize: 24, color: 'warning.main' }} />
                             </Box>
                             <Box>
-                                <Typography variant="h6" sx={{ fontWeight: 700, color: 'warning.main' }}>扫码登录</Typography>
-                                <Typography variant="body2" color="text.secondary">请使用手机 QQ 扫描下方二维码，登录后实例将自动刷新状态</Typography>
+                                <Typography variant="h6" sx={{ fontWeight: 700, color: 'warning.main' }}>{t('basicInfo.qrLogin')}</Typography>
+                                <Typography variant="body2" color="text.secondary">{t('basicInfo.qrLoginDesc')}</Typography>
                             </Box>
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4, mb: 2 }}>
@@ -235,14 +244,14 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                                     </Box>
                                     <Button variant="text" size="small" startIcon={<RefreshIcon />} onClick={fetchQrcode}
                                         sx={{ color: 'text.secondary', fontWeight: 600, borderRadius: 2 }}>
-                                        刷新二维码
+                                        {t('basicInfo.refreshQr')}
                                     </Button>
                                 </Box>
                             ) : (
                                 <Box sx={{ py: 6, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                                     <CircularProgress size={40} thickness={4} sx={{ color: 'warning.main' }} />
                                     <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500 }}>
-                                        正在获取最新二维码...
+                                        {t('basicInfo.fetchingQr')}
                                     </Typography>
                                 </Box>
                             )}
@@ -267,16 +276,16 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                         <CardContent sx={{ p: 3 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
                                 <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(59,130,246,0.1)', mr: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40 }}>
-                                    <Box component="img" src={avatarUrl} sx={{ width: 24, height: 24, borderRadius: '50%' }} />
+                                    <Box component="img" src={avatarUrl} sx={{ width: 24, height: 24, borderRadius: '50%', bgcolor: '#fff' }} />
                                 </Box>
-                                <Typography variant="h6" sx={{ fontWeight: 700 }}>基础信息</Typography>
+                                <Typography variant="h6" sx={{ fontWeight: 700 }}>{t('basicInfo.infoTitle')}</Typography>
                             </Box>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                <InfoRow label="QQ 账号" value={stats.uin ? String(stats.uin).replace(/\D/g, '') : '-'} highlight />
-                                <InfoRow label="NapCat 版本" value={stats.version || '-'} />
-                                <InfoRow label="运行平台" value={stats.platform || '-'} />
-                                <InfoRow label="运行时长" value={stats.uptime_formatted || '-'} />
-                                <InfoRow label="WebUI 端口" value={stats.webui_port ? String(stats.webui_port) : '-'} />
+                                <InfoRow label={t('basicInfo.qqAccount')} value={stats.uin ? String(stats.uin).replace(/\D/g, '') : '-'} highlight />
+                                <InfoRow label={t('basicInfo.napcatVersion')} value={stats.version || '-'} />
+                                <InfoRow label={t('basicInfo.platform')} value={stats.platform || '-'} />
+                                <InfoRow label={t('basicInfo.uptime')} value={stats.uptime_formatted || '-'} />
+                                <InfoRow label={t('basicInfo.webuiPort')} value={stats.webui_port ? String(stats.webui_port) : '-'} />
                             </Box>
                         </CardContent>
                     </Card>
@@ -298,14 +307,14 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                                 <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(16,185,129,0.1)', mr: 2, display: 'flex' }}>
                                     <MemoryIcon sx={{ fontSize: 24, color: '#10b981' }} />
                                 </Box>
-                                <Typography variant="h6" sx={{ fontWeight: 700 }}>系统资源</Typography>
+                                <Typography variant="h6" sx={{ fontWeight: 700 }}>{t('basicInfo.systemResources')}</Typography>
                             </Box>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                <InfoRow label="CPU 使用率" value={`${(stats.cpu_percent || 0).toFixed(1)}%`} />
-                                <InfoRow label="内存使用" value={stats.mem_usage ? `${formatMB(stats.mem_usage)} / ${formatMB(stats.mem_limit || 0)}` : '-'} />
+                                <InfoRow label={t('basicInfo.cpuUsage')} value={`${(stats.cpu_percent || 0).toFixed(1)}%`} />
+                                <InfoRow label={t('basicInfo.memUsage')} value={stats.mem_usage ? `${formatMB(stats.mem_usage)} / ${formatMB(stats.mem_limit || 0)}` : '-'} />
                                 <Divider sx={{ my: 1, opacity: 0.6 }} />
                                 <Box>
-                                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, mb: 1, display: 'block', textTransform: 'uppercase', letterSpacing: 1 }}>网络端点概览</Typography>
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, mb: 1, display: 'block', textTransform: 'uppercase', letterSpacing: 1 }}>{t('basicInfo.networkEndpoints')}</Typography>
                                     <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                                         <Chip label={`HTTP: ${stats.network_endpoints?.http || 0}`} size="small"
                                             sx={{ borderRadius: 1.5, fontWeight: 600, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : '#f1f5f9', border: `1px solid ${theme.palette.divider}` }} />
@@ -328,12 +337,10 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                 PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}>
                 <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <WarningAmberIcon sx={{ color: '#ef4444' }} />
-                    确认删除实例
+                    {t('basicInfo.confirmDeleteTitle')}
                 </DialogTitle>
                 <DialogContent>
-                    <Typography variant="body2" sx={{ mb: 2 }}>
-                        即将删除实例 <strong>{name}</strong>，此操作将停止并移除 Docker 容器。
-                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }} dangerouslySetInnerHTML={{ __html: t('basicInfo.deleteInstanceDesc').replace('{name}', name) }} />
                     <FormControlLabel
                         control={
                             <Checkbox checked={deleteDialog.deleteData} color="error"
@@ -341,18 +348,18 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                         }
                         label={
                             <Box>
-                                <Typography variant="body2" sx={{ fontWeight: 600 }}>同时删除本地数据</Typography>
+                                <Typography variant="body2" sx={{ fontWeight: 600 }}>{t('basicInfo.deleteWithData')}</Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                    删除 data/{name}/ 下所有文件（QQ数据、配置、插件、缓存），不可恢复
+                                    {t('basicInfo.deleteDataWarning').replace('{name}', name)}
                                 </Typography>
                             </Box>
                         }
                     />
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
-                    <Button onClick={() => setDeleteDialog({ ...deleteDialog, open: false })} color="inherit" sx={{ borderRadius: 2 }}>取消</Button>
+                    <Button onClick={() => setDeleteDialog({ ...deleteDialog, open: false })} color="inherit" sx={{ borderRadius: 2 }}>{t('basicInfo.cancel')}</Button>
                     <Button onClick={confirmDelete} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
-                        {deleteDialog.deleteData ? '删除实例和数据' : '仅删除实例'}
+                        {deleteDialog.deleteData ? t('basicInfo.deleteInstanceAndData') : t('basicInfo.deleteInstanceOnly')}
                     </Button>
                 </DialogActions>
             </Dialog>

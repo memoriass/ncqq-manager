@@ -1,28 +1,22 @@
 """
-操作审计日志系统 - 对标 MCSM OperationLogger
-JSONL 文件存储 + 内存缓冲区批量写入
+操作审计日志系统 - SQLite 持久化
+缓冲区批量写入 + 事务保证
 """
 import json
-import os
 import uuid
 import time
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from collections import deque
 
 from services.log import logger
-from services.config import CONFIG_DIR
-
-LOG_DIR = os.path.join(CONFIG_DIR, "logs")
-OPERATION_LOG_FILE = os.path.join(LOG_DIR, "operation_log.jsonl")
-os.makedirs(LOG_DIR, exist_ok=True)
+import services.database as db
 
 
 class OperationLogger:
-    """操作日志记录器 - 缓冲写入 + 尾部读取"""
+    """操作日志记录器 - 缓冲写入 + DB 读取"""
 
-    def __init__(self, buffer_size: int = 20, max_tail: int = 500):
+    def __init__(self, buffer_size: int = 20):
         self._buffer: deque = deque(maxlen=buffer_size)
-        self._max_tail = max_tail
 
     def log(self, operation_type: str, payload: Dict[str, Any],
             level: str = "info") -> str:
@@ -34,10 +28,9 @@ class OperationLogger:
             "level": level,
             "time": time.strftime("%Y-%m-%d %H:%M:%S"),
             "timestamp": int(time.time()),
-            **payload,
+            "payload": payload,
         }
         self._buffer.append(entry)
-        # 缓冲区满时刷盘
         if len(self._buffer) >= self._buffer.maxlen:
             self.flush()
         return operation_id
@@ -52,52 +45,57 @@ class OperationLogger:
         return self.log(operation_type, payload, "error")
 
     def flush(self):
-        """将缓冲区写入磁盘"""
+        """将缓冲区写入 SQLite"""
         if not self._buffer:
             return
         try:
-            with open(OPERATION_LOG_FILE, "a", encoding="utf-8") as f:
-                while self._buffer:
-                    entry = self._buffer.popleft()
-                    f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        except IOError as e:
+            while self._buffer:
+                entry = self._buffer.popleft()
+                db.execute(
+                    "INSERT OR IGNORE INTO operation_logs (id,type,level,time,timestamp,payload) VALUES (?,?,?,?,?,?)",
+                    (entry["id"], entry["type"], entry["level"],
+                     entry["time"], entry["timestamp"],
+                     json.dumps(entry["payload"], ensure_ascii=False)),
+                )
+            db.commit()
+        except Exception as e:
             logger.error("操作日志写入失败: %s", e)
 
     def get(self, limit: int = 50) -> List[Dict]:
-        """获取最近 N 条操作日志 (缓冲区 + 文件尾部)"""
-        # 先获取缓冲区中的
+        """获取最近 N 条操作日志 (缓冲区 + DB)"""
         buffer_items = list(self._buffer)
 
         if len(buffer_items) >= limit:
-            return list(reversed(buffer_items[-limit:]))
+            result = list(reversed(buffer_items[-limit:]))
+            return self._flatten(result)
 
-        # 不够则从文件尾部补充
         remaining = limit - len(buffer_items)
-        file_items = self._tail(remaining)
+        rows = db.fetchall(
+            "SELECT * FROM operation_logs ORDER BY timestamp DESC LIMIT ?",
+            (remaining,),
+        )
+        db_items = []
+        for r in rows:
+            entry = dict(r)
+            entry["payload"] = json.loads(entry.get("payload", "{}"))
+            db_items.append(entry)
 
-        # 合并：文件在前，缓冲区在后，逆序排列（最新在前）
-        combined = file_items + buffer_items
-        return list(reversed(combined[-limit:]))
+        # 缓冲区条目也展平 payload
+        buf_flat = self._flatten(buffer_items)
+        combined = db_items + buf_flat
+        combined.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        return combined[:limit]
 
-    def _tail(self, n: int) -> List[Dict]:
-        """从 JSONL 文件读取最后 N 行"""
-        if not os.path.exists(OPERATION_LOG_FILE):
-            return []
-        try:
-            with open(OPERATION_LOG_FILE, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-            tail_lines = lines[-n:] if len(lines) >= n else lines
-            result = []
-            for line in tail_lines:
-                line = line.strip()
-                if line:
-                    try:
-                        result.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        pass
-            return result
-        except IOError:
-            return []
+    @staticmethod
+    def _flatten(items: List[Dict]) -> List[Dict]:
+        """将嵌套 payload 展平到顶层（兼容前端读取）"""
+        result = []
+        for entry in items:
+            flat = {k: v for k, v in entry.items() if k != "payload"}
+            if isinstance(entry.get("payload"), dict):
+                flat.update(entry["payload"])
+            result.append(flat)
+        return result
 
 
 # 全局单例

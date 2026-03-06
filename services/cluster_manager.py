@@ -1,6 +1,5 @@
 """
-集群/节点管理器 - 重构版
-修复: 裸 except → 具体异常, print → logger, 路径使用 config 模块
+集群/节点管理器 - SQLite 持久化
 """
 import json
 import os
@@ -10,28 +9,69 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Any
 
 from services.log import logger
-from services.config import NODES_FILE, CONFIG_FILE
+from services.config import CONFIG_FILE
 from services.docker_manager import docker_manager
+import services.database as db
 
 
 class ClusterManager:
-    def __init__(self, nodes_file: str, config_file: str):
-        self.nodes_file = nodes_file
+    def __init__(self, config_file: str):
         self.config_file = config_file
+        self._executor = ThreadPoolExecutor(max_workers=20)
+
+    def init(self):
+        """启动后初始化：同步 local 节点 api_key"""
+        self._sync_local_node_key()
+
+    def _sync_local_node_key(self):
+        """启动时同步 local 节点的 api_key 与 config.json 保持一致"""
+        from services.config import app_config
+        config_key = app_config.get("api_key") or ""
+        node = self._get_node("local")
+        if node and node.get("api_key", "") != config_key:
+            db.execute("UPDATE nodes SET api_key=? WHERE id='local'", (config_key,))
+            db.commit()
+            logger.info("已同步 local 节点 api_key 与 config.json")
+
+    @staticmethod
+    def _get_node(node_id: str) -> Optional[dict]:
+        row = db.fetchone("SELECT * FROM nodes WHERE id=?", (node_id,))
+        return db.row_to_dict(row)
 
     def get_nodes(self) -> List[Dict]:
-        if not os.path.exists(self.nodes_file):
-            return []
-        try:
-            with open(self.nodes_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError) as e:
-            logger.warning("读取节点配置失败: %s", e)
-            return []
+        rows = db.fetchall("SELECT * FROM nodes")
+        return db.rows_to_list(rows)
 
     def save_nodes(self, nodes: List[Dict]):
-        with open(self.nodes_file, "w", encoding="utf-8") as f:
-            json.dump(nodes, f, indent=4, ensure_ascii=False)
+        """兼容旧调用：全量覆盖（先删后插）"""
+        db.execute("DELETE FROM nodes")
+        for n in nodes:
+            db.execute(
+                "INSERT INTO nodes (id,name,address,api_key) VALUES (?,?,?,?)",
+                (n["id"], n["name"], n["address"], n.get("api_key", "")),
+            )
+        db.commit()
+
+    def add_node(self, node_id: str, name: str, address: str, api_key: str = ""):
+        db.execute(
+            "INSERT INTO nodes (id,name,address,api_key) VALUES (?,?,?,?)",
+            (node_id, name, address, api_key),
+        )
+        db.commit()
+
+    def update_node(self, node_id: str, name: str, address: str, api_key: str = None):
+        if api_key is not None:
+            db.execute("UPDATE nodes SET name=?,address=?,api_key=? WHERE id=?",
+                       (name, address, api_key, node_id))
+        else:
+            db.execute("UPDATE nodes SET name=?,address=? WHERE id=?",
+                       (name, address, node_id))
+        db.commit()
+
+    def delete_node(self, node_id: str) -> bool:
+        cur = db.execute("DELETE FROM nodes WHERE id=?", (node_id,))
+        db.commit()
+        return cur.rowcount > 0
 
     @staticmethod
     def _normalize_address(addr: str) -> str:
@@ -99,9 +139,8 @@ class ClusterManager:
             node_copy["chart"] = chart_info
             return node_copy
 
-        # 增加并发数，加快并发检测速度
-        with ThreadPoolExecutor(max_workers=max(len(nodes) * 2, 10)) as executor:
-            return list(executor.map(check_node, nodes))
+        # 复用实例级线程池，避免每次请求创建/销毁
+        return list(self._executor.map(check_node, nodes))
 
     def list_all_containers(self) -> List[Dict]:
         nodes = self.get_nodes()
@@ -131,10 +170,9 @@ class ClusterManager:
                 logger.warning("从节点 %s 获取容器失败: %s", node.get("id"), e)
             return []
 
-        with ThreadPoolExecutor(max_workers=max(len(nodes), 1)) as executor:
-            results = executor.map(fetch_node_containers, nodes)
-            for containers in results:
-                all_containers.extend(containers)
+        results = self._executor.map(fetch_node_containers, nodes)
+        for containers in results:
+            all_containers.extend(containers)
 
         return all_containers
 
@@ -192,5 +230,5 @@ class ClusterManager:
         return None
 
 
-cluster_manager = ClusterManager(nodes_file=NODES_FILE, config_file=CONFIG_FILE)
+cluster_manager = ClusterManager(config_file=CONFIG_FILE)
 

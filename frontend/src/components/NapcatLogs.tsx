@@ -8,6 +8,7 @@ import {
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import TerminalIcon from '@mui/icons-material/Terminal';
+import DownloadIcon from '@mui/icons-material/Download';
 import { useTranslate } from '../i18n';
 import { containerApi } from '../services/api';
 
@@ -78,9 +79,9 @@ export const NapcatLogs = ({ name, node_id }: NapcatLogsProps) => {
                         <TerminalIcon sx={{ fontSize: 24, color: '#ec4899' }} />
                     </Box>
                     <Box>
-                        <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{t('容器日志')}</Typography>
+                        <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{t('config.containerLogs')}</Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                            实时查看和监控 NapCat 实例的运行日志
+                            {t('config.logsSubtitle')}
                         </Typography>
                     </Box>
                 </Box>
@@ -88,7 +89,7 @@ export const NapcatLogs = ({ name, node_id }: NapcatLogsProps) => {
                     <TextField
                         size="small"
                         type="number"
-                        label={t('获取行数')}
+                        label={t('config.fetchLines')}
                         value={lines}
                         onChange={(e) => setLines(parseInt(e.target.value) || 200)}
                         sx={{ width: 100, '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
@@ -100,7 +101,7 @@ export const NapcatLogs = ({ name, node_id }: NapcatLogsProps) => {
                         onClick={() => setAutoRefresh(!autoRefresh)}
                         sx={{ borderRadius: 2, textTransform: 'none', px: 2, fontWeight: 600, height: 40, boxShadow: 'none' }}
                     >
-                        {autoRefresh ? t('自动刷新: 开启') : t('自动刷新: 关闭')}
+                        {autoRefresh ? t('config.autoRefreshOn') : t('config.autoRefreshOff')}
                     </Button>
                     <Button
                         startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
@@ -110,7 +111,18 @@ export const NapcatLogs = ({ name, node_id }: NapcatLogsProps) => {
                         variant="contained"
                         sx={{ borderRadius: 2, textTransform: 'none', px: 2, fontWeight: 600, height: 40, bgcolor: '#3b82f6', '&:hover': { bgcolor: '#2563eb' }, boxShadow: '0 4px 14px rgba(59,130,246,0.3)' }}
                     >
-                        {t('手动刷新')}
+                        {t('config.manualRefresh')}
+                    </Button>
+                    <Button
+                        startIcon={<DownloadIcon />}
+                        size="medium"
+                        variant="outlined"
+                        onClick={() => {
+                            window.open(`/api/containers/${name}/logs/download?lines=${lines}&node_id=${node_id}`, '_blank');
+                        }}
+                        sx={{ borderRadius: 2, textTransform: 'none', px: 2, fontWeight: 600, height: 40 }}
+                    >
+                        {t('config.exportLogs')}
                     </Button>
                 </Box>
             </Box>
@@ -155,7 +167,7 @@ export const NapcatLogs = ({ name, node_id }: NapcatLogsProps) => {
                     </Box>
                 ) : (
                     <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: '300px', opacity: 0.5 }}>
-                        <Typography sx={{ fontFamily: 'inherit' }}>{loading ? t('正在读取日志...') : t('暂无日志记录')}</Typography>
+                        <Typography sx={{ fontFamily: 'inherit' }}>{loading ? t('config.loadingLogs') : t('config.noLogs2')}</Typography>
                     </Box>
                 )}
                 <div ref={logsEndRef} />

@@ -21,6 +21,7 @@ import Brightness7Icon from '@mui/icons-material/Brightness7';
 import TranslateIcon from '@mui/icons-material/Translate';
 import { ThemeModeContext, LanguageContext } from '../App';
 import { useTranslate } from '../i18n';
+import { authApi } from '../services/api';
 
 export default function LoginPage() {
     const navigate = useNavigate();
@@ -33,7 +34,7 @@ export default function LoginPage() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    const handleLogin = async (event) => {
+    const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
         if (!username || !password) {
             setError(t('login.error'));
@@ -44,14 +45,8 @@ export default function LoginPage() {
         setError('');
 
         try {
-            const resp = await fetch('/api/login', {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-            const data = await resp.json();
-            if (resp.ok && data.status === 'ok') {
+            const data = await authApi.login(username, password);
+            if (data.status === 'ok') {
                 navigate('/admin');
             } else {
                 setError(data.message || t('login.error'));

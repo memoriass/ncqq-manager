@@ -4,7 +4,7 @@
 """
 import time
 from typing import Dict, Tuple
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, Depends
 
 from services.log import logger
 
@@ -53,18 +53,17 @@ def speed_limit(seconds: float = 3.0):
     """
     速率限制依赖工厂。管理员豁免。
     用法: @app.post("/xxx", dependencies=[Depends(speed_limit(3.0))])
+    需要放在 get_current_user 之后使用。
     """
-    async def _limiter(request: Request):
-        # 需要在认证之后使用
-        user = getattr(request.state, "user", None)
-        if not user:
-            return  # 未认证的请求由 auth 中间件处理
+    from middleware.auth import get_current_user
+    from services.user_manager import ROLE
 
+    async def _limiter(request: Request, session: dict = Depends(get_current_user)):
         # 管理员豁免
-        if user.get("permission", 0) >= 10:
+        if session.get("permission", 0) >= ROLE.ADMIN:
             return
 
-        user_uuid = user.get("uuid", "anonymous")
+        user_uuid = session.get("uuid", "anonymous")
         path = request.url.path
 
         if not rate_limiter.check(user_uuid, path, seconds):
