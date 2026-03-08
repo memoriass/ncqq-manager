@@ -324,7 +324,8 @@ export const translations = {
             autoRefreshOn: '自动刷新: 开',
             autoRefreshOff: '自动刷新: 关',
             noLogs: '暂无日志',
-            logFetchError: '日志获取失败，请检查节点连接'
+            logFetchError: '日志获取失败，请检查节点连接',
+            copied: '已复制到剪贴板'
         },
         userMgmt: {
             breadcrumb: '管理面板 / 用户管理',
@@ -744,7 +745,8 @@ export const translations = {
             autoRefreshOn: 'Auto: ON',
             autoRefreshOff: 'Auto: OFF',
             noLogs: 'No logs available',
-            logFetchError: 'Failed to fetch logs, check node connection'
+            logFetchError: 'Failed to fetch logs, check node connection',
+            copied: 'Copied to clipboard'
         },
         userMgmt: {
             breadcrumb: 'Admin / User Management',

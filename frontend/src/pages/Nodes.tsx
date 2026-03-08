@@ -252,12 +252,12 @@ export default function Nodes() {
                                 </Box>
                                 <Box>
                                     <Typography variant="caption" color="text.secondary" display="block">{t('nodePanel.coreVersion')}</Typography>
-                                    <Typography variant="body2" sx={{ color: '#10b981' }}>{node.system?.python_version ? `v${node.system?.python_version}` : '-'}</Typography>
+                                    <Typography variant="body2" sx={{ color: '#10b981' }}>{node.system?.app_version ? `v${node.system.app_version}` : '-'}</Typography>
                                 </Box>
                                 <Box sx={{ gridColumn: 'span 2' }}>
                                     <Typography variant="caption" color="text.secondary" display="block">Node ID</Typography>
-                                    <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#3b82f6', cursor: 'pointer' }}>
-                                        {node.id}... <ContentCopyIcon sx={{ fontSize: 12 }} />
+                                    <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#3b82f6', cursor: 'pointer' }} onClick={() => { navigator.clipboard.writeText(node.id); toast.success(t('nodePanel.copied')); }}>
+                                        {node.id} <ContentCopyIcon sx={{ fontSize: 12 }} />
                                     </Typography>
                                 </Box>
                             </Box>

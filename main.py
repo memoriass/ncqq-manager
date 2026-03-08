@@ -14,7 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 
 from services.log import logger
-from services.config import FRONTEND_DIST
+from services.config import FRONTEND_DIST, APP_VERSION
 from services.operation_logger import operation_logger
 from middleware.auth import cleanup_expired_tokens
 import services.database as database
@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="NapCatQQ Manager API",
     description="NapCat QQ Bot Docker 容器管理面板",
-    version="2.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 

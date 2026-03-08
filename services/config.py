@@ -8,6 +8,8 @@ import uuid
 from typing import Any, Dict
 from services.log import logger
 
+APP_VERSION = "1.0.0"
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CONFIG_DIR = os.path.join(BASE_DIR, "config")

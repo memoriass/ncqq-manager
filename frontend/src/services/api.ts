@@ -48,6 +48,7 @@ export interface Node {
         mem_percent: number;
         platform: string;
         python_version: string;
+        app_version?: string;
     };
     instances?: {
         total: number;

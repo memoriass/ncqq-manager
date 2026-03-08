@@ -17,6 +17,7 @@ import {
 import { Refresh as RefreshIcon, FiberManualRecord as DotIcon, Download as DownloadIcon } from '@mui/icons-material';
 import { operationLogsApi, type OperationLog } from '../services/api';
 import { useToast } from '../components/Toast';
+import { useTranslate } from '../i18n';
 
 const OperationLogs: React.FC = () => {
     const [logs, setLogs] = useState<OperationLog[]>([]);

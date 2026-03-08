@@ -11,7 +11,7 @@ from starlette.concurrency import run_in_threadpool
 
 from middleware.auth import get_current_user, require_admin
 from services.cluster_manager import cluster_manager
-from services.config import app_config
+from services.config import app_config, APP_VERSION
 from services.operation_logger import operation_logger
 
 router = APIRouter(prefix="/api", tags=["nodes"])
@@ -44,6 +44,7 @@ async def get_cluster_config(session: dict = Depends(get_current_user)):
             "mem_percent": psutil.virtual_memory().percent,
             "platform": sys.platform,
             "python_version": sys.version.split()[0],
+            "app_version": APP_VERSION,
         },
     }
 
@@ -102,6 +103,7 @@ async def cluster_status(session: dict = Depends(get_current_user)):
             "mem_percent": daemon_monitor.current_mem,
             "platform": sys.platform,
             "python_version": sys.version.split()[0],
+            "app_version": APP_VERSION,
         },
         "instances": daemon_monitor.get_instance_status(),
         "chart": daemon_monitor.get_chart_data(),

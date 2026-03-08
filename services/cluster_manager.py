@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Dict, Optional, Any
 
 from services.log import logger
-from services.config import CONFIG_FILE
+from services.config import CONFIG_FILE, APP_VERSION
 from services.docker_manager import docker_manager
 import services.database as db
 
@@ -104,6 +104,7 @@ class ClusterManager:
                     "mem_percent": daemon_monitor.current_mem,
                     "platform": sys.platform,
                     "python_version": sys.version.split()[0],
+                    "app_version": APP_VERSION,
                 }
                 node_copy["instances"] = daemon_monitor.get_instance_status()
                 node_copy["chart"] = daemon_monitor.get_chart_data()
