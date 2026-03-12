@@ -1,4 +1,4 @@
-import { useEffect, useState, useContext } from 'react';
+import { useEffect, useState, useContext, useRef } from 'react';
 import {
     Box, Typography, CircularProgress,
     Button, IconButton, useTheme, Skeleton, Pagination,
@@ -14,8 +14,9 @@ import TranslateIcon from '@mui/icons-material/Translate';
 import SearchIcon from '@mui/icons-material/Search';
 import { ThemeModeContext, LanguageContext } from '../App';
 import { useTranslate } from '../i18n';
-import { publicApi, containerApi, type Container } from '../services/api';
-import { useToast } from '../components/Toast';
+import { publicApi, type Container } from '../services/api';
+import { usePublicWebSocket } from '../hooks/usePublicWebSocket';
+import LazyQRImage from '../components/LazyQRImage';
 
 interface QRState {
     status: 'logged_in' | 'loaded' | 'waiting' | 'error';
@@ -28,16 +29,63 @@ export default function UserDashboard() {
     const theme = useTheme();
     const colorMode = useContext(ThemeModeContext);
     const { toggleLanguage } = useContext(LanguageContext);
-    const toast = useToast();
     const t = useTranslate();
 
-    const [containers, setContainers] = useState<Container[]>([]);
     const [loading, setLoading] = useState(true);
     const [qrCodes, setQrCodes] = useState<Record<string, QRState>>({});
     const [searchQuery, setSearchQuery] = useState('');
     const [refreshingCards, setRefreshingCards] = useState<Record<string, boolean>>({});
     const [bgUrl, setBgUrl] = useState('');
     const [qrDialogName, setQrDialogName] = useState<string | null>(null);
+
+    // ---- WS 驱动：替代 HTTP 轮询 ----
+    const { containers: wsContainers, qrStates: wsQrStates, connected: wsConnected } = usePublicWebSocket();
+    const containers = wsContainers;
+
+    // WS 首次推送到达后取消 loading
+    const initializedRef = useRef(false);
+    useEffect(() => {
+        if (containers.length > 0 && !initializedRef.current) {
+            initializedRef.current = true;
+            setLoading(false);
+        }
+        // WS 连接成功但容器为空也取消 loading（真正 0 个容器的情况）
+        if (wsConnected && !initializedRef.current) {
+            const timer = setTimeout(() => {
+                if (!initializedRef.current) {
+                    initializedRef.current = true;
+                    setLoading(false);
+                }
+            }, 3500);
+            return () => clearTimeout(timer);
+        }
+    }, [containers, wsConnected]);
+
+    // WS 推送的 QR 状态 → 合并到 qrCodes
+    useEffect(() => {
+        if (!wsQrStates || Object.keys(wsQrStates).length === 0) return;
+        setQrCodes(prev => {
+            const next = { ...prev };
+            for (const [name, item] of Object.entries(wsQrStates)) {
+                if (item.status === 'logged_in') {
+                    next[name] = { status: 'logged_in', uin: item.uin };
+                } else if (item.status === 'ok' && item.url) {
+                    const url = item.type === 'file' ? item.url
+                        : `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(item.url)}`;
+                    next[name] = { status: 'loaded', url };
+                } else {
+                    next[name] = { status: 'waiting' };
+                }
+            }
+            // 同步容器列表中已有 uin 的（来自容器列表自身）
+            for (const c of containers) {
+                if (c.uin && (!next[c.name] || next[c.name].status !== 'logged_in')) {
+                    next[c.name] = { status: 'logged_in', uin: c.uin };
+                }
+            }
+            return next;
+        });
+    }, [wsQrStates, containers]);
 
     // QQ号遮蔽：385***633
     const maskUin = (uin: string) => {
@@ -81,6 +129,7 @@ export default function UserDashboard() {
         return () => { cancelled = true; window.removeEventListener('resize', onResize); };
     }, []);
 
+    // ---- 搜索过滤 + 分页（保留 MCSM 式按页订阅） ----
     const [page, setPage] = useState(1);
     const rowsPerPage = 12;
     const filteredContainers = containers.filter(c => {
@@ -102,43 +151,12 @@ export default function UserDashboard() {
         return <>{text.slice(0, idx)}<Box component="span" sx={{ bgcolor: '#fef08a', color: '#000', borderRadius: 0.5, px: 0.25 }}>{text.slice(idx, idx + q.length)}</Box>{text.slice(idx + q.length)}</>;
     };
 
-    const fetchContainers = async () => {
-        try {
-            let list: Container[] = [];
-            try {
-                const data = await publicApi.containers();
-                list = data.containers || [];
-            } catch {
-                // 公开接口异常时回退到管理接口（已登录管理员可用）
-                const data = await containerApi.list();
-                list = data.containers || [];
-            }
-
-            setContainers(list);
-            // 接口已返回 uin，直接设置已登录容器的 QR 状态
-            setQrCodes(prev => {
-                const next = { ...prev };
-                for (const c of list) {
-                    if (c.uin) {
-                        next[c.name] = { status: 'logged_in', uin: c.uin };
-                    }
-                }
-                return next;
-            });
-        } catch (e) {
-            toast.error('获取实例列表失败');
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // 单容器 QR 加载（仅用于 refreshCard 单卡刷新，保留独立请求）
+    // 单容器 QR 加载（仅用于 refreshCard 单卡手动刷新，保留独立请求）
     const loadQR = async (name: string, node_id = 'local') => {
         try {
             const data = await publicApi.getQR(name, node_id);
             if (data.status === 'logged_in') {
                 setQrCodes(prev => ({ ...prev, [name]: { status: 'logged_in', uin: data.uin } }));
-                fetchContainers();
             } else if (data.status === 'ok' && data.url) {
                 const url = data.type === 'file' ? data.url
                     : `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.url)}`;
@@ -151,69 +169,15 @@ export default function UserDashboard() {
         }
     };
 
-    // 批量获取所有容器 QR 状态（一次请求替代 N 个独立请求，60+ 实例不卡顿）
-    const loadBatchQR = async () => {
-        try {
-            const data = await publicApi.batchQR();
-            if (data.status !== 'ok' || !data.items) return;
-            let hasNewLogin = false;
-            setQrCodes(prev => {
-                const next = { ...prev };
-                for (const [name, item] of Object.entries(data.items)) {
-                    if (item.status === 'logged_in') {
-                        next[name] = { status: 'logged_in', uin: item.uin };
-                        if (!prev[name] || prev[name].status !== 'logged_in') {
-                            hasNewLogin = true;
-                        }
-                    } else if (item.status === 'ok' && item.url) {
-                        const url = item.type === 'file' ? item.url
-                            : `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(item.url)}`;
-                        next[name] = { status: 'loaded', url };
-                    } else {
-                        next[name] = { status: 'waiting' };
-                    }
-                }
-                return next;
-            });
-            // 有新登录 → 刷新容器列表以获取 uin，停止该容器的后续 QR 检查
-            if (hasNewLogin) fetchContainers();
-        } catch {
-            // 批量接口失败时静默，下次轮询重试
-        }
-    };
-
-    // 单卡片刷新：独立请求该容器的 QR + 刷新容器状态
+    // 单卡片刷新：手动触发独立请求
     const refreshCard = async (name: string, node_id = 'local') => {
         setRefreshingCards(prev => ({ ...prev, [name]: true }));
         try {
             await loadQR(name, node_id);
-            await fetchContainers();
         } finally {
             setRefreshingCards(prev => ({ ...prev, [name]: false }));
         }
     };
-
-    useEffect(() => {
-        fetchContainers();
-        let interval: ReturnType<typeof setInterval>;
-        const start = () => { interval = setInterval(fetchContainers, 15000); };
-        const stop = () => clearInterval(interval);
-        const onVis = () => {
-            if (document.visibilityState === 'visible') { fetchContainers(); start(); } else { stop(); }
-        };
-        start();
-        document.addEventListener('visibilitychange', onVis);
-        return () => { stop(); document.removeEventListener('visibilitychange', onVis); };
-    }, []);
-
-    useEffect(() => {
-        // 有未登录的运行中容器 → 批量轮询 QR 状态（5s，单次请求覆盖所有容器）
-        const needQR = containers.filter(c => c.status === 'running' && !c.uin);
-        if (needQR.length === 0) return;
-        loadBatchQR();
-        const interval = setInterval(loadBatchQR, 5000);
-        return () => clearInterval(interval);
-    }, [containers]);
 
     return (
         <Box sx={{
@@ -286,7 +250,7 @@ export default function UserDashboard() {
                                 <Typography variant="body2" color="text.secondary">{searchQuery ? t('user.tryDifferentSearch') : t('user.contactAdmin')}</Typography>
                             </Box>
                         ) : displayedContainers.map(c => {
-                            const qr = qrCodes[c.name] || { status: 'loading' };
+                            const qr = qrCodes[c.name] || { status: 'loading' as const };
                             const isRefreshing = refreshingCards[c.name] || false;
                             const uinDigits = qr.uin ? String(qr.uin).replace(/\D/g, '') : '';
                             return (
@@ -321,13 +285,17 @@ export default function UserDashboard() {
                                         )}
                                         {/* 底部：状态 + 刷新按钮，两端对齐 */}
                                         <Box sx={{ mt: 'auto', pt: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            {c.status === 'running' ? (
+                                            {c.status === 'running' && qr.status === 'logged_in' ? (
                                                 <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: '#059669', fontWeight: 600, fontSize: '0.7rem' }}>
                                                     <Box sx={{ width: 5, height: 5, bgcolor: '#10b981', borderRadius: '50%' }} /> {t('admin.online')}
                                                 </Typography>
+                                            ) : c.status === 'running' ? (
+                                                <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: '#d97706', fontWeight: 600, fontSize: '0.7rem' }}>
+                                                    <Box sx={{ width: 5, height: 5, bgcolor: '#f59e0b', borderRadius: '50%' }} /> {t('user.notLoggedIn')}
+                                                </Typography>
                                             ) : (
                                                 <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: 'text.secondary', fontWeight: 600, fontSize: '0.7rem' }}>
-                                                    <Box sx={{ width: 5, height: 5, bgcolor: '#94a3b8', borderRadius: '50%' }} /> {c.status.toUpperCase()}
+                                                    <Box sx={{ width: 5, height: 5, bgcolor: '#94a3b8', borderRadius: '50%' }} /> {t('admin.offline')}
                                                 </Typography>
                                             )}
                                             <IconButton
@@ -355,7 +323,7 @@ export default function UserDashboard() {
                                         {c.status !== 'running' ? (
                                             <CloudOffIcon sx={{ color: '#94a3b8', fontSize: 32 }} />
                                         ) : qr.status === 'loaded' ? (
-                                            <img src={qr.url} alt="QR" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            <LazyQRImage src={qr.url!} alt="QR" width="100%" height="100%" style={{ objectFit: 'cover' }} />
                                         ) : qr.status === 'logged_in' ? (
                                             <Typography variant="caption" sx={{ color: '#059669', fontWeight: 600, fontSize: '0.7rem' }}>{t('user.loggedIn')}</Typography>
                                         ) : qr.status === 'waiting' || qr.status === 'loading' ? (
@@ -374,7 +342,7 @@ export default function UserDashboard() {
                         <Pagination
                             count={totalPages}
                             page={page}
-                            onChange={(e, value) => setPage(value)}
+                            onChange={(_, value) => setPage(value)}
                             color="primary"
                             shape="rounded"
                         />

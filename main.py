@@ -85,15 +85,34 @@ async def lifespan(app: FastAPI):
     # 启动操作日志定时刷盘任务
     flush_task = asyncio.create_task(background_flush_logs())
 
+    # 启动异步登录检测器（aiohttp 连接池）
+    from services.docker_async import async_login_checker, async_docker_manager
+    await async_login_checker.start()
+
+    # 启动异步Docker管理器（aiodocker — 替代 docker-py 热路径）
+    await async_docker_manager.start()
+
+    # 启动容器状态引擎（后台异步刷新，API/WS 零阻塞读内存）
+    from services.container_state import state_engine
+    await state_engine.start()
+
+    # 启动 Docker 事件监听（事件驱动替代定时轮询）
+    from services.docker_events import docker_event_watcher
+    docker_event_watcher.start(notify_fn=state_engine.notify_change)
+
     # 启动定时任务调度器
     from services.scheduler import scheduler
     await scheduler.start()
 
     yield
 
-    # 关闭时刷盘
+    # 关闭时清理
     monitor_task.cancel()
     flush_task.cancel()
+    docker_event_watcher.stop()
+    await state_engine.stop()
+    await async_docker_manager.stop()
+    await async_login_checker.stop()
     await scheduler.stop()
     operation_logger.flush()
     cleanup_expired_tokens()
@@ -187,12 +206,22 @@ _start_time = _time.time()
 
 @app.get("/api/health")
 async def health_check():
-    """轻量级健康检查端点，供负载均衡器/Docker HEALTHCHECK 使用"""
+    """健康检查端点，供负载均衡器/Docker HEALTHCHECK 使用。
+
+    §9: 增加 state_engine / async_docker / ws_public 状态信息。
+    """
     from services.docker_manager import docker_manager
+    from services.container_state import state_engine
+    from services.docker_async import async_docker_manager
+    from routers.ws_router import _public_ws_count
+
     return {
         "status": "ok",
         "docker": docker_manager.client is not None,
         "uptime": round(_time.time() - _start_time, 1),
+        "state_engine": state_engine.health_info,
+        "async_docker": async_docker_manager.connected,
+        "ws_public": _public_ws_count,
     }
 
 

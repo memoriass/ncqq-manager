@@ -1,5 +1,9 @@
 """
 容器管理路由 - CRUD + 操作 + 统计 + 日志 + QR + 配置
+
+v6: CRUD 异步化 — 本地操作改用 async_docker_manager (aiodocker)，
+    消除 run_in_threadpool + docker-py 同步阻塞。
+    远程节点操作仍走 run_in_threadpool + requests（待后续 aiohttp 化）。
 """
 import os
 import re
@@ -15,7 +19,10 @@ from middleware.auth import get_current_user, require_admin, check_instance_perm
 from middleware.rate_limiter import speed_limit
 from services.config import app_config, get_data_dir
 from services.docker_manager import docker_manager, read_login_cache
+from services.docker_async import async_docker_manager
 from services.cluster_manager import cluster_manager
+from services.container_state import state_engine
+from services.instance_subsystem import instance_subsystem
 from services.operation_logger import operation_logger
 from services.log import logger
 
@@ -61,119 +68,46 @@ def _safe_path(base: str, *parts: str) -> str:
 
 @router.get("/public/containers")
 async def api_public_containers():
-    """公开容器列表 - 返回基本状态与登录信息，不需要认证。
-
-    对运行中的本地容器并行批量触发登录检测（线程池并行 + 整体 6s 超时）。
-    """
-    containers = await run_in_threadpool(cluster_manager.list_all_containers)
-
-    # 批量并行检测运行中本地容器的登录状态
-    running_local_names = [
-        c["name"] for c in containers
-        if c["status"] == "running" and c.get("node_id", "local") == "local"
-    ]
-    if running_local_names:
-        try:
-            await run_in_threadpool(docker_manager.batch_check_login, running_local_names, 6.0)
-        except Exception:
-            logger.warning("公开容器列表：批量登录检测异常")
-
+    """公开容器列表 — 从状态引擎读内存快照，零阻塞。"""
+    containers = state_engine.get_containers()
     result = []
     for c in containers:
-        item = {
+        result.append({
             "id": c.get("id", ""),
             "name": c["name"],
             "status": c["status"],
             "node_id": c.get("node_id", "local"),
-        }
-        # 读取刚刚写入/已有的缓存
-        cached = read_login_cache(c["name"])
-        if cached.get("logged_in") and cached.get("uin"):
-            item["uin"] = cached["uin"]
-        result.append(item)
+            "uin": c.get("uin", ""),
+        })
     return {"status": "ok", "containers": result}
 
 
 @router.get("/public/qr/batch")
 async def api_batch_qr_status():
-    """批量获取所有未登录容器的 QR 状态（用户面板专用）。
+    """批量获取所有容器的 QR 状态 — 从状态引擎读内存快照，零阻塞。"""
+    return {"status": "ok", "items": state_engine.get_qr_states()}
 
-    一次请求返回所有容器状态，替代前端 N 个独立 /qrcode 请求。
-    已登录容器：从缓存直接返回 logged_in + uin。
-    未登录容器：并行读取本地 qrcode.png 文件。
-    全部操作在线程池内并行执行，单核弱但多线程场景下性能最优。
+
+@router.get("/public/containers/page")
+async def api_paged_containers(
+    page: int = 1, page_size: int = 20,
+    status: str = None, keyword: str = None,
+):
+    """分页查询容器列表 — 纯内存操作 <1ms。
+    借鉴 MCSM 的 instance/select 分页模式。
     """
-    import time as _time
-    containers = await run_in_threadpool(cluster_manager.list_all_containers)
-    running = [c for c in containers if c["status"] == "running"]
-
-    if not running:
-        return {"status": "ok", "items": {}}
-
-    # 先批量检测登录状态（并行，利用缓存）
-    running_local_names = [
-        c["name"] for c in running if c.get("node_id", "local") == "local"
-    ]
-    if running_local_names:
-        await run_in_threadpool(docker_manager.batch_check_login, running_local_names, 6.0)
-
-    def resolve_one(c: dict) -> tuple:
-        """单容器 QR 解析（在线程池中执行）"""
-        name = c["name"]
-        node_id = c.get("node_id", "local")
-
-        # 已登录 → 直接返回
-        cached = read_login_cache(name)
-        if cached.get("logged_in"):
-            return name, {"status": "logged_in", "uin": cached.get("uin", "")}
-
-        # 远程节点
-        if node_id != "local":
-            try:
-                result = cluster_manager.get_qr_status(node_id, name)
-                if result:
-                    return name, result
-            except Exception:
-                pass
-            return name, {"status": "waiting"}
-
-        # 本地：读 qrcode.png
-        try:
-            qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
-            if os.path.exists(qr_path):
-                age = _time.time() - os.path.getmtime(qr_path)
-                if age < 120:
-                    with open(qr_path, "rb") as f:
-                        data = base64.b64encode(f.read()).decode("utf-8")
-                    return name, {"status": "ok", "url": f"data:image/png;base64,{data}", "type": "file"}
-        except Exception:
-            pass
-
-        return name, {"status": "waiting"}
-
-    # 并行解析所有容器的 QR 状态
-    import asyncio
-    tasks = [run_in_threadpool(resolve_one, c) for c in running]
-    try:
-        results = await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True),
-            timeout=8.0,
-        )
-    except asyncio.TimeoutError:
-        results = []
-
-    items = {}
-    for r in results:
-        if isinstance(r, tuple):
-            items[r[0]] = r[1]
-    return {"status": "ok", "items": items}
+    return instance_subsystem.query(
+        status=status, keyword=keyword,
+        page=page, page_size=page_size,
+    )
 
 
 # ============ 容器列表 ============
 
 @router.get("/containers")
 async def api_list_containers(session: dict = Depends(get_current_user)):
-    containers = await run_in_threadpool(cluster_manager.list_all_containers)
+    """管理员容器列表 — 从状态引擎读内存快照。"""
+    containers = state_engine.get_containers()
     return {"status": "ok", "containers": containers}
 
 
@@ -225,8 +159,8 @@ async def api_create_container(
         cache_dir: {"bind": "/app/napcat/cache", "mode": "rw"},
     }
 
-    # 端口分配：用户指定 > 自动递增
-    used_ports = docker_manager.get_used_ports()
+    # 端口分配：用户指定 > 自动递增（异步获取已用端口）
+    used_ports = await async_docker_manager.get_used_ports()
     webui_base = app_config.get("webui_base_port", 6000)
     http_base = app_config.get("http_base_port", 3000)
     ws_base = app_config.get("ws_base_port", 3001)
@@ -246,25 +180,28 @@ async def api_create_container(
     docker_image = req.docker_image or app_config.get("docker_image", "mlikiowa/napcat-docker:latest")
 
     # 高级参数传递
-    extra_kwargs = {}
-    if req.memory_limit > 0:
-        extra_kwargs["mem_limit"] = f"{req.memory_limit}m"
-    if req.restart_policy and req.restart_policy != "no":
-        extra_kwargs["restart_policy"] = {"Name": req.restart_policy}
-    else:
-        extra_kwargs["restart_policy"] = {"Name": "always"}
-    if req.network_mode and req.network_mode != "bridge":
-        extra_kwargs["network_mode"] = req.network_mode
     env = {"ACCOUNT": ""}
     for item in (req.env_vars or []):
         if "=" in item:
             k, v = item.split("=", 1)
             env[k] = v
-    extra_kwargs["environment"] = env
 
-    cid = docker_manager.create_container(req.name, volumes=volumes, ports=ports, docker_image=docker_image, **extra_kwargs)
+    restart_policy = {"Name": req.restart_policy} if req.restart_policy and req.restart_policy != "no" else {"Name": "always"}
+
+    # 异步创建容器 — aiodocker（零线程）
+    cid = await async_docker_manager.create_container(
+        name=req.name, image=docker_image,
+        volumes=volumes, ports=ports,
+        environment=env,
+        restart_policy=restart_policy,
+        mem_limit=f"{req.memory_limit}m" if req.memory_limit > 0 else None,
+        network_mode=req.network_mode if req.network_mode != "bridge" else None,
+    )
     if not cid:
         raise HTTPException(status_code=500, detail="Failed to create container")
+
+    docker_manager.invalidate_containers_cache()
+    state_engine.notify_change()
 
     operation_logger.info("container_create", {
         "operator_ip": request.client.host if request.client else "unknown",
@@ -289,9 +226,17 @@ async def api_container_action(
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
 
-    success = await run_in_threadpool(cluster_manager.action_container, node_id, name, action)
+    # 本地操作走 aiodocker 纯异步；远程操作走 cluster_manager（run_in_threadpool）
+    if node_id == "local":
+        success = await async_docker_manager.action_container(name, action)
+    else:
+        success = await run_in_threadpool(cluster_manager.action_container, node_id, name, action)
     if not success:
         raise HTTPException(status_code=500, detail="Action failed")
+
+    # 容器状态已变更 → 立即唤醒状态引擎刷新
+    docker_manager.invalidate_containers_cache()
+    state_engine.notify_change()
 
     # 删除时可选清理本地数据目录
     if action == "delete" and delete_data and node_id == "local":
@@ -316,38 +261,21 @@ async def api_container_action(
 
 @router.get("/containers/stats/batch")
 async def get_batch_stats(session: dict = Depends(get_current_user)):
-    """批量获取所有容器的统计信息，后端并行+超时隔离。
-
-    替代前端逐一请求 /containers/{name}/stats 的模式，
-    单个容器超时不影响其他容器的数据返回。
-    """
-    import asyncio
-    containers = await run_in_threadpool(cluster_manager.list_all_containers)
-    running = [c for c in containers if c["status"] == "running"]
-
-    async def fetch_one(c: dict) -> tuple:
+    """批量获取所有容器的统计信息 — 从状态引擎读内存快照，零阻塞。"""
+    all_stats = state_engine.get_all_stats()
+    # 权限过滤
+    containers = state_engine.get_containers()
+    stats_map = {}
+    for c in containers:
         name = c["name"]
         node_id = c.get("node_id", "local")
+        if c.get("status") != "running":
+            continue
         if not check_instance_permission(session, node_id, name):
-            return name, {}
-        try:
-            stats = await run_in_threadpool(cluster_manager.get_stats, node_id, name)
-            return name, stats
-        except Exception:
-            return name, {}
-
-    stats_map = {}
-    if running:
-        try:
-            results = await asyncio.wait_for(
-                asyncio.gather(*[fetch_one(c) for c in running], return_exceptions=True),
-                timeout=8.0,
-            )
-            for item in results:
-                if isinstance(item, tuple):
-                    stats_map[item[0]] = item[1]
-        except asyncio.TimeoutError:
-            logger.warning("批量 stats 整体超时（8s），部分容器可能无数据")
+            continue
+        stats_data = all_stats.get(name)
+        if stats_data:
+            stats_map[name] = stats_data
     return {"status": "ok", "stats": stats_map}
 
 
@@ -370,7 +298,11 @@ async def get_container_logs(
 ):
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
-    logs = await run_in_threadpool(cluster_manager.get_logs, node_id, name, lines)
+    # 本地日志走 aiodocker 纯异步；远程走 cluster_manager
+    if node_id == "local":
+        logs = await async_docker_manager.get_logs(name, lines)
+    else:
+        logs = await run_in_threadpool(cluster_manager.get_logs, node_id, name, lines)
     return {"status": "ok", "logs": logs}
 
 
@@ -382,7 +314,10 @@ async def download_container_logs(
     """下载容器日志为纯文本文件"""
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
-    logs = await run_in_threadpool(cluster_manager.get_logs, node_id, name, lines)
+    if node_id == "local":
+        logs = await async_docker_manager.get_logs(name, lines)
+    else:
+        logs = await run_in_threadpool(cluster_manager.get_logs, node_id, name, lines)
     import time
     ts = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{name}_logs_{ts}.txt"
@@ -481,6 +416,8 @@ async def refresh_login_status(
         return {"status": "ok", "logged_in": False, "method": "remote_unsupported"}
 
     login = await run_in_threadpool(docker_manager.check_login_status, name, True)
+    # 强制刷新后通知引擎立即同步
+    state_engine.notify_change()
     return {
         "status": "ok",
         "logged_in": login.get("logged_in", False),

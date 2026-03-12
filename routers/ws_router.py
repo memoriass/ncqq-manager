@@ -1,19 +1,29 @@
 """
 WebSocket 路由 - 实时事件推送 + 日志流
+
+端点：
+  /ws/events  — 管理员专用（需认证），推送全量容器状态
+  /ws/public  — 公开端点（无需认证），推送容器列表 + QR 状态，支持按需分页订阅
+  /ws/logs/{name} — 管理员专用，推送容器日志流
 """
 import asyncio
-import json
+
+import orjson
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.concurrency import run_in_threadpool
 
 from services.ws_manager import ws_manager
 from services.cluster_manager import cluster_manager
+from services.instance_subsystem import instance_subsystem
 from services.log import logger
-from services.docker_manager import docker_manager, read_login_cache
+from services.container_state import state_engine
 from middleware.auth import validate_token_value
 
 router = APIRouter(tags=["websocket"])
+
+_MAX_PUBLIC_WS = 50  # 公开 WS 最大并发连接数
+_public_ws_count = 0  # 当前公开 WS 连接计数
 
 
 def _build_snapshot(containers: list) -> dict:
@@ -39,7 +49,7 @@ def _resolve_ws_token(ws: WebSocket, query_token: str) -> str:
 
 @router.websocket("/ws/events")
 async def ws_events(ws: WebSocket, token: str = Query(default="")):
-    """容器状态实时推送。首次全量 + 后续增量 diff + 定期登录检测。"""
+    """容器状态实时推送 — 从状态引擎读内存快照，零 Docker API 调用。"""
     effective_token = _resolve_ws_token(ws, token)
     session = validate_token_value(effective_token) if effective_token else None
     if not session:
@@ -48,45 +58,12 @@ async def ws_events(ws: WebSocket, token: str = Query(default="")):
 
     await ws_manager.connect(ws)
     prev_snapshot: dict = {}
-    tick = 0
     try:
         while True:
-            # 获取容器列表（超时保护，防止 Docker API 卡死阻塞事件循环）
-            try:
-                containers = await asyncio.wait_for(
-                    run_in_threadpool(cluster_manager.list_all_containers), timeout=10
-                )
-            except (asyncio.TimeoutError, Exception) as e:
-                logger.debug("WS list_all_containers 超时/异常: %s", e)
-                await asyncio.sleep(3)
-                continue
-
-            # 每 3 轮（~9s）触发一次 batch_check_login，保持 uin 缓存热
-            tick += 1
-            if tick % 3 == 0:
-                running_names = [
-                    c["name"] for c in containers
-                    if c.get("status") == "running" and c.get("node_id", "local") == "local"
-                ]
-                if running_names:
-                    try:
-                        await asyncio.wait_for(
-                            run_in_threadpool(docker_manager.batch_check_login, running_names, 4.0),
-                            timeout=6
-                        )
-                    except (asyncio.TimeoutError, Exception):
-                        pass
-
-            # 附带 login 缓存中的 uin
-            for c in containers:
-                if c.get("status") == "running" and c.get("node_id", "local") == "local":
-                    cache = read_login_cache(c["name"])
-                    if cache.get("logged_in") and cache.get("uin"):
-                        c["uin"] = cache["uin"]
-
+            # 从状态引擎读内存快照（零阻塞，<1ms）
+            containers = state_engine.get_containers()
             curr_snapshot = _build_snapshot(containers)
 
-            # 首次推送全量；后续仅推送有变化时全量（diff 检测）
             try:
                 if curr_snapshot != prev_snapshot:
                     await asyncio.wait_for(
@@ -98,7 +75,6 @@ async def ws_events(ws: WebSocket, token: str = Query(default="")):
                         ws.send_json({"type": "heartbeat"}), timeout=5
                     )
             except (asyncio.TimeoutError, Exception):
-                # 发送失败（客户端已断开），退出循环
                 break
 
             await asyncio.sleep(3)
@@ -145,3 +121,92 @@ async def ws_container_logs(
     except Exception as e:
         logger.debug("WS logs 连接异常 [%s]: %s", name, e)
 
+
+
+# ============ 公开 WS — 无需认证，推送容器列表 + QR 状态 ============
+
+@router.websocket("/ws/public")
+async def ws_public(ws: WebSocket):
+    """公开 WS 端点 — 用户面板专用，推送容器列表 + QR 状态。
+
+    协议：
+      服务端 → 客户端：
+        {"type": "full",      "data": {"containers": [...], "qr": {...}}}
+        {"type": "heartbeat"}
+      客户端 → 服务端（可选，按需订阅分页）：
+        {"type": "subscribe", "page": 1, "pageSize": 20}
+    """
+    global _public_ws_count
+    if _public_ws_count >= _MAX_PUBLIC_WS:
+        await ws.close(code=4429, reason="Too many connections")
+        return
+
+    await ws.accept()
+    _public_ws_count += 1
+
+    # 默认推送全量（向后兼容），客户端可发 subscribe 切换分页
+    sub_page = 0       # 0 = 全量模式
+    sub_page_size = 20
+    prev_hash = ""
+
+    async def _recv_loop():
+        """接收客户端的订阅消息（翻页/搜索时发送）。"""
+        nonlocal sub_page, sub_page_size
+        try:
+            async for raw in ws.iter_text():
+                try:
+                    msg = orjson.loads(raw)
+                    if msg.get("type") == "subscribe":
+                        sub_page = int(msg.get("page", 1))
+                        sub_page_size = min(int(msg.get("pageSize", 20)), 50)
+                except (orjson.JSONDecodeError, ValueError, TypeError):
+                    pass
+        except WebSocketDisconnect:
+            pass
+
+    recv_task = asyncio.create_task(_recv_loop())
+    try:
+        while True:
+            # 构建推送数据
+            if sub_page > 0:
+                # 分页模式 — 只推送当前页（MCSM instance/select 模式）
+                page_result = instance_subsystem.query(
+                    page=sub_page, page_size=sub_page_size)
+                containers = page_result["data"]
+                qr_states = {}
+                for item in containers:
+                    inst = instance_subsystem.get(item["name"])
+                    if inst:
+                        qr_states[item["name"]] = inst.to_qr_dict()
+                payload = {"containers": page_result, "qr": qr_states}
+            else:
+                # 全量模式 — 兼容简单客户端
+                containers = state_engine.get_containers()
+                qr_states = state_engine.get_qr_states()
+                payload = {"containers": containers, "qr": qr_states}
+
+            # 增量 diff：orjson.dumps 返回 bytes，直接 hash（3-10x 快于 json.dumps）
+            curr_hash = hash(orjson.dumps(payload, option=orjson.OPT_SORT_KEYS))
+            try:
+                if curr_hash != prev_hash:
+                    await asyncio.wait_for(
+                        ws.send_json({"type": "full", "data": payload}),
+                        timeout=5,
+                    )
+                    prev_hash = curr_hash
+                else:
+                    await asyncio.wait_for(
+                        ws.send_json({"type": "heartbeat"}),
+                        timeout=5,
+                    )
+            except (asyncio.TimeoutError, Exception):
+                break
+
+            await asyncio.sleep(3)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug("WS public 连接异常: %s", e)
+    finally:
+        recv_task.cancel()
+        _public_ws_count = max(0, _public_ws_count - 1)

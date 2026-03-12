@@ -1,56 +1,63 @@
 /**
- * WebSocket Hook - 实时事件连接
- * 提供自动重连、心跳检测和状态管理
+ * 公开 WebSocket Hook — 用户面板专用
+ *
+ * 连接 /ws/public，接收容器列表 + QR 状态推送。
+ * 替代 UserDashboard 中的 HTTP 轮询（fetchContainers + loadBatchQR）。
+ *
+ * 协议：
+ *   服务端 → 客户端:
+ *     {"type": "full",      "data": {"containers": [...], "qr": {...}}}
+ *     {"type": "heartbeat"}
+ *   客户端 → 服务端:
+ *     {"type": "subscribe", "page": 1, "pageSize": 20}
  */
 import { useEffect, useRef, useState, useCallback } from 'react';
+import type { Container } from '../services/api';
 
-interface UseWSOptions {
-    /** WebSocket URL path (e.g. /ws/events) */
-    path: string;
-    /** 自动重连间隔 (ms) */
-    reconnectInterval?: number;
-    /** 是否自动连接 */
-    enabled?: boolean;
+interface QRItem {
+    status: string;
+    url?: string;
+    type?: string;
+    uin?: string;
 }
 
-const HEARTBEAT_TIMEOUT = 25000; // 25s 无消息则判定断线（后端容器多时推送间隔可达 5s）
+interface PublicWSData {
+    containers: Container[];
+    qr: Record<string, QRItem>;
+}
 
-export function useWebSocket<T = unknown>(options: UseWSOptions) {
-    const { path, reconnectInterval = 5000, enabled = true } = options;
-    const [data, setData] = useState<T | null>(null);
+interface UsePublicWSOptions {
+    /** 是否启用 WS 连接 */
+    enabled?: boolean;
+    /** 自动重连间隔 (ms) */
+    reconnectInterval?: number;
+}
+
+const HEARTBEAT_TIMEOUT = 25000;
+
+export function usePublicWebSocket(options: UsePublicWSOptions = {}) {
+    const { enabled = true, reconnectInterval = 5000 } = options;
+    const [containers, setContainers] = useState<Container[]>([]);
+    const [qrStates, setQrStates] = useState<Record<string, QRItem>>({});
     const [connected, setConnected] = useState(false);
     const wsRef = useRef<WebSocket | null>(null);
     const timerRef = useRef<ReturnType<typeof setTimeout>>();
     const heartbeatRef = useRef<ReturnType<typeof setTimeout>>();
-    // 标记组件是否已卸载 / effect 是否已 cleanup，防止 onclose 回调触发多余重连
     const disposedRef = useRef(false);
-
-    const getToken = useCallback(() => {
-        const cookies = document.cookie.split(';');
-        for (const c of cookies) {
-            const [key, val] = c.trim().split('=');
-            if (key === 'auth_token') return val;
-        }
-        return '';
-    }, []);
-
-    // 稳定引用：把 path / enabled / reconnectInterval 存到 ref，避免 connect 依赖变化导致 useEffect 重跑
-    const optRef = useRef({ path, enabled, reconnectInterval });
-    optRef.current = { path, enabled, reconnectInterval };
+    const optRef = useRef({ enabled, reconnectInterval });
+    optRef.current = { enabled, reconnectInterval };
 
     const connect = useCallback(() => {
-        const { path: p, enabled: en, reconnectInterval: ri } = optRef.current;
+        const { enabled: en, reconnectInterval: ri } = optRef.current;
         if (!en || disposedRef.current) return;
 
-        // 先关旧连接，防止重复
         if (wsRef.current) {
             try { wsRef.current.close(); } catch { /* ignore */ }
             wsRef.current = null;
         }
 
-        const token = getToken();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${protocol}//${window.location.host}${p}?token=${token}`;
+        const url = `${protocol}//${window.location.host}/ws/public`;
 
         const ws = new WebSocket(url);
         wsRef.current = ws;
@@ -58,7 +65,6 @@ export function useWebSocket<T = unknown>(options: UseWSOptions) {
         const resetHB = () => {
             clearTimeout(heartbeatRef.current);
             heartbeatRef.current = setTimeout(() => {
-                // 超时无消息，主动断开触发重连
                 wsRef.current?.close();
             }, HEARTBEAT_TIMEOUT);
         };
@@ -71,7 +77,6 @@ export function useWebSocket<T = unknown>(options: UseWSOptions) {
         ws.onclose = () => {
             setConnected(false);
             clearTimeout(heartbeatRef.current);
-            // 仅在未 dispose 时自动重连
             if (!disposedRef.current && en) {
                 timerRef.current = setTimeout(connect, ri);
             }
@@ -84,11 +89,23 @@ export function useWebSocket<T = unknown>(options: UseWSOptions) {
             try {
                 const msg = JSON.parse(event.data);
                 if (msg?.type === 'heartbeat') return;
-                setData(msg);
+                if (msg?.type === 'full' && msg.data) {
+                    const d = msg.data as PublicWSData;
+                    // 全量模式: containers 是数组
+                    if (Array.isArray(d.containers)) {
+                        setContainers(d.containers);
+                    }
+                    // 分页模式: containers 是 {page, data: [...], ...}
+                    else if (d.containers && Array.isArray((d.containers as Record<string, unknown>).data)) {
+                        setContainers((d.containers as Record<string, unknown>).data as Container[]);
+                    }
+                    if (d.qr) {
+                        setQrStates(d.qr);
+                    }
+                }
             } catch { /* ignore */ }
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getToken]); // 仅依赖 getToken（稳定），其余通过 optRef 读取
+    }, []);
 
     useEffect(() => {
         disposedRef.current = false;
@@ -104,14 +121,13 @@ export function useWebSocket<T = unknown>(options: UseWSOptions) {
         };
     }, [connect]);
 
-    // path / enabled 变化时重连
+    // enabled 变化时重连
     useEffect(() => {
-        // optRef 已自动更新；只需断开旧连接触发 onclose → 重连
         if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
             wsRef.current.close();
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [path, enabled]);
+    }, [enabled]);
 
     const send = useCallback((msg: unknown) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -119,6 +135,6 @@ export function useWebSocket<T = unknown>(options: UseWSOptions) {
         }
     }, []);
 
-    return { data, connected, send };
+    return { containers, qrStates, connected, send };
 }
 

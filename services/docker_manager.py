@@ -21,15 +21,20 @@ from services.config import get_data_dir
 
 # 登录状态缓存：{container_name: {uin, nickname, ts, method}}
 _login_cache: Dict[str, Dict] = {}
-_LOGIN_CACHE_TTL = 8  # 秒，配合前端 5s QR 轮询，第二次即可刷新
+_LOGIN_CACHE_TTL = 30        # 秒，已登录容器无需频繁检查（前端降频后 8s 轮询）
+_LOGIN_CACHE_TTL_FAIL = 8   # 秒，未登录容器短缓存（快速发现登录状态变化）
 
 # Stats 缓存：{container_name: {stats_dict, ts}}
 _stats_cache: Dict[str, Dict] = {}
-_STATS_CACHE_TTL = 8  # 秒，stats 采集较慢(1-2s)，缓存 8s
+_STATS_CACHE_TTL = 15  # 秒，stats 采集较慢(1-2s)，缓存 15s 匹配前端轮询周期
+
+# 容器列表全局缓存（消除 WS/HTTP/batchQR 多路重复调用 Docker API）
+_containers_cache: Dict[str, Any] = {"data": [], "ts": 0}
+_CONTAINERS_CACHE_TTL = 3  # 秒
 
 # Docker API 调用专用线程池（隔离卡死容器，避免阻塞主线程池）
-# 60+ 实例场景：每实例 check_login 需 1-2 个线程，32 workers 可同时处理 16-32 实例
-_docker_pool = ThreadPoolExecutor(max_workers=32, thread_name_prefix="docker-api")
+# 60+ 实例场景：每实例 check_login 需 1-2 个线程，64 workers 可同时处理 32-64 实例
+_docker_pool = ThreadPoolExecutor(max_workers=64, thread_name_prefix="docker-api")
 _DOCKER_STATS_TIMEOUT = 3   # 秒，c.stats(stream=False) 超时
 _DOCKER_LOGS_TIMEOUT = 2    # 秒，c.logs() 超时
 
@@ -53,18 +58,28 @@ class DockerManager:
             logger.error("Docker 连接失败: %s", e)
             self.client = None
 
-    def list_containers(self) -> List[Dict]:
+    def list_containers(self, use_cache: bool = True) -> List[Dict]:
+        """获取本地 NapCat 容器列表。
+
+        use_cache=True 时使用全局缓存（3s TTL），避免 WS/HTTP/batchQR 多路重复调 Docker API。
+        容器操作后应调 invalidate_containers_cache() 立即失效。
+        """
+        now = time.time()
+        if use_cache and now - _containers_cache["ts"] < _CONTAINERS_CACHE_TTL:
+            return _containers_cache["data"]
+
         if not self.client:
             return []
         try:
             future = _docker_pool.submit(self.client.containers.list, all=True)
-            containers = future.result(timeout=_DOCKER_STATS_TIMEOUT)
+            containers = future.result(timeout=5)
         except FuturesTimeoutError:
             logger.warning("Docker 容器列表获取超时")
-            return []
+            # 超时返回缓存兜底
+            return _containers_cache.get("data", [])
         except docker.errors.DockerException as e:
             logger.error("列举容器失败: %s", e)
-            return []
+            return _containers_cache.get("data", [])
 
         res = []
         for c in containers:
@@ -80,7 +95,14 @@ class DockerManager:
                     "image": str(c.image.tags[0]) if c.image.tags else "unknown",
                     "created": c.attrs.get("Created", ""),
                 })
+        _containers_cache["data"] = res
+        _containers_cache["ts"] = now
         return res
+
+    @staticmethod
+    def invalidate_containers_cache():
+        """操作后立即失效容器列表缓存，使下次请求直接查询 Docker。"""
+        _containers_cache["ts"] = 0
 
     def create_container(
         self, name: str,
@@ -600,17 +622,15 @@ class DockerManager:
     def check_login_status(self, name: str, force: bool = False) -> Dict:
         """级联检测登录状态：A(OneBot) → B(WebUI)。
 
-        带内存缓存（TTL=15s），force=True 跳过缓存（用户主动刷新时）。
+        双层 TTL 缓存：已登录 30s / 未登录 8s。force=True 跳过缓存（用户主动刷新时）。
         返回 {logged_in, uin, nickname, method} 或 {logged_in: False}
-
-        预留方案 C：未来插件事件可直接写入 _login_cache，
-        本方法读取时若缓存有效则直接返回，无需 API 调用。
         """
         now = time.time()
 
         if not force and name in _login_cache:
             cached = _login_cache[name]
-            if now - cached.get("ts", 0) < _LOGIN_CACHE_TTL:
+            ttl = _LOGIN_CACHE_TTL if cached.get("logged_in") else _LOGIN_CACHE_TTL_FAIL
+            if now - cached.get("ts", 0) < ttl:
                 return cached
 
         # 层 1: OneBot HTTP API（最可靠）
@@ -635,9 +655,8 @@ class DockerManager:
     def batch_check_login(self, names: List[str], timeout: float = 6.0) -> Dict[str, Dict]:
         """批量并行检测多个容器的登录状态。
 
-        利用线程池并行执行，单个超时不阻塞其他。
-        60+ 实例场景：缓存命中的直接返回，未命中的并行 API 探测。
-        返回 {name: {logged_in, uin, ...}, ...}
+        双层缓存 TTL：已登录 30s / 未登录 8s。
+        缓存命中的直接返回，未命中的并行 API 探测（线程池）。
         """
         results: Dict[str, Dict] = {}
         need_check: List[str] = []
@@ -646,7 +665,8 @@ class DockerManager:
         # 先过滤：缓存命中的直接返回，无需占线程池
         for name in names:
             cached = _login_cache.get(name, {})
-            if now - cached.get("ts", 0) < _LOGIN_CACHE_TTL:
+            ttl = _LOGIN_CACHE_TTL if cached.get("logged_in") else _LOGIN_CACHE_TTL_FAIL
+            if now - cached.get("ts", 0) < ttl:
                 results[name] = cached
             else:
                 need_check.append(name)

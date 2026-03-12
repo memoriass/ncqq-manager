@@ -65,7 +65,7 @@ export default function AdminLayout() {
     useEffect(() => {
         if (wsConnected) return;
         refreshContainers();
-        const fallback = setInterval(refreshContainers, 5000);
+        const fallback = setInterval(refreshContainers, 10000);
         return () => clearInterval(fallback);
     }, [wsConnected, refreshContainers]);
 

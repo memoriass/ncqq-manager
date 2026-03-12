@@ -1,12 +1,18 @@
 """
 集群/节点管理器 - SQLite 持久化
+
+Phase 4: 新增 list_remote_containers_async() — aiohttp 替代 requests，
+         消除 container_state.py 中最后的 run_in_executor 线程池依赖。
 """
 import json
 import os
 import time
+import asyncio
+from typing import List, Dict, Optional, Any
+
+import aiohttp
 import requests
 from concurrent.futures import ThreadPoolExecutor
-from typing import List, Dict, Optional, Any
 
 from services.log import logger
 from services.config import CONFIG_FILE, APP_VERSION
@@ -152,6 +158,17 @@ class ClusterManager:
             c["node_id"] = "local"
             all_containers.append(c)
 
+        all_containers.extend(self.list_remote_containers())
+        return all_containers
+
+    def list_remote_containers(self) -> List[Dict]:
+        """获取所有远程节点的容器列表（sync requests + 线程池并行）。
+
+        保留为 fallback — 供非异步上下文使用。
+        container_state.py 已改用 list_remote_containers_async()。
+        """
+        nodes = self.get_nodes()
+
         def fetch_node_containers(node: Dict) -> List[Dict]:
             if node["id"] == "local":
                 return []
@@ -171,10 +188,51 @@ class ClusterManager:
                 logger.warning("从节点 %s 获取容器失败: %s", node.get("id"), e)
             return []
 
-        results = self._executor.map(fetch_node_containers, nodes)
-        for containers in results:
-            all_containers.extend(containers)
+        result: List[Dict] = []
+        for containers in self._executor.map(fetch_node_containers, nodes):
+            result.extend(containers)
+        return result
 
+    # ---- Phase 4: 全异步版本 — aiohttp 替代 requests ----
+
+    async def list_remote_containers_async(self) -> List[Dict]:
+        """异步获取所有远程节点的容器列表 — 并发 aiohttp，零线程。"""
+        nodes = self.get_nodes()
+        remote_nodes = [n for n in nodes if n.get("id") != "local"]
+        if not remote_nodes:
+            return []
+
+        timeout = aiohttp.ClientTimeout(total=2, connect=1)
+
+        async def _fetch_one(session: aiohttp.ClientSession,
+                             node: Dict) -> List[Dict]:
+            try:
+                addr = self._normalize_address(node["address"])
+                async with session.get(
+                    f"{addr}/api/containers",
+                    headers={"x-request-api-key": node.get("api_key", "")},
+                    timeout=timeout,
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json(content_type=None)
+                        containers = data.get("containers", [])
+                        for c in containers:
+                            c["node_id"] = node["id"]
+                        return containers
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                logger.debug("异步: 从节点 %s 获取容器失败: %s",
+                             node.get("id"), e)
+            return []
+
+        async with aiohttp.ClientSession() as session:
+            results = await asyncio.gather(
+                *[_fetch_one(session, n) for n in remote_nodes],
+                return_exceptions=True,
+            )
+        all_containers: List[Dict] = []
+        for r in results:
+            if isinstance(r, list):
+                all_containers.extend(r)
         return all_containers
 
     def _proxy_to_node(self, node_id: str, method: str, path: str,

@@ -189,11 +189,11 @@ export default function Dashboard() {
         window.history.replaceState({}, '', url.toString());
     }, [selectedNode]);
 
-    // Stats 15s 轮询（页面可见时才跑）
+    // Stats 20s 轮询（页面可见时才跑，配合后端 15s 缓存周期）
     useEffect(() => {
         let interval: ReturnType<typeof setInterval>;
         const startPolling = () => {
-            interval = setInterval(fetchStats, 15000);
+            interval = setInterval(fetchStats, 20000);
         };
         const stopPolling = () => {
             clearInterval(interval);
@@ -398,21 +398,25 @@ export default function Dashboard() {
                                             );
                                         })()}
                                     </Box>
-                                    {c.status === 'running' ? (
+                                    {c.status === 'running' && c.uin ? (
                                         <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(16,185,129,0.1)', color: '#059669', border: '1px solid rgba(16,185,129,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
                                             <Box sx={{ width: 6, height: 6, bgcolor: '#10b981', borderRadius: '50%' }} /> {t('admin.online')}
                                         </Typography>
+                                    ) : c.status === 'running' ? (
+                                        <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(245,158,11,0.1)', color: '#d97706', border: '1px solid rgba(245,158,11,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
+                                            <Box sx={{ width: 6, height: 6, bgcolor: '#f59e0b', borderRadius: '50%' }} /> {t('admin.notLoggedIn')}
+                                        </Typography>
                                     ) : (
                                         <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(100,116,139,0.1)', color: theme.palette.text.secondary, border: '1px solid rgba(100,116,139,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
-                                            <Box sx={{ width: 6, height: 6, bgcolor: '#64748b', borderRadius: '50%' }} /> {c.status.toUpperCase()}
+                                            <Box sx={{ width: 6, height: 6, bgcolor: '#64748b', borderRadius: '50%' }} /> {c.status === 'exited' ? t('admin.offline') : c.status === 'paused' ? t('admin.paused') : c.status === 'created' ? t('admin.created') : c.status.toUpperCase()}
                                         </Typography>
                                     )}
                                 </Box>
                                 <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }} noWrap>{highlight(c.name)}</Typography>
                                 <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>ID: {c.id}</Typography>
-                                {statsMap[c.name] && c.status === 'running' && (
+                                {statsMap[c.name] && statsMap[c.name].cpu_percent != null && c.status === 'running' && (
                                     <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: 'text.secondary', fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                                        CPU {statsMap[c.name].cpu_percent.toFixed(1)}% · {t('admin.memory')} {statsMap[c.name].mem_usage}MB{statsMap[c.name].mem_limit > 0 ? `/${statsMap[c.name].mem_limit}MB` : ''}
+                                        CPU {(statsMap[c.name].cpu_percent ?? 0).toFixed(1)}% · {t('admin.memory')} {statsMap[c.name].mem_usage ?? 0}MB{(statsMap[c.name].mem_limit ?? 0) > 0 ? `/${statsMap[c.name].mem_limit}MB` : ''}
                                     </Typography>
                                 )}
                             </Box>
