@@ -51,9 +51,8 @@ async def background_flush_logs():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用启动/关闭生命周期"""
-    # SQLite 初始化 + JSON 旧数据迁移
+    # SQLite 初始化
     database.init_db()
-    database.migrate_from_json()
 
     # 加载运行时配置（从 SQLite settings 表）
     from services.config import app_config
