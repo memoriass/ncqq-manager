@@ -256,10 +256,6 @@ export const containerApi = {
     getStats: (name: string, nodeId: string = 'local') =>
         request<ContainerStats>(`/containers/${name}/stats?node_id=${nodeId}`),
 
-    // 批量获取所有容器统计（后端并行+超时隔离，替代逐一请求）
-    getBatchStats: () =>
-        request<{ status: string; stats: Record<string, ContainerStats> }>('/containers/stats/batch'),
-
     // 获取容器日志
     getLogs: (name: string, lines: number = 200, nodeId: string = 'local') =>
         request<{ status: string; logs: string }>(`/containers/${name}/logs?lines=${lines}&node_id=${nodeId}`),

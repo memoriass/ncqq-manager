@@ -2,7 +2,7 @@
 容器状态引擎 — 后台异步刷新，API/WS 零阻塞读内存
 
 架构（v5 — 全异步，零线程池）：
-  后台引擎 ─── 定时循环 ──→ aiodocker (list/inspect/stats: 纯异步) ⭐ Phase 1
+  后台引擎 ─── 定时循环 ──→ aiodocker (list/inspect: 纯异步) ⭐ Phase 1
                             ──→ aiohttp  (login check: 纯异步)
                             ──→ aiohttp  (remote nodes: 纯异步)     ⭐ Phase 4
                             ──→ 写入 InstanceSubsystem
@@ -13,7 +13,7 @@
   2. 端口解析：aiodocker container.show() 纯异步
   3. 登录检测：纯 aiohttp 异步
   4. QR 码：只处理未登录 & running 的容器，读本地 qrcode.png
-  5. Stats：aiodocker container.stats() 纯异步（零线程）
+  5. Stats：按需采集，实例详情页面访问时通过单独API获取
 """
 import asyncio
 import base64
@@ -32,8 +32,6 @@ _REFRESH_INTERVAL_MAX = 30     # 长时间无事件时的最大兜底间隔
 _REFRESH_INTERVAL_STEP = 3     # 每次无事件时递增量
 _LOGIN_TTL_OK = 60             # 已登录容器的登录检测间隔
 _LOGIN_TTL_FAIL = 8            # 未登录容器的登录检测间隔
-_STATS_BATCH_SIZE = 10         # 每轮 stats 采集批量
-_STATS_INTERVAL_TICKS = 5      # 每 N 个 tick 采集一批 stats（= N * 3s）
 _QR_MAX_AGE = 120              # QR 文件最大有效期（秒）
 
 
@@ -43,7 +41,6 @@ class ContainerStateEngine:
     def __init__(self):
         # ---- 内部状态 ----
         self._tick = 0
-        self._stats_offset = 0                         # 分批滚动游标
         self._idle_interval = _REFRESH_INTERVAL_MIN    # 自适应刷新间隔
         self._running = False
         self._task: asyncio.Task | None = None
@@ -262,41 +259,8 @@ class ContainerStateEngine:
                 pass
             inst.update_qr(qr_data)
 
-        # ---- 4. Stats 分批滚动采集 — aiodocker 纯异步 ⭐ ----
-        if self._tick % _STATS_INTERVAL_TICKS == 0 and running_local_names:
-            batch = self._get_stats_batch(running_local_names)
-            if batch:
-                try:
-                    stats_results = await async_docker_manager.batch_stats(batch)
-                except Exception:
-                    stats_results = {}
-                for name, stats in stats_results.items():
-                    inst = instance_subsystem.get(name)
-                    if inst and stats:
-                        inst.update_stats(
-                            cpu_percent=stats.get("cpu_percent", 0.0),
-                            mem_usage=stats.get("mem_usage", 0.0),
-                            mem_limit=stats.get("mem_limit", 0.0),
-                        )
-
         # 记录本轮容器数（供 health_info 使用）
         self._container_count = len(containers)
-
-    # ============ 内部辅助 ============
-
-    def _get_stats_batch(self, running: List[str]) -> List[str]:
-        """返回本轮应采集 stats 的容器名单（滚动窗口）。"""
-        total = len(running)
-        if total == 0:
-            return []
-        start = self._stats_offset % total
-        end = min(start + _STATS_BATCH_SIZE, total)
-        batch = running[start:end]
-        # 如果窗口到尾部不足 BATCH_SIZE，从头部补
-        if len(batch) < _STATS_BATCH_SIZE and start > 0:
-            batch += running[:_STATS_BATCH_SIZE - len(batch)]
-        self._stats_offset = end
-        return batch
 
 
 # ============ 单例 ============

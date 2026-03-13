@@ -66,21 +66,55 @@ const UI_TO_NAPCAT: Record<string, string> = Object.fromEntries(
     Object.entries(NAPCAT_TO_UI).map(([k, v]) => [v, k])
 );
 
+/** 各端点类型的完整默认配置 — 严格对齐 onebot11_{uin}.json 格式 */
+const ENDPOINT_DEFAULTS: Record<string, EndpointConfig> = {
+    http: {
+        name: '', enable: true, host: '0.0.0.0', port: 3000,
+        enableCors: true, enableWebsocket: false, messagePostFormat: 'array',
+        token: '', debug: false,
+    },
+    http_client: {
+        name: '', enable: true, url: 'http://127.0.0.1:8080',
+        reportSelfMessage: false, messagePostFormat: 'array',
+        token: '', debug: false,
+    },
+    http_sse: {
+        name: '', enable: true, host: '0.0.0.0', port: 3000,
+        enableCors: true, enableWebsocket: false, messagePostFormat: 'array',
+        token: '', debug: false, reportSelfMessage: false,
+    },
+    ws: {
+        name: '', enable: true, host: '0.0.0.0', port: 3001,
+        reportSelfMessage: false, enableForcePushEvent: false,
+        messagePostFormat: 'array', token: '', debug: false,
+        heartInterval: 30000,
+    },
+    ws_client: {
+        name: '', enable: true, url: 'ws://127.0.0.1:8080',
+        reportSelfMessage: false, messagePostFormat: 'array',
+        token: '', debug: false, heartInterval: 30000,
+        reconnectInterval: 30000,
+    },
+};
+
 /** 从 onebot11 文件的 network 对象转换为前端扁平格式 */
 function parseNetworkToUI(network: Record<string, unknown>): NapcatNetworkConfig {
     const result: NapcatNetworkConfig = {};
     for (const [napcatKey, uiKey] of Object.entries(NAPCAT_TO_UI)) {
         const arr = network[napcatKey];
         if (Array.isArray(arr) && arr.length > 0) {
-            result[uiKey] = arr as EndpointConfig[];
+            // 为每个端点补齐缺失字段（确保旧配置也有完整字段）
+            const defaults = ENDPOINT_DEFAULTS[uiKey] || {};
+            result[uiKey] = arr.map((item: EndpointConfig) => ({ ...defaults, ...item }));
         }
     }
     return result;
 }
 
 /** 将前端扁平格式转换回 onebot11 文件的 network 对象 */
-function serializeUIToNetwork(config: NapcatNetworkConfig): Record<string, unknown> {
-    const network: Record<string, unknown> = {};
+function serializeUIToNetwork(config: NapcatNetworkConfig, originalNetwork?: Record<string, unknown>): Record<string, unknown> {
+    // 保留原始 network 中的非端点字段（如 plugins）
+    const network: Record<string, unknown> = originalNetwork ? { ...originalNetwork } : {};
     for (const [uiKey, napcatKey] of Object.entries(UI_TO_NAPCAT)) {
         network[napcatKey] = config[uiKey] || [];
     }
@@ -93,6 +127,8 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
     // 保存完整的 onebot11 文件内容（含 musicSignUrl 等非网络字段）和文件名
     const [ob11FileName, setOb11FileName] = useState<string>('');
     const [ob11Extra, setOb11Extra] = useState<Record<string, unknown>>({});
+    // 保留原始 network 对象中的非端点字段（如 plugins）
+    const [ob11OriginalNetwork, setOb11OriginalNetwork] = useState<Record<string, unknown>>({});
     const [noConfigFile, setNoConfigFile] = useState(false);
     const t = useTranslate();
     const theme = useTheme();
@@ -137,6 +173,7 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                 // 保留非 network 字段（musicSignUrl, enableLocalFile2Url 等）
                 const { network: _net, ...extra } = fullJson;
                 setOb11Extra(extra);
+                setOb11OriginalNetwork(network);
                 setConfig(parseNetworkToUI(network));
             } else {
                 setNoConfigFile(true);
@@ -161,7 +198,7 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
             // 重新组装完整的 onebot11 文件：保留原有非网络字段 + 更新 network
             const fullJson = {
                 ...ob11Extra,
-                network: serializeUIToNetwork(newConfig),
+                network: serializeUIToNetwork(newConfig, ob11OriginalNetwork),
             };
             await containerApi.saveConfig(name, `config/${ob11FileName}`, JSON.stringify(fullJson, null, 2), node_id);
             toast.success(t('network.saveApplied'));
@@ -207,17 +244,20 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
         const newConfig = { ...config };
         if (newConfig[type]) {
             newConfig[type] = [...newConfig[type]];
-            newConfig[type][index].enable = enable;
+            newConfig[type][index] = { ...newConfig[type][index], enable };
         }
         saveToServer(newConfig);
     };
 
     const openAddDialog = () => {
-        setEditDialog({ open: true, isNew: true, type: 'http', index: -1, data: { name: t('network.httpServer'), enable: true, host: '0.0.0.0', port: 3000 } });
+        const defaults = ENDPOINT_DEFAULTS['http'];
+        setEditDialog({ open: true, isNew: true, type: 'http', index: -1, data: { ...defaults, name: t('network.httpServer') } });
     };
 
     const openEditDialog = (type: string, index: number) => {
-        setEditDialog({ open: true, isNew: false, type, index, data: { ...config[type][index] } });
+        const defaults = ENDPOINT_DEFAULTS[type] || {};
+        const existing = config?.[type]?.[index] || {};
+        setEditDialog({ open: true, isNew: false, type, index, data: { ...defaults, ...existing } });
     };
 
     const updateDialogData = (key: string, value: string | number | boolean) => {
@@ -225,11 +265,15 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
     };
 
     const handleTypeChange = (newType: string) => {
-        const isClient = newType === 'http_client' || newType === 'ws_client';
-        const newData: EndpointConfig = isClient
-            ? { name: t('network.newEndpoint'), enable: true, url: 'http://127.0.0.1:8080' }
-            : { name: t('network.newEndpoint'), enable: true, host: '0.0.0.0', port: 3000 };
-        setEditDialog(prev => ({ ...prev, type: newType, data: newData }));
+        const defaults = ENDPOINT_DEFAULTS[newType] || {};
+        const typeLabelMap: Record<string, string> = {
+            http: t('network.httpServer'),
+            http_client: t('network.httpClient'),
+            http_sse: t('network.httpSseServer'),
+            ws: t('network.wsServer'),
+            ws_client: t('network.wsClient'),
+        };
+        setEditDialog(prev => ({ ...prev, type: newType, data: { ...defaults, name: typeLabelMap[newType] || t('network.newEndpoint') } }));
     };
 
     const endpointMeta = [
@@ -382,89 +426,126 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                 ))}
             </Grid>
 
-            {/* 新建/编辑弹窗 */}
-            <Dialog open={editDialog.open} onClose={() => setEditDialog({ ...editDialog, open: false })} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none' } }}>
+            {/* 新建/编辑弹窗 — 垂直单列表单，对齐 NapCat 原生 UI */}
+            <Dialog open={editDialog.open} onClose={() => setEditDialog({ ...editDialog, open: false })} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none' } }}>
                 <DialogTitle sx={{ pb: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
                     {editDialog.isNew ? t('network.createEndpoint') : t('network.editEndpoint')}
                 </DialogTitle>
-                <DialogContent sx={{ pt: '24px !important' }}>
-                    <Grid container spacing={2}>
+                <DialogContent sx={{ pt: '16px !important', px: 2.5 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+
+                        {/* 端点类型（仅新建） */}
                         {editDialog.isNew && (
-                            <Grid item xs={12}>
-                                <FormControl fullWidth size="small">
-                                    <InputLabel>{t('network.endpointType')}</InputLabel>
-                                    <Select
-                                        value={editDialog.type}
-                                        label={t('network.endpointType')}
-                                        onChange={(e) => handleTypeChange(e.target.value)}
-                                        sx={{ borderRadius: 2 }}
-                                    >
-                                        {endpointMeta.map((meta) => (
-                                            <MenuItem key={meta.type} value={meta.type}>
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                    {meta.icon} {meta.label}
-                                                </Box>
-                                            </MenuItem>
-                                        ))}
-                                    </Select>
-                                </FormControl>
-                            </Grid>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>{t('network.endpointType')}</InputLabel>
+                                <Select value={editDialog.type} label={t('network.endpointType')} onChange={(e) => handleTypeChange(e.target.value)} sx={{ borderRadius: 2 }}>
+                                    {endpointMeta.map((m) => (
+                                        <MenuItem key={m.type} value={m.type}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>{m.icon} {m.label}</Box>
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
                         )}
 
-                        <Grid item xs={12} sm={8}>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('network.name')}</Typography>
-                            <TextField fullWidth size="small" placeholder={t('network.namePlaceholder')} value={editDialog.data?.name || ''} onChange={(e) => updateDialogData('name', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-                        </Grid>
+                        {/* 启用 */}
+                        <FormControlLabel
+                            sx={{ mx: 0, justifyContent: 'space-between' }}
+                            labelPlacement="start"
+                            label={<Typography variant="body2">{t('network.enable')}</Typography>}
+                            control={<Switch checked={editDialog.data?.enable !== false} onChange={(e) => updateDialogData('enable', e.target.checked)} />}
+                        />
 
-                        <Grid item xs={12} sm={4} sx={{ display: 'flex', alignItems: 'flex-end', pb: 0.5 }}>
-                            <FormControlLabel control={<Switch checked={editDialog.data?.enable !== false} onChange={(e) => updateDialogData('enable', e.target.checked)} color="primary" />} label={<Typography variant="body2" sx={{ fontWeight: 600 }}>{t('network.enable')}</Typography>} />
-                        </Grid>
+                        {/* Debug */}
+                        <FormControlLabel
+                            sx={{ mx: 0, justifyContent: 'space-between' }}
+                            labelPlacement="start"
+                            label={<Typography variant="body2">{t('network.debug')}</Typography>}
+                            control={<Switch checked={editDialog.data?.debug === true} onChange={(e) => updateDialogData('debug', e.target.checked)} />}
+                        />
 
+                        {/* 名称 */}
+                        <TextField fullWidth size="small" label={t('network.name')} placeholder={t('network.namePlaceholder')} value={editDialog.data?.name || ''} onChange={(e) => updateDialogData('name', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+
+                        {/* Client → URL / Server → Host + Port */}
                         {isClientConfig ? (
-                            <Grid item xs={12}>
-                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('network.targetUrl')}</Typography>
-                                <TextField fullWidth size="small" placeholder="http://127.0.0.1:8080" value={editDialog.data?.url || ''} onChange={(e) => updateDialogData('url', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-                            </Grid>
+                            <TextField fullWidth size="small" label="URL" placeholder={editDialog.type === 'ws_client' ? 'ws://127.0.0.1:8080' : 'http://127.0.0.1:8080'} value={editDialog.data?.url || ''} onChange={(e) => updateDialogData('url', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                         ) : (
                             <>
-                                <Grid item xs={12} sm={8}>
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('network.listenHost')}</Typography>
-                                    <TextField fullWidth size="small" placeholder="0.0.0.0" value={editDialog.data?.host || ''} onChange={(e) => updateDialogData('host', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-                                </Grid>
-                                <Grid item xs={12} sm={4}>
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('network.listenPort')}</Typography>
-                                    <TextField fullWidth size="small" type="number" placeholder="3000" value={editDialog.data?.port || ''} onChange={(e) => updateDialogData('port', parseInt(e.target.value) || 0)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-                                </Grid>
+                                <TextField fullWidth size="small" label="Host" placeholder="0.0.0.0" value={editDialog.data?.host || ''} onChange={(e) => updateDialogData('host', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                                <TextField fullWidth size="small" label="Port" type="number" placeholder="3000" value={editDialog.data?.port ?? ''} onChange={(e) => updateDialogData('port', parseInt(e.target.value) || 0)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                             </>
                         )}
 
-                        <Grid item xs={12}>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 600 }}>{t('Token')}</Typography>
-                            <TextField fullWidth size="small" placeholder={t('network.tokenPlaceholder')} value={editDialog.data?.token || ''} onChange={(e) => updateDialogData('token', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
-                        </Grid>
-
-                        {editDialog.type === 'http' && (
-                            <Grid item xs={12}>
-                                <Box sx={{ display: 'flex', gap: 3, mt: 1 }}>
-                                    <FormControlLabel control={<Switch size="small" checked={editDialog.data?.enableCors !== false} onChange={(e) => updateDialogData('enableCors', e.target.checked)} />} label={<Typography variant="caption">{t('network.enableCors')}</Typography>} />
-                                    <FormControlLabel control={<Switch size="small" checked={editDialog.data?.enableWebsocket || false} onChange={(e) => updateDialogData('enableWebsocket', e.target.checked)} />} label={<Typography variant="caption">{t('network.enableWs')}</Typography>} />
-                                </Box>
-                            </Grid>
+                        {/* 上报自身消息（除 HTTP Server 外） */}
+                        {editDialog.type !== 'http' && (
+                            <FormControlLabel
+                                sx={{ mx: 0, justifyContent: 'space-between' }}
+                                labelPlacement="start"
+                                label={<Typography variant="body2">{t('network.reportSelfMessage')}</Typography>}
+                                control={<Switch checked={editDialog.data?.reportSelfMessage === true} onChange={(e) => updateDialogData('reportSelfMessage', e.target.checked)} />}
+                            />
                         )}
-                    </Grid>
+
+                        {/* 强制推送事件（仅 WS Server） */}
+                        {editDialog.type === 'ws' && (
+                            <FormControlLabel
+                                sx={{ mx: 0, justifyContent: 'space-between' }}
+                                labelPlacement="start"
+                                label={<Typography variant="body2">{t('network.enableForcePushEvent')}</Typography>}
+                                control={<Switch checked={editDialog.data?.enableForcePushEvent === true} onChange={(e) => updateDialogData('enableForcePushEvent', e.target.checked)} color={editDialog.data?.enableForcePushEvent ? 'error' : 'default'} />}
+                            />
+                        )}
+
+                        {/* 启用CORS（HTTP Server / HTTP SSE Server） */}
+                        {(editDialog.type === 'http' || editDialog.type === 'http_sse') && (
+                            <FormControlLabel
+                                sx={{ mx: 0, justifyContent: 'space-between' }}
+                                labelPlacement="start"
+                                label={<Typography variant="body2">{t('network.enableCors')}</Typography>}
+                                control={<Switch checked={editDialog.data?.enableCors === true} onChange={(e) => updateDialogData('enableCors', e.target.checked)} color={editDialog.data?.enableCors ? 'error' : 'default'} />}
+                            />
+                        )}
+
+                        {/* 启用Websocket（HTTP Server / HTTP SSE Server） */}
+                        {(editDialog.type === 'http' || editDialog.type === 'http_sse') && (
+                            <FormControlLabel
+                                sx={{ mx: 0, justifyContent: 'space-between' }}
+                                labelPlacement="start"
+                                label={<Typography variant="body2">{t('network.enableWs')}</Typography>}
+                                control={<Switch checked={editDialog.data?.enableWebsocket === true} onChange={(e) => updateDialogData('enableWebsocket', e.target.checked)} />}
+                            />
+                        )}
+
+                        {/* 消息格式 */}
+                        <FormControl fullWidth size="small">
+                            <InputLabel>{t('network.messagePostFormat')}</InputLabel>
+                            <Select value={String(editDialog.data?.messagePostFormat || 'array')} label={t('network.messagePostFormat')} onChange={(e) => updateDialogData('messagePostFormat', e.target.value)} sx={{ borderRadius: 2 }}>
+                                <MenuItem value="array">Array</MenuItem>
+                                <MenuItem value="string">String</MenuItem>
+                            </Select>
+                        </FormControl>
+
+                        {/* Token */}
+                        <TextField fullWidth size="small" label="Token" placeholder={t('network.tokenPlaceholder')} value={String(editDialog.data?.token || '')} onChange={(e) => updateDialogData('token', e.target.value)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+
+                        {/* 心跳间隔（WS Server / WS Client） */}
+                        {(editDialog.type === 'ws' || editDialog.type === 'ws_client') && (
+                            <TextField fullWidth size="small" label={t('network.heartInterval')} type="number" placeholder="30000" value={editDialog.data?.heartInterval ?? 30000} onChange={(e) => updateDialogData('heartInterval', parseInt(e.target.value) || 0)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                        )}
+
+                        {/* 重连间隔（仅 WS Client） */}
+                        {editDialog.type === 'ws_client' && (
+                            <TextField fullWidth size="small" label={t('network.reconnectInterval')} type="number" placeholder="30000" value={editDialog.data?.reconnectInterval ?? 30000} onChange={(e) => updateDialogData('reconnectInterval', parseInt(e.target.value) || 0)} sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                        )}
+                    </Box>
                 </DialogContent>
-                <DialogActions sx={{ p: 2, pt: 0, justifyContent: 'space-between' }}>
+                <DialogActions sx={{ p: 2, pt: 1.5, justifyContent: 'space-between', borderTop: `1px solid ${theme.palette.divider}` }}>
                     {!editDialog.isNew ? (
-                        <Button
-                            color="error"
-                            startIcon={<DeleteOutlineIcon />}
-                            onClick={handleDeleteEndpoint}
-                            sx={{ borderRadius: 2, textTransform: 'none' }}
-                        >
+                        <Button color="error" startIcon={<DeleteOutlineIcon />} onClick={handleDeleteEndpoint} sx={{ borderRadius: 2, textTransform: 'none' }}>
                             {t('network.delete')}
                         </Button>
                     ) : <Box />}
-
                     <Box sx={{ display: 'flex', gap: 1 }}>
                         <Button onClick={() => setEditDialog({ ...editDialog, open: false })} color="inherit" sx={{ borderRadius: 2, textTransform: 'none' }}>
                             {t('network.cancel')}

@@ -259,26 +259,6 @@ async def api_container_action(
 
 # ============ 容器统计 ============
 
-@router.get("/containers/stats/batch")
-async def get_batch_stats(session: dict = Depends(get_current_user)):
-    """批量获取所有容器的统计信息 — 从状态引擎读内存快照，零阻塞。"""
-    all_stats = state_engine.get_all_stats()
-    # 权限过滤
-    containers = state_engine.get_containers()
-    stats_map = {}
-    for c in containers:
-        name = c["name"]
-        node_id = c.get("node_id", "local")
-        if c.get("status") != "running":
-            continue
-        if not check_instance_permission(session, node_id, name):
-            continue
-        stats_data = all_stats.get(name)
-        if stats_data:
-            stats_map[name] = stats_data
-    return {"status": "ok", "stats": stats_map}
-
-
 @router.get("/containers/{name}/stats")
 async def get_container_stats(
     name: str, node_id: str = "local",

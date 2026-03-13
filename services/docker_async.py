@@ -229,7 +229,6 @@ class AsyncDockerManager:
     热路径方法（Phase 1 — 状态引擎用）：
       - list_local_containers()  → 替代 docker_manager.list_containers()
       - resolve_ports(names)     → 替代 _resolve_ports()
-      - batch_stats(names)       → 替代 _batch_stats()
 
     CRUD 方法（后续优化 — 路由层用）：
       - action_container(name, action)   → 替代 docker_manager.action_container()
@@ -311,33 +310,7 @@ class AsyncDockerManager:
                 result[name] = {"http_port": 0, "webui_port": 0}
         return result
 
-    # ---- 3. 批量 Stats（替代 _batch_stats） ----
-
-    async def batch_stats(self, names: List[str]) -> Dict[str, Dict]:
-        """异步批量采集容器资源统计。"""
-        if not self._docker:
-            return {}
-        results: Dict[str, Dict] = {}
-
-        async def _one_stat(name: str):
-            try:
-                container = self._docker.containers.container(name)
-                # stats(stream=False) 返回 List[Dict]，取第一个
-                raw = await asyncio.wait_for(
-                    container.stats(stream=False), timeout=_STATS_TIMEOUT,
-                )
-                s = raw[0] if raw else {}
-                results[name] = self._parse_stats(s)
-            except (asyncio.TimeoutError, aiodocker.exceptions.DockerError,
-                    IndexError, Exception):
-                results[name] = {}
-
-        await asyncio.gather(
-            *[_one_stat(n) for n in names], return_exceptions=True,
-        )
-        return results
-
-    # ---- 4. 容器操作（CRUD 异步化 — 替代 docker_manager.action_container） ----
+    # ---- 3. 容器操作（CRUD 异步化 — 替代 docker_manager.action_container） ----
 
     async def action_container(self, name: str, action: str) -> bool:
         """异步执行容器操作（start/stop/restart/pause/unpause/kill/delete）。"""

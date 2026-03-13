@@ -5,7 +5,7 @@ import {
     FormControlLabel, Checkbox, Pagination, InputAdornment, CircularProgress
 } from '@mui/material';
 import { useNavigate, useOutletContext } from 'react-router-dom';
-import { containerApi, nodeApi, imageApi, type Container, type ContainerStats, type Node, type CreateContainerRequest, type DockerImage } from '../services/api';
+import { containerApi, nodeApi, imageApi, type Container, type Node, type CreateContainerRequest, type DockerImage } from '../services/api';
 import { useToast } from '../components/Toast';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
@@ -28,8 +28,6 @@ export default function Dashboard() {
     const [loading, setLoading] = useState(true);
     const [nodes, setNodes] = useState<Node[]>([]);
     const [selectedNode, setSelectedNode] = useState('local');
-    // Stats 独立存储（CPU/内存等重量级数据，低频 HTTP 获取）
-    const [statsMap, setStatsMap] = useState<Record<string, ContainerStats>>({});
 
     // 批量操作状态
     const [isBatchMode, setIsBatchMode] = useState(false);
@@ -154,20 +152,7 @@ export default function Dashboard() {
         }
     }, [context]);
 
-    // Stats 低频轮询（15s）— CPU/内存等重量级数据独立获取
-    const fetchStats = useCallback(async () => {
-        const hasRunning = containers.some(c => c.status === 'running');
-        if (!hasRunning) return;
-        try {
-            const batchData = await containerApi.getBatchStats();
-            setStatsMap(batchData.stats || {});
-        } catch {
-            // batch stats 失败不影响容器列表显示
-        }
-    }, [containers]);
-
     useEffect(() => {
-        fetchStats(); // 首次加载 stats
         fetchNodes();
 
         // Handle initial node selection from URL
@@ -188,31 +173,6 @@ export default function Dashboard() {
         }
         window.history.replaceState({}, '', url.toString());
     }, [selectedNode]);
-
-    // Stats 20s 轮询（页面可见时才跑，配合后端 15s 缓存周期）
-    useEffect(() => {
-        let interval: ReturnType<typeof setInterval>;
-        const startPolling = () => {
-            interval = setInterval(fetchStats, 20000);
-        };
-        const stopPolling = () => {
-            clearInterval(interval);
-        };
-        const handleVisibility = () => {
-            if (document.visibilityState === 'visible') {
-                fetchStats();
-                startPolling();
-            } else {
-                stopPolling();
-            }
-        };
-        startPolling();
-        document.addEventListener('visibilitychange', handleVisibility);
-        return () => {
-            stopPolling();
-            document.removeEventListener('visibilitychange', handleVisibility);
-        };
-    }, [fetchStats]);
 
     const handleAction = async (e: React.MouseEvent, name: string, action: string, node_id: string = 'local') => {
         if (e) e.stopPropagation();
@@ -318,7 +278,7 @@ export default function Dashboard() {
                             {t('admin.batchOps')}
                         </Button>
                     )}
-                    <IconButton onClick={() => { fetchContainers(); fetchStats(); }} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, height: 38, width: 38, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff' }}>
+                    <IconButton onClick={() => { fetchContainers(); }} sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: 2, height: 38, width: 38, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff' }}>
                         <RefreshIcon fontSize="small" />
                     </IconButton>
                     <Button variant="contained" onClick={openCreateDialog} startIcon={<AddIcon />} sx={{ borderRadius: 2, background: '#2563eb', height: 38, px: 3, fontSize: '0.875rem', whiteSpace: 'nowrap', boxShadow: 'none', '&:hover': { background: '#1d4ed8', boxShadow: 'none' } }}>
@@ -388,7 +348,7 @@ export default function Dashboard() {
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         {(() => {
-                                            const uin = c.uin || statsMap[c.name]?.uin;
+                                            const uin = c.uin;
                                             return uin && uin !== '未登录 / Not Logged In' ? (
                                                 <Box component="img" src={`https://q1.qlogo.cn/g?b=qq&nk=${String(uin).replace(/\D/g, '')}&s=640`} sx={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
                                             ) : (
@@ -414,11 +374,6 @@ export default function Dashboard() {
                                 </Box>
                                 <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5, color: 'text.primary' }} noWrap>{highlight(c.name)}</Typography>
                                 <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>ID: {c.id}</Typography>
-                                {statsMap[c.name] && statsMap[c.name].cpu_percent != null && c.status === 'running' && (
-                                    <Typography variant="caption" sx={{ mt: 0.5, display: 'block', color: 'text.secondary', fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                                        CPU {(statsMap[c.name].cpu_percent ?? 0).toFixed(1)}% · {t('admin.memory')} {statsMap[c.name].mem_usage ?? 0}MB{(statsMap[c.name].mem_limit ?? 0) > 0 ? `/${statsMap[c.name].mem_limit}MB` : ''}
-                                    </Typography>
-                                )}
                             </Box>
 
                             {!isBatchMode && (() => {
