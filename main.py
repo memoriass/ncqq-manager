@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI):
 
     # 加载运行时配置（从 SQLite settings 表）
     from services.config import app_config
-    app_config.load_runtime()
+    app_config.load_runtime_once()
 
     # 仅在已完成初始化设置时才确保默认管理员存在
     # 首次部署时由 /api/setup/init 端点创建管理员

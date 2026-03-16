@@ -21,11 +21,13 @@
 │   ├── scheduler_router.py
 │   ├── user_router.py
 │   └── ws_router.py
-└── services/
-    ├── cluster_manager.py
-    ├── database.py
-    ├── operation_log_context.py
-    ├── operation_logger.py
-    ├── scheduler.py
-    └── ws_manager.py
+├── services/
+│   ├── cluster_manager.py
+│   ├── config.py
+│   ├── database.py
+│   ├── operation_log_context.py
+│   ├── operation_logger.py
+│   ├── scheduler.py
+│   └── ws_manager.py
+└── main.py
 

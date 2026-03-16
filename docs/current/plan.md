@@ -11,6 +11,9 @@ Updated: 2026-03-16T04:49:05Z
 - retrieval.hit.6: docs/current/优化说明文档.md:376 scheduler-missing-reentry-protection-and-result-recording
 - retrieval.hit.7: services/scheduler.py:103 scheduler-check-and-run-without-running-set
 - retrieval.hit.8: routers/scheduler_router.py:30 scheduler-list-route-returns-task-fields
+- retrieval.hit.9: docs/current/优化说明文档.md:608 config-reload-semantics-gap
+- retrieval.hit.10: services/config.py:88 load-runtime-once-only-and-reload-noop-risk
+- retrieval.hit.11: main.py:58 lifespan-load-runtime-callsite
 - example.status: code-examples/ not found; aligned to existing same-layer implementation
 
 ## AffectedFiles
@@ -23,6 +26,8 @@ Updated: 2026-03-16T04:49:05Z
 - services/ws_manager.py:can_accept/connect_if_available/broadcast L24-L56 ~±22
 - routers/ws_router.py:_build_public_version/ws_public L40-L209 ~±20
 - services/scheduler.py:_init_table/_record_result/_check_and_run/_execute/_do_backup/_prune_auto_backups/_parse L20-L210 ~±85
+- services/config.py:_load_runtime_from_db/load_runtime_once/reload_runtime/load_runtime/reload/source_matrix L88-L164 ~±45
+- main.py:lifespan uses load_runtime_once L58-L60 ~±1
 - docs/current/overview.md:update sections
 - docs/current/plan.md:update sections
 - docs/current/task.md:append log entries
@@ -40,6 +45,7 @@ Updated: 2026-03-16T04:49:05Z
 ## Commands
 - python-check-ws: python -m py_compile services/ws_manager.py routers/ws_router.py
 - python-check-scheduler: python -m py_compile services/scheduler.py services/database.py routers/scheduler_router.py
+- python-check-config: python -m py_compile services/config.py main.py
 - diagnostics: IDE diagnostics on changed files and batchB files
 - frontend-build: user-confirmed npm run build completed for batchB
 
@@ -51,7 +57,8 @@ Updated: 2026-03-16T04:49:05Z
 - batchB.operation_logs_query: completed and documented
 - batchC.ws_manager: completed code changes and verified by py_compile + diagnostics
 - batchC.scheduler: completed code changes and verified by py_compile + diagnostics
-- batchC.config_reload: queued services/config.py reload semantics
+- batchC.config_reload: completed code changes and verified by py_compile + diagnostics
+- batchC.frontend_split: queued frontend/src/services/api.ts and frontend/src/pages/OperationLogs.tsx structural split
 
 ## Checkpoints
 - cp1: services/operation_logger.py returns logs + pagination + filters structure
@@ -62,7 +69,9 @@ Updated: 2026-03-16T04:49:05Z
 - cp6: routers/ws_router.py public updates compare (sub_page, sub_page_size, tick) instead of hashing payload
 - cp7: services/scheduler.py guards reentry with _running_tasks and records last_result/last_error/run_count
 - cp8: services/scheduler.py wraps task execution in timeout and prunes auto backup count
+- cp9: services/config.py separates load_runtime_once and reload_runtime and makes reload perform actual refresh
+- cp10: services/config.py exposes bootstrap/runtime source matrix metadata
 
 ## Rollback
-- command: git restore services/operation_logger.py services/database.py routers/operation_logs_router.py frontend/src/services/api.ts frontend/src/pages/OperationLogs.tsx frontend/src/i18n.ts services/ws_manager.py routers/ws_router.py services/scheduler.py routers/scheduler_router.py docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md
+- command: git restore services/operation_logger.py services/database.py routers/operation_logs_router.py frontend/src/services/api.ts frontend/src/pages/OperationLogs.tsx frontend/src/i18n.ts services/ws_manager.py routers/ws_router.py services/scheduler.py routers/scheduler_router.py services/config.py main.py docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md
 

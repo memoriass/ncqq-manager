@@ -35,6 +35,12 @@ Updated: 2026-03-16T04:49:05Z
   - create_task(req: TaskRequest, session: dict = Depends(require_admin)) -> dict
   - update_task(task_id: str, req: TaskUpdate, session: dict = Depends(require_admin)) -> dict
   - delete_task(task_id: str, session: dict = Depends(require_admin)) -> dict
+- services/config.py
+  - load_runtime_once() -> None
+  - reload_runtime() -> None
+  - load_runtime() -> None
+  - reload() -> None
+  - source_matrix() -> dict[str, tuple[str, ...]]
 - routers/user_router.py
   - api_create_user(req: UserCreateRequest, request: Request, session: dict) -> dict
   - api_edit_user(user_uuid: str, req: UserEditRequest, request: Request, session: dict) -> dict

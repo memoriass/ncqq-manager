@@ -346,3 +346,90 @@ Updated: 2025-02-14T00:00:00Z
       fact: next remaining queued optimization is services/config.py reload semantics convergence
       impact: optimization work can continue without revisiting completed ws or scheduler batches
       next: inspect services/config.py load_runtime/reload behavior and update docs accordingly
+
+- ts: 2026-03-16T04:49:05Z
+  phase: intake
+  evidence:
+    - docs/current/优化说明文档.md:608-623 config-reload-semantics-gap
+    - services/config.py:88-147 load-runtime-once-plus-noop-reload
+    - main.py:58-60 lifespan-runtime-load-callsite
+    - routers/node_router.py:34-45,96,171 runtime-config-read-write-call-sites
+- ts: 2026-03-16T04:49:05Z
+  phase: implement
+  target: services/config.py,main.py
+  changes:
+    - services/config.py extracts _load_runtime_from_db(persist_missing_defaults)
+    - services/config.py adds load_runtime_once() for startup-only runtime hydration
+    - services/config.py adds reload_runtime() for forced in-memory refresh from SQLite
+    - services/config.py keeps load_runtime() as compatibility alias to load_runtime_once()
+    - services/config.py reload() now always performs bootstrap reload plus runtime refresh when called
+    - services/config.py exposes bootstrap_keys/runtime_keys/source_matrix metadata for source-boundary documentation
+    - main.py lifespan startup switches to app_config.load_runtime_once()
+  evidence:
+    - services/config.py:88-117 load-runtime-once-and-reload-runtime
+    - services/config.py:147-164 source-matrix-and-real-reload
+    - main.py:58-60 startup-load-runtime-once
+- ts: 2026-03-16T04:49:05Z
+  phase: verify
+  commands:
+    - python -m py_compile services/config.py main.py => pass
+    - diagnostics services/config.py main.py => pass
+- ts: 2026-03-16T04:49:05Z
+  phase: remeber
+  items:
+    - label: intake.config.scope
+      fact: config reload cleanup stayed within services/config.py and main.py startup call site
+      impact: existing route-level get/set/update contracts remain stable while reload semantics become explicit
+      next: structural frontend split can proceed without config contract churn
+    - label: intake.config.example
+      fact: code-examples directory is still absent for config center work
+      impact: implementation followed in-repo AppConfig API style and current startup ordering in main.py
+      next: keep documenting source boundaries in current rolling docs
+    - label: intake.config.risk
+      fact: reload_runtime now reads from SQLite without re-persisting defaults
+      impact: forced refresh will not overwrite externally modified settings during reload
+      next: add version/event hooks only if multi-process config writers appear later
+    - label: exec.config.reload
+      fact: reload() now executes bootstrap json reload plus actual runtime refresh instead of calling a once-only loader
+      impact: callers no longer get false confidence from a noop reload path
+      next: use reload() rather than manual bootstrap/db reads if future admin endpoint is added
+    - label: exec.config.boundary
+      fact: source_matrix/bootstrap_keys/runtime_keys now expose config-source ownership in code
+      impact: bootstrap/runtime field boundaries are inspectable and easier to document accurately
+      next: surface matrix in docs or health endpoint if operators need runtime introspection
+    - label: exec.config.startup
+      fact: main.py now calls load_runtime_once() explicitly during lifespan startup
+      impact: startup semantics are self-descriptive and no longer rely on ambiguous load_runtime naming
+      next: migrate any future startup call sites to the explicit method names
+    - label: verify.config.syntax
+      fact: py_compile passed for services/config.py and main.py
+      impact: config-center semantic cleanup is syntax-safe
+      next: preserve compile gate during next structural split batch
+    - label: verify.config.ide
+      fact: diagnostics returned no issues for services/config.py and main.py
+      impact: incremental static gate remains green after config changes
+      next: continue to frontend structural split with same gate discipline
+    - label: docs.config.plan
+      fact: rolling docs were updated to mark batchC.config_reload complete and queue frontend split next
+      impact: current documentation matches actual remaining scope
+      next: append frontend split records rather than editing completed config history
+    - label: summary.1
+      fact: config center now distinguishes one-time runtime load and forced runtime reload in code
+      impact: reload semantics match method names and optimization document requirements
+      next: add admin-triggered reload only if there is a real operator workflow
+    - label: summary.2
+      fact: compatibility method load_runtime() remains available and delegates to load_runtime_once()
+      impact: existing callers are preserved while new code can use explicit APIs
+      next: gradually migrate old callers to explicit names when touching those files
+    - label: summary.3
+      fact: source boundary metadata is now available without creating duplicate documentation files
+      impact: bootstrap/runtime ownership can be reused by docs and debugging tools
+      next: include matrix in future interface refresh if config fields expand
+    - label: summary.4
+      fact: batchC ws_manager, scheduler, and config_reload items are all completed and documented
+      impact: remaining work moves from backend stability into structural refactor batches
+      next: start frontend api.ts/OperationLogs.tsx split if user continues
+    - label: summary.5
+      fact: next remaining queued optimization is frontend/src/services/api.ts and frontend/src/pages/OperationLogs.tsx structural split
+      impact: subsequent work will primarily be frontend/module organization rather than backend semantics
+      next: inspect current OperationLogs.tsx extraction seams and api.ts domain boundaries
