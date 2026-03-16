@@ -1,6 +1,6 @@
 # INTERFACE
 
-Updated: 2026-03-16T10:20:55Z
+Updated: 2026-03-16T22:20:33+08:00
 
 - services/operation_log_context.py
   - build_operator_payload(request: Request | None, session: dict, extra: dict[str, Any] | None = None) -> dict[str, Any]
@@ -80,4 +80,27 @@ Updated: 2026-03-16T10:20:55Z
   - _validate_zip_members(zipf: zipfile.ZipFile) -> None
   - api_backup_download(request: Request, session: dict) -> FileResponse
   - api_restore_backup(request: Request, file: UploadFile, session: dict) -> dict
+- routers/container_public_router.py
+  - api_public_containers() -> dict
+  - api_batch_qr_status() -> dict
+  - api_paged_containers(page: int = 1, page_size: int = 20, status: str | None = None, keyword: str | None = None) -> dict
+- routers/container_config_router.py
+  - class ConfigRequest(BaseModel)
+  - read_container_config(name: str, filename: str, session: dict = Depends(get_current_user)) -> dict
+  - save_container_config(name: str, filename: str, req: ConfigRequest, request: Request | None = None, session: dict = Depends(get_current_user)) -> dict
+  - list_container_files(name: str, path: str = "", session: dict = Depends(get_current_user)) -> dict
+- routers/container_crud_router.py
+  - class CreateRequest(BaseModel)
+  - api_list_containers(session: dict = Depends(get_current_user)) -> dict
+  - api_create_container(req: CreateRequest, request: Request, session: dict = Depends(require_admin)) -> dict
+  - api_inject_ws_client(name: str, uin: str = "default", session: dict = Depends(get_current_user)) -> dict
+- routers/container_runtime_router.py
+  - class ContainerAction(str, Enum)
+  - api_container_action(name: str, action: ContainerAction, node_id: str = "local", delete_data: bool = False, request: Request | None = None, session: dict = Depends(get_current_user)) -> dict
+  - get_container_stats(name: str, node_id: str = "local", session: dict = Depends(get_current_user)) -> dict
+  - get_container_logs(name: str, lines: int = 100, node_id: str = "local", session: dict = Depends(get_current_user)) -> dict
+  - download_container_logs(name: str, lines: int = 2000, node_id: str = "local", session: dict = Depends(get_current_user)) -> PlainTextResponse
+  - get_qr_code(name: str, node_id: str = "local") -> dict
+  - refresh_login_status(name: str, node_id: str = "local", session: dict = Depends(get_current_user)) -> dict
+  - receive_login_event(request: Request) -> dict
 
