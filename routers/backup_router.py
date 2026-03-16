@@ -6,9 +6,11 @@ import time
 import shutil
 import tempfile
 import zipfile
+from pathlib import PurePosixPath
 
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 
 from middleware.auth import require_admin
 from services.config import CONFIG_DIR, DATA_DIR
@@ -18,6 +20,8 @@ from services.log import logger
 router = APIRouter(prefix="/api", tags=["backup"])
 
 _MAX_UPLOAD_SIZE = 200 * 1024 * 1024  # 200 MB
+_ALLOWED_BACKUP_ROOTS = {"config", "data"}
+_CHUNK_SIZE = 1024 * 1024
 
 
 def _get_dir_size(path: str) -> int:
@@ -32,6 +36,26 @@ def _get_dir_size(path: str) -> int:
     except Exception:
         pass
     return total
+
+
+def _cleanup_file(path: str) -> None:
+    if path and os.path.exists(path):
+        os.remove(path)
+
+
+def _validate_zip_members(zipf: zipfile.ZipFile) -> None:
+    total_uncompressed = 0
+    for info in zipf.infolist():
+        entry = PurePosixPath(info.filename)
+        if entry.is_absolute() or ".." in entry.parts:
+            raise HTTPException(status_code=400, detail=f"Invalid zip entry: {info.filename}")
+        if not entry.parts:
+            continue
+        if entry.parts[0] not in _ALLOWED_BACKUP_ROOTS:
+            raise HTTPException(status_code=400, detail=f"Unexpected zip root: {info.filename}")
+        total_uncompressed += max(info.file_size, 0)
+        if total_uncompressed > _MAX_UPLOAD_SIZE:
+            raise HTTPException(status_code=400, detail="Zip content too large after extraction")
 
 
 @router.get("/backup/download")
@@ -72,6 +96,7 @@ async def download_backup(request: Request, session: dict = Depends(require_admi
             path=tmp_path,
             filename=f"napcat_backup_{ts}.zip",
             media_type="application/zip",
+            background=BackgroundTask(_cleanup_file, tmp_path),
         )
     except Exception as e:
         logger.error(f"创建备份失败: {e}")
@@ -95,19 +120,25 @@ async def upload_backup(
     if content_length and int(content_length) > _MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {_MAX_UPLOAD_SIZE // (1024*1024)} MB.")
 
-    content = await file.read()
-    if len(content) > _MAX_UPLOAD_SIZE:
-        raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {_MAX_UPLOAD_SIZE // (1024*1024)} MB.")
-    if len(content) < 100:
-        raise HTTPException(status_code=400, detail="File too small to be a valid backup")
-
-    # 保存上传的文件到临时位置
-    ts = time.strftime("%Y%m%d_%H%M%S")
-    tmp_upload = os.path.join(tempfile.gettempdir(), f"upload_{ts}.zip")
+    tmp_upload = ""
+    backup_base = ""
 
     try:
-        with open(tmp_upload, "wb") as f:
-            f.write(content)
+        size = 0
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        tmp_upload = os.path.join(tempfile.gettempdir(), f"upload_{ts}.zip")
+        with open(tmp_upload, "wb") as tmp_file:
+            while True:
+                chunk = await file.read(_CHUNK_SIZE)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > _MAX_UPLOAD_SIZE:
+                    raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {_MAX_UPLOAD_SIZE // (1024*1024)} MB.")
+                tmp_file.write(chunk)
+
+        if size < 100:
+            raise HTTPException(status_code=400, detail="File too small to be a valid backup")
 
         # 验证 zip 文件
         if not zipfile.is_zipfile(tmp_upload):
@@ -129,10 +160,8 @@ async def upload_backup(
 
         # 解压并恢复
         with zipfile.ZipFile(tmp_upload, 'r') as zipf:
-            # 获取基础目录
+            _validate_zip_members(zipf)
             base_dir = os.path.dirname(CONFIG_DIR)
-
-            # 解压所有文件
             zipf.extractall(base_dir)
 
         operation_logger.info("backup_restore", {

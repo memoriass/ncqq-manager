@@ -10,6 +10,7 @@ from typing import Optional
 from middleware.auth import require_admin, get_current_user, remove_user_tokens
 from services.user_manager import user_manager
 from services.operation_logger import operation_logger
+from services.operation_log_context import build_operator_payload
 
 router = APIRouter(prefix="/api", tags=["users"])
 
@@ -51,12 +52,14 @@ async def api_create_user(
     user = user_manager.create_user(req.username, req.password, req.permission)
     if not user:
         raise HTTPException(status_code=400, detail="Username already exists")
-    operation_logger.info("user_create", {
-        "operator_ip": request.client.host if request.client else "unknown",
-        "operator_name": session["userName"],
-        "operator_uuid": session.get("uuid"),
-        "target_user_name": req.username,
-    })
+    operation_logger.info(
+        "user_create",
+        build_operator_payload(
+            request,
+            session,
+            {"target_user_name": req.username},
+        ),
+    )
     return {"status": "ok", "uuid": user["uuid"], "userName": user["userName"]}
 
 
@@ -73,12 +76,14 @@ async def api_edit_user(
     )
     if not success:
         raise HTTPException(status_code=400, detail="Edit failed")
-    operation_logger.info("user_edit", {
-        "operator_ip": request.client.host if request.client else "unknown",
-        "operator_name": session["userName"],
-        "operator_uuid": session.get("uuid"),
-        "target_user_uuid": user_uuid,
-    })
+    operation_logger.info(
+        "user_edit",
+        build_operator_payload(
+            request,
+            session,
+            {"target_user_uuid": user_uuid},
+        ),
+    )
     return {"status": "ok"}
 
 
@@ -94,32 +99,59 @@ async def api_delete_user(
         raise HTTPException(status_code=404, detail="User not found")
     # 清除该用户的所有活跃 token
     remove_user_tokens(user_uuid)
-    operation_logger.warning("user_delete", {
-        "operator_ip": request.client.host if request.client else "unknown",
-        "operator_name": session["userName"],
-        "operator_uuid": session.get("uuid"),
-        "target_user_name": target_user["userName"] if target_user else "Unknown",
-    })
+    operation_logger.warning(
+        "user_delete",
+        build_operator_payload(
+            request,
+            session,
+            {
+                "target_user_name": target_user["userName"] if target_user else "Unknown",
+            },
+        ),
+    )
     return {"status": "ok"}
 
 
 @router.put("/users/{user_uuid}/instances")
 async def api_assign_instances(
-    user_uuid: str, req: UserInstancesRequest,
+    user_uuid: str, req: UserInstancesRequest, request: Request,
     session: dict = Depends(require_admin),
 ):
     if not user_manager.assign_instances(user_uuid, req.instances):
         raise HTTPException(status_code=404, detail="User not found")
+    operation_logger.info(
+        "user_assign_instances",
+        build_operator_payload(
+            request,
+            session,
+            {
+                "target_user_uuid": user_uuid,
+                "instance_count": len(req.instances),
+                "instances": req.instances,
+            },
+        ),
+    )
     return {"status": "ok"}
 
 
 @router.put("/users/{user_uuid}/apikey")
 async def api_regenerate_apikey(
-    user_uuid: str,
+    user_uuid: str, request: Request,
     session: dict = Depends(require_admin),
 ):
     new_key = uuid_mod.uuid4().hex
     if not user_manager.edit_user(user_uuid, apiKey=new_key):
         raise HTTPException(status_code=404, detail="User not found")
+    operation_logger.info(
+        "user_regenerate_apikey",
+        build_operator_payload(
+            request,
+            session,
+            {
+                "target_user_uuid": user_uuid,
+                "api_key_regenerated": True,
+            },
+        ),
+    )
     return {"status": "ok", "apiKey": new_key}
 

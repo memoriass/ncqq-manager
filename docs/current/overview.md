@@ -1,23 +1,21 @@
 # Overview
 
-Updated: 2025-02-14T00:00:00Z
+Updated: 2025-02-14T00:20:00Z
 
 ## Goal
-- scope: security-baseline-fixes-from-优化说明文档.md-latest-annotations
-- modules: main.py,middleware/auth.py,routers/container_router.py,routers/ws_router.py,frontend/src/hooks/useWebSocket.ts,BotShepherd/app/web_api/web_server.py
+- scope: batchA-audit-baseline-from-优化说明文档.md-latest-annotations
+- modules: routers/backup_router.py,services/operation_log_context.py,routers/user_router.py,routers/node_router.py,services/cluster_manager.py
 
 ## KPI
-- cors_wildcard_with_credentials: 0
-- api_key_query_channel: 0
-- websocket_token_query_channel: 0
-- session_permission_sync_window_seconds: <=300
-- blocked_env_var_injection: enabled
-- container_action_route_enum: enabled
-- botshepherd_secret_key_hardcoded: 0
+- backup_zip_entry_validation: enabled
+- backup_chunked_upload: enabled
+- backup_tmp_cleanup: enabled
+- operation_log_context_helper: enabled
+- user_router_missing_audit_endpoints: 0
+- node_router_missing_audit_endpoints: 0
+- node_router_private_proxy_call_sites: 0
 
 ## Rollback
-- python: git restore main.py middleware/auth.py routers/container_router.py routers/ws_router.py
-- frontend: git restore frontend/src/hooks/useWebSocket.ts
-- botshepherd: git restore BotShepherd/app/web_api/web_server.py
+- python: git restore routers/backup_router.py services/operation_log_context.py routers/user_router.py routers/node_router.py services/cluster_manager.py
 - docs: git restore docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md
 

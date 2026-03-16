@@ -11,6 +11,7 @@ from middleware.auth import get_current_user, require_admin
 from services.cluster_manager import cluster_manager
 from services.config import app_config, APP_VERSION
 from services.operation_logger import operation_logger
+from services.operation_log_context import build_operator_payload
 
 router = APIRouter(prefix="/api", tags=["nodes"])
 
@@ -93,6 +94,17 @@ async def save_cluster_config(
             raise HTTPException(status_code=400, detail="docker_image must be a non-empty string")
 
     app_config.update(updates)
+    operation_logger.info(
+        "cluster_config_save",
+        build_operator_payload(
+            request,
+            session,
+            {
+                "updated_keys": sorted(updates.keys()),
+                "updated_count": len(updates),
+            },
+        ),
+    )
     return {"status": "ok"}
 
 
@@ -134,23 +146,42 @@ async def api_add_node(
 ):
     new_id = "node-" + uuid_mod.uuid4().hex[:8]
     cluster_manager.add_node(new_id, req.name, req.address, req.api_key)
-    operation_logger.info("node_add", {
-        "operator_name": session["userName"],
-        "operator_uuid": session.get("uuid"),
-        "node_name": req.name,
-        "node_address": req.address,
-    })
+    operation_logger.info(
+        "node_add",
+        build_operator_payload(
+            request,
+            session,
+            {
+                "node_name": req.name,
+                "node_address": req.address,
+                "node_id": new_id,
+            },
+        ),
+    )
     return {"status": "ok", "node_id": new_id}
 
 
 @router.put("/nodes/{node_id}")
 async def api_edit_node(
-    node_id: str, req: NodeRequest,
+    node_id: str, req: NodeRequest, request: Request,
     session: dict = Depends(require_admin),
 ):
     cluster_manager.update_node(node_id, req.name, req.address, req.api_key or None)
     if node_id == "local" and req.api_key:
         app_config.set("api_key", req.api_key)
+    operation_logger.info(
+        "node_edit",
+        build_operator_payload(
+            request,
+            session,
+            {
+                "node_id": node_id,
+                "node_name": req.name,
+                "node_address": req.address,
+                "api_key_updated": bool(req.api_key),
+            },
+        ),
+    )
     return {"status": "ok"}
 
 
@@ -162,12 +193,17 @@ async def api_delete_node(
     nodes = cluster_manager.get_nodes()
     node = next((n for n in nodes if n["id"] == node_id), None)
     cluster_manager.delete_node(node_id)
-    operation_logger.warning("node_delete", {
-        "operator_name": session["userName"],
-        "operator_uuid": session.get("uuid"),
-        "node_id": node_id,
-        "node_name": node["name"] if node else "Unknown",
-    })
+    operation_logger.warning(
+        "node_delete",
+        build_operator_payload(
+            request,
+            session,
+            {
+                "node_id": node_id,
+                "node_name": node["name"] if node else "Unknown",
+            },
+        ),
+    )
     return {"status": "ok"}
 
 
@@ -192,7 +228,7 @@ async def get_node_logs(
         return {"status": "ok", "logs": _get_logs(lines)}
 
     # 远程节点：异步代理获取
-    code, body, _ = await cluster_manager._proxy_to_node_async(
+    code, body, _ = await cluster_manager.proxy_to_node_async(
         node_id, "GET", f"/api/node/logs?lines={lines}",
     )
     if code == 200 and body:
@@ -235,7 +271,7 @@ async def proxy_node_request(
     full_path = f"/api/{path}" + (f"?{qs}" if qs else "")
     body = await request.body()
 
-    code, resp_body, ct = await cluster_manager._proxy_to_node_async(
+    code, resp_body, ct = await cluster_manager.proxy_to_node_async(
         node_id, request.method, full_path,
         timeout=10.0, data=body if body else None,
     )

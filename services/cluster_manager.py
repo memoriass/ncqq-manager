@@ -249,6 +249,18 @@ class ClusterManager:
 
     # ============ 异步节点代理 ============
 
+    async def proxy_to_node_async(
+        self, node_id: str, method: str, path: str,
+        timeout: float = 5.0, **kwargs,
+    ) -> Tuple[int, Optional[bytes], str]:
+        return await self._proxy_to_node_async(
+            node_id,
+            method,
+            path,
+            timeout=timeout,
+            **kwargs,
+        )
+
     async def _proxy_to_node_async(
         self, node_id: str, method: str, path: str,
         timeout: float = 5.0, **kwargs

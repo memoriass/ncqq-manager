@@ -1,62 +1,53 @@
 # Plan
 
-Updated: 2025-02-14T00:00:00Z
+Updated: 2025-02-14T00:20:00Z
 
 ## Intake
-- retrieval.hit.1: routers/container_router.py:89 CreateRequest
-- retrieval.hit.2: routers/container_router.py:171 api_create_container
-- retrieval.hit.3: routers/container_router.py:296 api_container_action
-- retrieval.hit.4: middleware/auth.py:53 _validate_token
-- retrieval.hit.5: main.py:151 app.add_middleware(CORSMiddleware)
+- retrieval.hit.1: docs/current/优化说明文档.md:157 operation-log-context-guidance
+- retrieval.hit.2: routers/user_router.py:106 api_assign_instances
+- retrieval.hit.3: routers/node_router.py:56 save_cluster_config
+- retrieval.hit.4: services/cluster_manager.py:252 _proxy_to_node_async
 - example.status: code-examples/ not found; aligned to existing same-layer implementation
 
 ## AffectedFiles
-- main.py:CSRFMiddleware.dispatch L163-L177 ~±2
-- middleware/auth.py:_validate_token L53-L69 ~±28
-- middleware/auth.py:get_current_user L72-L105 ~±8
-- routers/container_router.py:CreateRequest L89-L100 ~±1
-- routers/container_router.py:_parse_env_vars new helper near L127-L156 ~+20
-- routers/container_router.py:api_create_container L235-L240 ~-4/+1
-- routers/container_router.py:api_container_action L296-L336 ~±10
-- routers/ws_router.py:_resolve_ws_token/ws_events/ws_container_logs L41-L97 ~-8
-- frontend/src/hooks/useWebSocket.ts:connect L41-L91 ~-12
-- BotShepherd/app/web_api/web_server.py:WebServer.__init__ L22-L37 ~±4
-- docs/current/overview.md:new
-- docs/current/plan.md:new
-- docs/current/task.md:new
-- docs/current/INTERFACE.md:new
-- docs/current/TREE.md:new
+- routers/backup_router.py:_validate_zip_members/api_backup_download/api_restore_backup L46-L183 ~±55
+- services/operation_log_context.py:build_operator_payload L10-L22 ~+22
+- routers/user_router.py:api_create_user/api_edit_user/api_delete_user/api_assign_instances/api_regenerate_apikey L47-L156 ~±55
+- routers/node_router.py:save_cluster_config/api_add_node/api_edit_node/api_delete_node/get_node_logs/proxy_node_request L57-L279 ~±70
+- services/cluster_manager.py:proxy_to_node_async L252-L262 ~+11
+- docs/current/overview.md:update sections
+- docs/current/plan.md:update sections
+- docs/current/task.md:append log entries
+- docs/current/INTERFACE.md:update signatures
+- docs/current/TREE.md:regenerate timestamp and paths
 
 ## Constraints
-- no_public_api_break_except_ws_query_token_removed: true
+- no_public_api_break_except_proxy_method_wrapper_added: true
 - no_test_files: true
 - function_max_lines_target: <=180
 - file_max_lines_target: <=800
 - cross_layer_dependency_change: 0
 
 ## Commands
-- python-check: python -m py_compile main.py middleware/auth.py routers/container_router.py routers/ws_router.py
-- frontend-build: npm run build
+- python-check: python -m py_compile services/operation_log_context.py routers/user_router.py routers/node_router.py services/cluster_manager.py
 - diagnostics: IDE diagnostics on changed files
 
-
 ## RemainingQueue
-- batchA.backup_router: routers/backup_router.py zip-entry whitelist + zip bomb precheck + chunked upload + tmp cleanup
-- batchA.operation_log_context: new helper for operator_name/operator_uuid/operator_ip
-- batchA.user_router_audit: routers/user_router.py instances/apikey audit
-- batchA.node_router_audit: routers/node_router.py cluster config + node edit audit + private proxy call cleanup
+- batchA.backup_router: completed code changes; pending broader batch verification
+- batchA.operation_log_context: completed helper and router integration
+- batchA.user_router_audit: completed instances/apikey audit
+- batchA.node_router_audit: completed cluster config + node edit audit + private proxy call cleanup
 - batchB.operation_logs_query: services/operation_logger.py + routers/operation_logs_router.py + frontend log page wiring
 - batchC.ws_manager: services/ws_manager.py lock-outside-send + routers/ws_router.py public count/hash optimization
 - batchC.scheduler: services/scheduler.py running_tasks + timeout + result fields + retention
 
 ## Checkpoints
-- cp1: main.py has no query_params.get("apikey") in CSRF middleware
-- cp2: middleware/auth.py has no query API key channel and has permission refresh path
-- cp3: routers/container_router.py validates env_vars and action enum
-- cp4: frontend/src/hooks/useWebSocket.ts contains no ?token=
-- cp5: routers/ws_router.py contains no Query(default="") token param
-- cp6: BotShepherd/app/web_api/web_server.py contains no hardcoded secret_key
+- cp1: services/operation_log_context.py provides build_operator_payload(request, session, extra)
+- cp2: routers/user_router.py logs instances/apikey mutations without API key plaintext in payload
+- cp3: routers/node_router.py logs cluster_config_save and node_edit
+- cp4: routers/node_router.py contains no cluster_manager._proxy_to_node_async call site
+- cp5: services/cluster_manager.py exposes proxy_to_node_async wrapper
 
 ## Rollback
-- command: git restore main.py middleware/auth.py routers/container_router.py routers/ws_router.py frontend/src/hooks/useWebSocket.ts BotShepherd/app/web_api/web_server.py docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md
+- command: git restore routers/backup_router.py services/operation_log_context.py routers/user_router.py routers/node_router.py services/cluster_manager.py docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md
 
