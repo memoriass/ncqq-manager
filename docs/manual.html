@@ -95,7 +95,7 @@ th { background: var(--code-bg); font-weight: 600; }
 <!-- HEADER -->
 <div class="header">
     <button class="btn-menu" onclick="toggleSidebar()" aria-label="菜单">☰</button>
-    <div class="header-logo">NapCat Manager <span>v2.1 使用手册</span></div>
+    <div class="header-logo">NapCat Manager <span>v2.2 使用手册</span></div>
     <div class="header-actions">
         <button class="btn-theme" onclick="toggleTheme()" id="themeBtn">🌙 暗色</button>
     </div>
@@ -120,6 +120,8 @@ th { background: var(--code-bg); font-weight: 600; }
         <a class="sidebar-link" href="#" onclick="showSection('alerts')">🔔 告警设置</a>
         <a class="sidebar-link" href="#" onclick="showSection('backup')">💾 备份恢复</a>
         <a class="sidebar-link" href="#" onclick="showSection('scheduler')">⏰ 定时任务</a>
+        <a class="sidebar-link" href="#" onclick="showSection('images')">🐋 镜像管理</a>
+        <a class="sidebar-link" href="#" onclick="showSection('botshepherd')">🐑 BotShepherd</a>
     </div>
     <div class="sidebar-group">
         <div class="sidebar-title">高级</div>
@@ -153,6 +155,9 @@ th { background: var(--code-bg); font-weight: 600; }
 <li><strong>操作日志</strong> — 全链路操作审计记录</li>
 <li><strong>安全防护</strong> — CSRF/SSRF 防护、IP 封禁、随机初始密码</li>
 <li><strong>中英双语</strong> — 完整的国际化支持</li>
+<li><strong>镜像管理</strong> — 列出/拉取/删除本地 Docker 镜像</li>
+<li><strong>BotShepherd 集成</strong> — 内置 OneBot v11 WS 代理，一键初始化和管理</li>
+<li><strong>壁纸资源</strong> — 用户面板自动发现横竖版壁纸</li>
 </ul>
 </div>
 
@@ -489,6 +494,7 @@ python start.py --dev</code></pre>
 <tr><td><code>high_cpu</code></td><td>CPU 使用率超过阈值时触发</td></tr>
 <tr><td><code>high_mem</code></td><td>内存使用率超过阈值时触发</td></tr>
 <tr><td><code>login_failure</code></td><td>QQ 登录失败时触发</td></tr>
+<tr><td><code>instance_offline</code></td><td>容器实例从运行中变为离线时触发（支持按容器名和节点过滤）</td></tr>
 </table>
 
 <h2>允许所有 IP 访问</h2>
@@ -538,6 +544,75 @@ python start.py --dev</code></pre>
 </ul>
 </div>
 
+<!-- ====== 镜像管理 ====== -->
+<div class="section" id="sec-images">
+<h1>镜像管理</h1>
+<p>镜像管理页面允许管理员管理本地 Docker 镜像，包括查看、拉取和删除操作。</p>
+
+<h2>功能说明</h2>
+<table>
+<tr><th>操作</th><th>说明</th></tr>
+<tr><td><strong>查看镜像</strong></td><td>列出本地所有 Docker 镜像，显示名称、标签、大小和创建时间</td></tr>
+<tr><td><strong>拉取镜像</strong></td><td>输入镜像名称（如 <code>mlikiowa/napcat-docker:latest</code>）从 Docker Hub 拉取</td></tr>
+<tr><td><strong>删除镜像</strong></td><td>删除不再使用的本地镜像，支持强制删除</td></tr>
+</table>
+
+<div class="tip">创建容器时使用的默认镜像可在集群设置中的 <code>docker_image</code> 参数中配置。</div>
+<div class="warning">删除正在被容器使用的镜像需要先停止并删除相关容器，或使用强制删除选项。</div>
+</div>
+
+<!-- ====== BotShepherd ====== -->
+<div class="section" id="sec-botshepherd">
+<h1>BotShepherd 集成</h1>
+<p>BotShepherd 是一个嵌入式 OneBot v11 协议 WebSocket 代理与管理系统，已集成到 NapCat Manager 中。它统一管理多个 Bot 实例的连接，实现一对多的连接分发、消息统计和跨框架黑名单管理。</p>
+
+<div class="card">
+<h3>🐑 核心能力</h3>
+<ul>
+<li><strong>连接代理</strong> — 一个 QQ 账号只需一个 WS 连接接入，即可自由连接到多个下游框架（Nonebot/Yunzai/AstrBot/Koishi 等）</li>
+<li><strong>消息统计</strong> — 每个账号独立的消息量统计与趋势分析</li>
+<li><strong>跨框架黑名单</strong> — 一处拉黑，所有框架生效</li>
+<li><strong>指令别名</strong> — 按 Bot/群/全局维度设置指令别名，不同 Bot 可使用不同别名区分业务</li>
+<li><strong>群组过滤</strong> — 群管理员可通过过滤词自助禁用指令</li>
+<li><strong>触发指令</strong> — 主人在群里可代替其他用户执行指令，支持 at</li>
+</ul>
+</div>
+
+<h2>使用流程</h2>
+<ol>
+<li>在管理面板左侧菜单进入 <strong>BotShepherd</strong> 页面</li>
+<li>首次使用需点击「初始化」按钮，系统会自动安装依赖并创建配置</li>
+<li>初始化完成后点击「启动」按钮启动 BotShepherd 服务</li>
+<li>通过「连接管理」配置上游（NapCat）和下游（框架）的 WebSocket 连接</li>
+<li>通过「账号管理」管理 QQ 账号的配置和在线状态</li>
+</ol>
+
+<h2>连接管理</h2>
+<p>连接是 BotShepherd 的核心概念，定义了消息在 NapCat 和下游框架之间的路由关系。</p>
+<table>
+<tr><th>操作</th><th>说明</th></tr>
+<tr><td>查看连接</td><td>列出所有已配置的 WebSocket 连接及其状态</td></tr>
+<tr><td>编辑连接</td><td>修改连接地址、Token 等参数</td></tr>
+<tr><td>复制连接</td><td>基于已有连接快速创建新连接</td></tr>
+<tr><td>删除连接</td><td>移除不再需要的连接配置</td></tr>
+</table>
+
+<h2>账号管理</h2>
+<table>
+<tr><th>操作</th><th>说明</th></tr>
+<tr><td>查看账号</td><td>列出所有已注册的 QQ 账号及配置</td></tr>
+<tr><td>编辑账号</td><td>修改账号的黑名单、群组过滤、别名等设置</td></tr>
+<tr><td>在线检测</td><td>检查账号当前的在线状态</td></tr>
+<tr><td>删除账号</td><td>从 BotShepherd 中移除账号</td></tr>
+</table>
+
+<h2>日志查看</h2>
+<p>BotShepherd 页面底部可查看进程控制台输出（最近 100-500 行），用于排查连接和消息转发问题。</p>
+
+<div class="tip">BotShepherd 默认监听端口 5100，可在其配置文件中修改。启动后的 Web 管理界面可通过 <code>http://localhost:5100</code> 直接访问。</div>
+<div class="warning">BotShepherd 作为子进程随 NapCat Manager 一起启动和停止。如需独立运行，请进入 <code>botshepherd/</code> 目录手动启动。</div>
+</div>
+
 <!-- ====== API 接口 ====== -->
 <div class="section" id="sec-api">
 <h1>API 接口</h1>
@@ -569,6 +644,16 @@ curl http://localhost:8000/api/containers?apikey=YOUR_API_KEY</code></pre>
 <tr><td><code>GET</code></td><td><code>/api/operation_logs</code></td><td>操作审计日志</td><td>管理员</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/backup/download</code></td><td>下载数据库备份</td><td>管理员</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/scheduler/tasks</code></td><td>定时任务列表</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/images</code></td><td>本地 Docker 镜像列表</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/images/pull</code></td><td>拉取 Docker 镜像</td><td>管理员</td></tr>
+<tr><td><code>DELETE</code></td><td><code>/api/images/{image_id}</code></td><td>删除本地镜像</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/botshepherd/status</code></td><td>BotShepherd 运行状态</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/botshepherd/setup</code></td><td>初始化 BotShepherd</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/botshepherd/start</code></td><td>启动 BotShepherd</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/botshepherd/stop</code></td><td>停止 BotShepherd</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/botshepherd/connections</code></td><td>连接列表</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/botshepherd/accounts</code></td><td>账号列表</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/resource/wallpapers</code></td><td>壁纸资源列表</td><td>无需</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/auth/login</code></td><td>登录</td><td>无需</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/health</code></td><td>健康检查</td><td>无需</td></tr>
 </table>
@@ -752,7 +837,20 @@ server {
 <tr><td><code>config/config.json</code></td><td>启动引导配置（initialized / host / port）</td></tr>
 <tr><td><code>config/app.db</code></td><td>SQLite 数据库（用户、会话、节点、运行时设置、操作日志）</td></tr>
 <tr><td><code>data/{容器名}/</code></td><td>各容器挂载数据</td></tr>
+<tr><td><code>botshepherd/</code></td><td>BotShepherd 子项目（配置、日志、数据库）</td></tr>
 </table>
+
+<h2>Q: BotShepherd 初始化失败怎么办？</h2>
+<p><strong>A:</strong> 可能原因：</p>
+<ul>
+<li>网络问题 — BotShepherd 需要安装 Python 依赖，确保能访问 PyPI</li>
+<li>Python 版本不兼容 — 确保 Python ≥ 3.10</li>
+<li>手动初始化 — 进入 <code>botshepherd/</code> 目录运行 <code>python main.py --setup</code></li>
+</ul>
+
+<h2>Q: 如何手动拉取 Docker 镜像？</h2>
+<p><strong>A:</strong> 除了在管理面板的镜像管理页面操作外，也可以使用命令行：</p>
+<pre><code>docker pull mlikiowa/napcat-docker:latest</code></pre>
 </div>
 
 </div><!-- /main -->
