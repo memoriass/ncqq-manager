@@ -54,6 +54,8 @@ def _run_migrations():
         "operation_logs_operator_columns",
         # version 2: operation_logs 增加查询索引
         "operation_logs_query_indexes",
+        # version 3: scheduled_tasks 增加执行结果字段
+        "scheduled_tasks_result_fields",
     ]
 
     target = len(migrations)
@@ -83,6 +85,30 @@ def _run_migrations():
                         "CREATE INDEX IF NOT EXISTS idx_oplogs_type_ts "
                         "ON operation_logs(type, timestamp DESC)"
                     )
+                if migrations[i] == "scheduled_tasks_result_fields":
+                    tables = {
+                        row["name"] for row in conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table'"
+                        ).fetchall()
+                    }
+                    if "scheduled_tasks" in tables:
+                        columns = {
+                            row["name"] for row in conn.execute(
+                                "PRAGMA table_info(scheduled_tasks)"
+                            ).fetchall()
+                        }
+                        if "last_result" not in columns:
+                            conn.execute(
+                                "ALTER TABLE scheduled_tasks ADD COLUMN last_result TEXT DEFAULT ''"
+                            )
+                        if "last_error" not in columns:
+                            conn.execute(
+                                "ALTER TABLE scheduled_tasks ADD COLUMN last_error TEXT DEFAULT ''"
+                            )
+                        if "run_count" not in columns:
+                            conn.execute(
+                                "ALTER TABLE scheduled_tasks ADD COLUMN run_count INTEGER DEFAULT 0"
+                            )
             logger.info("数据库迁移 v%d → v%d 完成", i, i + 1)
         except Exception as e:
             logger.error("数据库迁移 v%d 失败: %s", i + 1, e)
@@ -138,6 +164,21 @@ CREATE TABLE IF NOT EXISTS operation_logs (
 CREATE INDEX IF NOT EXISTS idx_oplogs_ts ON operation_logs(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_oplogs_operator_uuid_ts ON operation_logs(operator_uuid, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_oplogs_type_ts ON operation_logs(type, timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    cron_expr TEXT DEFAULT '',
+    interval_seconds INTEGER DEFAULT 3600,
+    config TEXT DEFAULT '{}',
+    last_run REAL DEFAULT 0,
+    last_result TEXT DEFAULT '',
+    last_error TEXT DEFAULT '',
+    run_count INTEGER DEFAULT 0,
+    created_at REAL DEFAULT 0
+);
 
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,

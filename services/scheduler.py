@@ -17,10 +17,14 @@ import services.database as db
 class Scheduler:
     """基于 SQLite 存储 + asyncio 循环的轻量调度器"""
 
+    _EXECUTE_TIMEOUT = 60
+    _BACKUP_RETENTION_COUNT = 7
+
     def __init__(self):
         self._init_table()
         self._running = False
         self._task: Optional[asyncio.Task] = None
+        self._running_tasks: set[str] = set()
 
     def _init_table(self):
         db.execute("""
@@ -33,6 +37,9 @@ class Scheduler:
                 interval_seconds INTEGER DEFAULT 3600,
                 config TEXT DEFAULT '{}',
                 last_run REAL DEFAULT 0,
+                last_result TEXT DEFAULT '',
+                last_error TEXT DEFAULT '',
+                run_count INTEGER DEFAULT 0,
                 created_at REAL DEFAULT 0
             )
         """)
@@ -75,6 +82,15 @@ class Scheduler:
         db.commit()
         return True
 
+    def _record_result(self, task_id: str, *, last_run: float, result: str, error: str):
+        db.execute(
+            "UPDATE scheduled_tasks "
+            "SET last_run=?, last_result=?, last_error=?, run_count=run_count+1 "
+            "WHERE id=?",
+            (last_run, result, error, task_id),
+        )
+        db.commit()
+
     def delete_task(self, task_id: str) -> bool:
         db.execute("DELETE FROM scheduled_tasks WHERE id=?", (task_id,))
         db.commit()
@@ -106,34 +122,64 @@ class Scheduler:
         for task in tasks:
             if not task["enabled"]:
                 continue
+            task_id = task["id"]
+            if task_id in self._running_tasks:
+                continue
             interval = task.get("interval_seconds", 3600)
-            if now - task.get("last_run", 0) >= interval:
-                await self._execute(task)
-                db.execute("UPDATE scheduled_tasks SET last_run=? WHERE id=?",
-                           (now, task["id"]))
-                db.commit()
+            if now - task.get("last_run", 0) < interval:
+                continue
+            self._running_tasks.add(task_id)
+            try:
+                result, error = await self._execute(task)
+                self._record_result(task_id, last_run=now, result=result, error=error)
+            finally:
+                self._running_tasks.discard(task_id)
 
-    async def _execute(self, task: Dict):
+    async def _execute(self, task: Dict) -> tuple[str, str]:
         """执行具体任务"""
         task_type = task["type"]
+        timeout = int(task.get("config", {}).get("timeout", self._EXECUTE_TIMEOUT))
         try:
             if task_type == "backup_db":
-                self._do_backup()
+                await asyncio.wait_for(asyncio.to_thread(self._do_backup, task.get("config", {})), timeout=timeout)
             elif task_type == "restart_container":
-                await self._do_restart(task.get("config", {}))
+                await asyncio.wait_for(self._do_restart(task.get("config", {})), timeout=timeout)
             elif task_type == "cleanup_logs":
-                self._do_cleanup(task.get("config", {}))
+                await asyncio.wait_for(asyncio.to_thread(self._do_cleanup, task.get("config", {})), timeout=timeout)
+            else:
+                return ("error", f"unsupported task type: {task_type}")
             logger.info("定时任务执行完成: %s (%s)", task["name"], task_type)
+            return ("success", "")
+        except asyncio.TimeoutError:
+            logger.error("定时任务执行超时 %s: %ss", task["name"], timeout)
+            return ("timeout", f"timeout>{timeout}s")
         except Exception as e:
             logger.error("定时任务执行失败 %s: %s", task["name"], e)
+            return ("error", str(e))
 
-    def _do_backup(self):
+    def _do_backup(self, config: Dict):
         """自动备份数据库"""
         if not os.path.exists(DB_PATH):
             return
         ts = time.strftime("%Y%m%d_%H%M%S")
         dst = DB_PATH + f".auto_{ts}"
         shutil.copy2(DB_PATH, dst)
+        self._prune_auto_backups(config.get("keep_count", self._BACKUP_RETENTION_COUNT))
+
+    def _prune_auto_backups(self, keep_count: int):
+        keep_count = max(1, int(keep_count))
+        backup_dir = os.path.dirname(DB_PATH)
+        prefix = os.path.basename(DB_PATH) + ".auto_"
+        backups = []
+        for name in os.listdir(backup_dir):
+            if not name.startswith(prefix):
+                continue
+            fpath = os.path.join(backup_dir, name)
+            if os.path.isfile(fpath):
+                backups.append((os.path.getmtime(fpath), fpath))
+        backups.sort(reverse=True)
+        for _, fpath in backups[keep_count:]:
+            os.remove(fpath)
 
     async def _do_restart(self, config: Dict):
         """重启指定容器"""
@@ -158,6 +204,9 @@ class Scheduler:
         d = dict(row)
         d["config"] = json.loads(d.get("config", "{}"))
         d["enabled"] = bool(d.get("enabled", 0))
+        d["run_count"] = int(d.get("run_count", 0) or 0)
+        d["last_result"] = d.get("last_result", "")
+        d["last_error"] = d.get("last_error", "")
         return d
 
 

@@ -23,7 +23,6 @@ from middleware.auth import validate_token_value
 router = APIRouter(tags=["websocket"])
 
 _MAX_PUBLIC_WS = 50  # 公开 WS 最大并发连接数
-_public_ws_count = 0  # 当前公开 WS 连接计数
 
 
 def _build_snapshot(containers: list) -> dict:
@@ -36,6 +35,11 @@ def _build_snapshot(containers: list) -> dict:
             "node_id": c.get("node_id", "local"),
         }
     return snap
+
+
+def _build_public_version(sub_page: int, sub_page_size: int) -> tuple:
+    tick = state_engine.health_info.get("tick", 0)
+    return (sub_page, sub_page_size, tick)
 
 
 def _resolve_ws_token(ws: WebSocket) -> str:
@@ -133,18 +137,14 @@ async def ws_public(ws: WebSocket):
       客户端 → 服务端（可选，按需订阅分页）：
         {"type": "subscribe", "page": 1, "pageSize": 20}
     """
-    global _public_ws_count
-    if _public_ws_count >= _MAX_PUBLIC_WS:
+    if not await ws_manager.connect_if_available(ws, _MAX_PUBLIC_WS):
         await ws.close(code=4429, reason="Too many connections")
         return
-
-    await ws.accept()
-    _public_ws_count += 1
 
     # 默认推送全量（向后兼容），客户端可发 subscribe 切换分页
     sub_page = 0       # 0 = 全量模式
     sub_page_size = 20
-    prev_hash = ""
+    prev_version: tuple | None = None
 
     async def _recv_loop():
         """接收客户端的订阅消息（翻页/搜索时发送）。"""
@@ -164,6 +164,8 @@ async def ws_public(ws: WebSocket):
     recv_task = asyncio.create_task(_recv_loop())
     try:
         while True:
+            curr_version = _build_public_version(sub_page, sub_page_size)
+
             # 构建推送数据
             if sub_page > 0:
                 # 分页模式 — 只推送当前页（MCSM instance/select 模式）
@@ -182,15 +184,13 @@ async def ws_public(ws: WebSocket):
                 qr_states = state_engine.get_qr_states()
                 payload = {"containers": containers, "qr": qr_states}
 
-            # 增量 diff：orjson.dumps 返回 bytes，直接 hash（3-10x 快于 json.dumps）
-            curr_hash = hash(orjson.dumps(payload, option=orjson.OPT_SORT_KEYS))
             try:
-                if curr_hash != prev_hash:
+                if curr_version != prev_version:
                     await asyncio.wait_for(
                         ws.send_json({"type": "full", "data": payload}),
                         timeout=5,
                     )
-                    prev_hash = curr_hash
+                    prev_version = curr_version
                 else:
                     await asyncio.wait_for(
                         ws.send_json({"type": "heartbeat"}),
@@ -206,4 +206,4 @@ async def ws_public(ws: WebSocket):
         logger.debug("WS public 连接异常: %s", e)
     finally:
         recv_task.cancel()
-        _public_ws_count = max(0, _public_ws_count - 1)
+        await ws_manager.disconnect(ws)

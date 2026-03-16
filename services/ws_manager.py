@@ -25,18 +25,35 @@ class WSManager:
         async with self._lock:
             self._connections.discard(ws)
 
+    async def can_accept(self, limit: int) -> bool:
+        async with self._lock:
+            return len(self._connections) < limit
+
+    async def connect_if_available(self, ws: WebSocket, limit: int) -> bool:
+        await ws.accept()
+        async with self._lock:
+            if len(self._connections) >= limit:
+                return False
+            self._connections.add(ws)
+            return True
+
     async def broadcast(self, event_type: str, data: dict):
         """广播事件给所有连接的客户端"""
         message = json.dumps({"type": event_type, "data": data}, ensure_ascii=False)
         async with self._lock:
-            dead = []
-            for ws in self._connections:
-                try:
-                    await ws.send_text(message)
-                except Exception:
-                    dead.append(ws)
-            for ws in dead:
-                self._connections.discard(ws)
+            connections = list(self._connections)
+
+        dead = []
+        for ws in connections:
+            try:
+                await ws.send_text(message)
+            except Exception:
+                dead.append(ws)
+
+        if dead:
+            async with self._lock:
+                for ws in dead:
+                    self._connections.discard(ws)
 
     @property
     def connection_count(self) -> int:

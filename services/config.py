@@ -85,28 +85,36 @@ class AppConfig:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(bootstrap_data, f, indent=4, ensure_ascii=False)
 
-    def load_runtime(self):
-        """加载运行时配置（从 SQLite settings 表）- 必须在 init_db() 后调用"""
-        if self._runtime_loaded:
-            return
-
+    def _load_runtime_from_db(self, *, persist_missing_defaults: bool):
         import services.database as db
 
-        # 从 settings 表读取所有运行时配置
         settings = db.get_all_settings()
-
-        # 合并到内存，缺失的使用默认值
         for k, default_v in self._RUNTIME_DEFAULT.items():
             if k in settings:
                 self._data[k] = settings[k]
-            else:
-                # 首次启动或缺失字段，写入默认值
-                val = default_v if default_v else (uuid.uuid4().hex if k == "api_key" else default_v)
-                self._data[k] = val
+                continue
+            val = default_v if default_v else (uuid.uuid4().hex if k == "api_key" else default_v)
+            self._data[k] = val
+            if persist_missing_defaults:
                 db.set_setting(k, val)
 
+    def load_runtime_once(self):
+        """首次加载运行时配置（从 SQLite settings 表）- 必须在 init_db() 后调用"""
+        if self._runtime_loaded:
+            return
+        self._load_runtime_from_db(persist_missing_defaults=True)
         self._runtime_loaded = True
         logger.info("运行时配置已从 SQLite 加载")
+
+    def reload_runtime(self):
+        """强制从 SQLite 重新读取运行时配置到内存。"""
+        self._load_runtime_from_db(persist_missing_defaults=False)
+        self._runtime_loaded = True
+        logger.info("运行时配置已从 SQLite 刷新")
+
+    def load_runtime(self):
+        """兼容旧调用：等价于 load_runtime_once()."""
+        self.load_runtime_once()
 
     def get(self, key: str, default: Any = None) -> Any:
         return self._data.get(key, default)
@@ -136,15 +144,24 @@ class AppConfig:
             for k, v in runtime_updates.items():
                 db.set_setting(k, v)
 
+    def bootstrap_keys(self) -> tuple[str, ...]:
+        return tuple(sorted(self._BOOTSTRAP_KEYS))
+
     @property
-    def data(self) -> dict:
-        return self._data.copy()
+    def runtime_keys(self) -> tuple[str, ...]:
+        return tuple(sorted(self._RUNTIME_KEYS))
+
+    @property
+    def source_matrix(self) -> dict[str, tuple[str, ...]]:
+        return {
+            "bootstrap": self.bootstrap_keys,
+            "runtime": self.runtime_keys,
+        }
 
     def reload(self):
-        """重新加载所有配置"""
+        """重新加载所有配置：JSON 引导字段 + SQLite 运行时字段。"""
         self._load_bootstrap()
-        if self._runtime_loaded:
-            self.load_runtime()
+        self.reload_runtime()
 
 def get_data_dir() -> str:
     """获取实例数据挂载目录，支持用户在设置中修改"""
