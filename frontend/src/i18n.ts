@@ -375,6 +375,9 @@ export const translations = {
         opLogs: {
             title: '操作日志',
             records: '条',
+            operator: '操作者',
+            type: '类型',
+            allLevels: '全部级别',
             noLogs: '暂无操作日志',
             noLogsHint: '系统操作记录将显示在这里',
             containerStart: '{operator} 启动了容器 {target}',
@@ -901,6 +904,9 @@ export const translations = {
         opLogs: {
             title: 'Operation Logs',
             records: 'records',
+            operator: 'Operator',
+            type: 'Type',
+            allLevels: 'All Levels',
             noLogs: 'No operation logs',
             noLogsHint: 'System operation records will appear here',
             containerStart: '{operator} started container {target}',

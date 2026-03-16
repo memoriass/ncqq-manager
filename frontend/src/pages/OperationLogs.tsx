@@ -4,6 +4,7 @@ import {
     Paper,
     Typography,
     FormControl,
+    TextField,
     Select,
     MenuItem,
     Button,
@@ -13,9 +14,10 @@ import {
     ListItemText,
     Chip,
     CircularProgress,
+    Pagination,
 } from '@mui/material';
 import { Refresh as RefreshIcon, FiberManualRecord as DotIcon, Download as DownloadIcon } from '@mui/icons-material';
-import { operationLogsApi, type OperationLog } from '../services/api';
+import { operationLogsApi, type OperationLog, type OperationLogsQuery } from '../services/api';
 import { useToast } from '../components/Toast';
 import { useTranslate } from '../i18n';
 
@@ -23,6 +25,11 @@ const OperationLogs: React.FC = () => {
     const [logs, setLogs] = useState<OperationLog[]>([]);
     const [loading, setLoading] = useState(false);
     const [limit, setLimit] = useState(50);
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(0);
+    const [operator, setOperator] = useState('');
+    const [type, setType] = useState('');
+    const [level, setLevel] = useState<'info' | 'warning' | 'error' | ''>('');
     const [pendingNewCount, setPendingNewCount] = useState(0);
     const [highlightedLogIds, setHighlightedLogIds] = useState<string[]>([]);
     const t = useTranslate();
@@ -58,11 +65,19 @@ const OperationLogs: React.FC = () => {
     };
 
 
+    const buildQuery = (): OperationLogsQuery => ({
+        limit,
+        page,
+        operator: operator.trim(),
+        type: type.trim(),
+        level,
+    });
+
     const fetchLogs = async (mode: 'auto' | 'manual' | 'initial' = 'manual') => {
         captureScrollState();
         setLoading(true);
         try {
-            const data = await operationLogsApi.list(limit);
+            const data = await operationLogsApi.list(buildQuery());
             const nextLogs = data.logs || [];
             const previousTopId = latestLogIdRef.current;
             const nextTopId = nextLogs[0]?.id || null;
@@ -90,6 +105,7 @@ const OperationLogs: React.FC = () => {
 
             latestLogIdRef.current = nextTopId;
             setLogs(nextLogs);
+            setTotalPages(data.pagination?.pages || 0);
         } catch (error) {
             toast.error('获取操作日志失败');
         } finally {
@@ -98,8 +114,9 @@ const OperationLogs: React.FC = () => {
     };
 
     useEffect(() => {
+        latestLogIdRef.current = null;
         fetchLogs('initial');
-    }, [limit]);
+    }, [limit, page, operator, type, level]);
 
     useLayoutEffect(() => {
         const list = listRef.current;
@@ -153,7 +170,7 @@ const OperationLogs: React.FC = () => {
             stop();
             document.removeEventListener('visibilitychange', onVis);
         };
-    }, [limit]);
+    }, [limit, page, operator, type, level]);
 
     const getLevelColor = (level: string): 'info' | 'warning' | 'error' | 'default' => {
         switch (level) {
@@ -209,12 +226,48 @@ const OperationLogs: React.FC = () => {
                         <FormControl size="small" sx={{ minWidth: 120 }}>
                             <Select
                                 value={limit}
-                                onChange={(e) => setLimit(Number(e.target.value))}
+                                onChange={(e) => {
+                                    setLimit(Number(e.target.value));
+                                    setPage(1);
+                                }}
                             >
                                 <MenuItem value={20}>20 {t('opLogs.records')}</MenuItem>
                                 <MenuItem value={50}>50 {t('opLogs.records')}</MenuItem>
                                 <MenuItem value={100}>100 {t('opLogs.records')}</MenuItem>
                                 <MenuItem value={200}>200 {t('opLogs.records')}</MenuItem>
+                            </Select>
+                        </FormControl>
+                        <TextField
+                            size="small"
+                            label={t('opLogs.operator')}
+                            value={operator}
+                            onChange={(e) => {
+                                setOperator(e.target.value);
+                                setPage(1);
+                            }}
+                        />
+                        <TextField
+                            size="small"
+                            label={t('opLogs.type')}
+                            value={type}
+                            onChange={(e) => {
+                                setType(e.target.value);
+                                setPage(1);
+                            }}
+                        />
+                        <FormControl size="small" sx={{ minWidth: 120 }}>
+                            <Select
+                                displayEmpty
+                                value={level}
+                                onChange={(e) => {
+                                    setLevel(e.target.value as 'info' | 'warning' | 'error' | '');
+                                    setPage(1);
+                                }}
+                            >
+                                <MenuItem value="">{t('opLogs.allLevels')}</MenuItem>
+                                <MenuItem value="info">info</MenuItem>
+                                <MenuItem value="warning">warning</MenuItem>
+                                <MenuItem value="error">error</MenuItem>
                             </Select>
                         </FormControl>
                         <Button
@@ -228,7 +281,15 @@ const OperationLogs: React.FC = () => {
                         <Button
                             variant="outlined"
                             startIcon={<DownloadIcon />}
-                            onClick={() => window.open(`/api/operation_logs/download?limit=${limit}`, '_blank')}
+                            onClick={() => {
+                                const params = new URLSearchParams();
+                                params.set('limit', String(limit));
+                                params.set('page', String(page));
+                                if (operator.trim()) params.set('operator', operator.trim());
+                                if (type.trim()) params.set('type', type.trim());
+                                if (level) params.set('level', level);
+                                window.open(`/api/operation_logs/download?${params.toString()}`, '_blank');
+                            }}
                         >
                             {t('config.exportLogs')}
                         </Button>
@@ -300,6 +361,17 @@ const OperationLogs: React.FC = () => {
                             );
                         })}
                     </List>
+                )}
+
+                {totalPages > 1 && (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+                        <Pagination
+                            color="primary"
+                            count={totalPages}
+                            page={page}
+                            onChange={(_, value) => setPage(value)}
+                        />
+                    </Box>
                 )}
             </Paper>
         </Box>

@@ -5,7 +5,7 @@
 import json
 import uuid
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from collections import deque
 
 from services.log import logger
@@ -47,6 +47,18 @@ class OperationLogger:
     def error(self, operation_type: str, payload: Dict[str, Any]) -> str:
         return self.log(operation_type, payload, "error")
 
+    @staticmethod
+    def _normalize_limit(limit: int) -> int:
+        return limit if 1 <= limit <= 200 else 50
+
+    @staticmethod
+    def _normalize_page(page: int) -> int:
+        return page if page >= 1 else 1
+
+    @staticmethod
+    def _normalize_time_bound(value: Optional[int]) -> Optional[int]:
+        return value if isinstance(value, int) and value >= 0 else None
+
     def flush(self):
         """将缓冲区写入 SQLite"""
         if not self._buffer:
@@ -67,30 +79,151 @@ class OperationLogger:
         except Exception as e:
             logger.error("操作日志写入失败: %s", e)
 
-    def get(self, limit: int = 50) -> List[Dict]:
-        """获取最近 N 条操作日志 (缓冲区 + DB)"""
-        buffer_items = list(self._buffer)
+    def get(
+        self,
+        limit: int = 50,
+        page: int = 1,
+        operator: str = "",
+        operation_type: str = "",
+        level: str = "",
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """获取操作日志（缓冲区 + DB），支持筛选与分页。"""
+        limit = self._normalize_limit(limit)
+        page = self._normalize_page(page)
+        start_time = self._normalize_time_bound(start_time)
+        end_time = self._normalize_time_bound(end_time)
 
-        if len(buffer_items) >= limit:
-            result = list(reversed(buffer_items[-limit:]))
-            return self._flatten(result)
+        if start_time is not None and end_time is not None and start_time > end_time:
+            start_time, end_time = end_time, start_time
 
-        remaining = limit - len(buffer_items)
-        rows = db.fetchall(
-            "SELECT * FROM operation_logs ORDER BY timestamp DESC LIMIT ?",
-            (remaining,),
+        combined = self._get_combined_items(
+            operator=operator,
+            operation_type=operation_type,
+            level=level,
+            start_time=start_time,
+            end_time=end_time,
         )
-        db_items = []
-        for r in rows:
-            entry = dict(r)
-            entry["payload"] = json.loads(entry.get("payload", "{}"))
-            db_items.append(entry)
+        total = len(combined)
+        start_index = (page - 1) * limit
+        end_index = start_index + limit
+        logs = combined[start_index:end_index]
+        return {
+            "logs": logs,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": (total + limit - 1) // limit if total else 0,
+            },
+            "filters": {
+                "operator": operator,
+                "type": operation_type,
+                "level": level,
+                "start_time": start_time,
+                "end_time": end_time,
+            },
+        }
 
-        # 缓冲区条目也展平 payload
+    def _get_combined_items(
+        self,
+        operator: str = "",
+        operation_type: str = "",
+        level: str = "",
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+    ) -> List[Dict]:
+        buffer_items = list(self._buffer)
+        db_items = self._query_db(
+            operator=operator,
+            operation_type=operation_type,
+            level=level,
+            start_time=start_time,
+            end_time=end_time,
+        )
         buf_flat = self._flatten(buffer_items)
-        combined = db_items + buf_flat
+        filtered_buffer = self._filter_items(
+            buf_flat,
+            operator=operator,
+            operation_type=operation_type,
+            level=level,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        db_ids = {item.get("id") for item in db_items}
+        combined = db_items + [item for item in filtered_buffer if item.get("id") not in db_ids]
         combined.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-        return combined[:limit]
+        return combined
+
+    def _query_db(
+        self,
+        operator: str = "",
+        operation_type: str = "",
+        level: str = "",
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+    ) -> List[Dict]:
+        where_clauses = []
+        params: list[Any] = []
+        if operator:
+            where_clauses.append("(operator_name LIKE ? OR operator_uuid LIKE ?)")
+            like = f"%{operator}%"
+            params.extend([like, like])
+        if operation_type:
+            where_clauses.append("type = ?")
+            params.append(operation_type)
+        if level:
+            where_clauses.append("level = ?")
+            params.append(level)
+        if start_time is not None:
+            where_clauses.append("timestamp >= ?")
+            params.append(start_time)
+        if end_time is not None:
+            where_clauses.append("timestamp <= ?")
+            params.append(end_time)
+
+        sql = "SELECT * FROM operation_logs"
+        if where_clauses:
+            sql += " WHERE " + " AND ".join(where_clauses)
+        sql += " ORDER BY timestamp DESC"
+
+        rows = db.fetchall(sql, tuple(params))
+        items = []
+        for row in rows:
+            entry = dict(row)
+            entry["payload"] = json.loads(entry.get("payload", "{}"))
+            items.append(entry)
+        return self._flatten(items)
+
+    @staticmethod
+    def _filter_items(
+        items: List[Dict],
+        operator: str = "",
+        operation_type: str = "",
+        level: str = "",
+        start_time: Optional[int] = None,
+        end_time: Optional[int] = None,
+    ) -> List[Dict]:
+        operator_lower = operator.lower().strip()
+        result = []
+        for item in items:
+            if operator_lower:
+                name = str(item.get("operator_name") or "").lower()
+                operator_uuid = str(item.get("operator_uuid") or "").lower()
+                if operator_lower not in name and operator_lower not in operator_uuid:
+                    continue
+            if operation_type and item.get("type") != operation_type:
+                continue
+            if level and item.get("level") != level:
+                continue
+            timestamp = item.get("timestamp", 0)
+            if start_time is not None and timestamp < start_time:
+                continue
+            if end_time is not None and timestamp > end_time:
+                continue
+            result.append(item)
+        return result
 
     @staticmethod
     def _flatten(items: List[Dict]) -> List[Dict]:

@@ -91,6 +91,34 @@ export interface OperationLog {
     [key: string]: unknown;
 }
 
+export interface OperationLogsQuery {
+    limit?: number;
+    page?: number;
+    operator?: string;
+    type?: string;
+    level?: 'info' | 'warning' | 'error' | '';
+    start_time?: number;
+    end_time?: number;
+}
+
+export interface OperationLogsResponse {
+    status: string;
+    logs: OperationLog[];
+    pagination: {
+        page: number;
+        limit: number;
+        total: number;
+        pages: number;
+    };
+    filters: {
+        operator: string;
+        type: string;
+        level: string;
+        start_time: number | null;
+        end_time: number | null;
+    };
+}
+
 export interface FileItem {
     name: string;
     size: number;
@@ -394,8 +422,18 @@ export const userApi = {
 // ============ 操作日志 API ============
 
 export const operationLogsApi = {
-    list: (limit: number = 50) =>
-        request<{ status: string; logs: OperationLog[] }>(`/operation_logs?limit=${limit}`),
+    list: (query: OperationLogsQuery = {}) => {
+        const params = new URLSearchParams();
+        if (query.limit) params.set('limit', String(query.limit));
+        if (query.page) params.set('page', String(query.page));
+        if (query.operator) params.set('operator', query.operator);
+        if (query.type) params.set('type', query.type);
+        if (query.level) params.set('level', query.level);
+        if (typeof query.start_time === 'number') params.set('start_time', String(query.start_time));
+        if (typeof query.end_time === 'number') params.set('end_time', String(query.end_time));
+        const queryString = params.toString();
+        return request<OperationLogsResponse>(`/operation_logs${queryString ? `?${queryString}` : ''}`);
+    },
 };
 
 // ============ 镜像管理 API ============

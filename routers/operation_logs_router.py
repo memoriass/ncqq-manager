@@ -4,6 +4,8 @@
 import json
 import time
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
@@ -16,6 +18,12 @@ router = APIRouter(prefix="/api", tags=["operation_logs"])
 @router.get("/operation_logs")
 def get_operation_logs(
     limit: int = 50,
+    page: int = 1,
+    operator: str = "",
+    type: str = "",
+    level: str = "",
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None,
     session: dict = Depends(require_admin)
 ) -> dict:
     """
@@ -28,25 +36,42 @@ def get_operation_logs(
     Returns:
         操作日志列表，按时间倒序
     """
-    if limit < 1 or limit > 200:
-        limit = 50
-
-    logs = operation_logger.get(limit)
-    return {"status": "ok", "logs": logs}
+    result = operation_logger.get(
+        limit=limit,
+        page=page,
+        operator=operator,
+        operation_type=type,
+        level=level,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    return {"status": "ok", **result}
 
 
 @router.get("/operation_logs/download")
 def download_operation_logs(
     limit: int = 200,
+    page: int = 1,
+    operator: str = "",
+    type: str = "",
+    level: str = "",
+    start_time: Optional[int] = None,
+    end_time: Optional[int] = None,
     session: dict = Depends(require_admin),
 ):
     """导出操作日志为 JSON 文件"""
-    if limit < 1 or limit > 1000:
-        limit = 200
-    logs = operation_logger.get(limit)
+    result = operation_logger.get(
+        limit=limit if 1 <= limit <= 1000 else 200,
+        page=page,
+        operator=operator,
+        operation_type=type,
+        level=level,
+        start_time=start_time,
+        end_time=end_time,
+    )
     ts = time.strftime("%Y%m%d_%H%M%S")
     filename = f"operation_logs_{ts}.json"
-    content = json.dumps(logs, ensure_ascii=False, indent=2)
+    content = json.dumps(result, ensure_ascii=False, indent=2)
     return PlainTextResponse(
         content=content,
         media_type="application/json",

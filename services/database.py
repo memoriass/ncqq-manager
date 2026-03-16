@@ -52,6 +52,8 @@ def _run_migrations():
     migrations = [
         # version 1: operation_logs 增加结构化操作者字段
         "operation_logs_operator_columns",
+        # version 2: operation_logs 增加查询索引
+        "operation_logs_query_indexes",
     ]
 
     target = len(migrations)
@@ -72,6 +74,15 @@ def _run_migrations():
                         conn.execute("ALTER TABLE operation_logs ADD COLUMN operator_uuid TEXT")
                     if "operator_ip" not in columns:
                         conn.execute("ALTER TABLE operation_logs ADD COLUMN operator_ip TEXT")
+                if migrations[i] == "operation_logs_query_indexes":
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_oplogs_operator_uuid_ts "
+                        "ON operation_logs(operator_uuid, timestamp DESC)"
+                    )
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_oplogs_type_ts "
+                        "ON operation_logs(type, timestamp DESC)"
+                    )
             logger.info("数据库迁移 v%d → v%d 完成", i, i + 1)
         except Exception as e:
             logger.error("数据库迁移 v%d 失败: %s", i + 1, e)
@@ -125,6 +136,8 @@ CREATE TABLE IF NOT EXISTS operation_logs (
     payload       TEXT DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_oplogs_ts ON operation_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_oplogs_operator_uuid_ts ON operation_logs(operator_uuid, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_oplogs_type_ts ON operation_logs(type, timestamp DESC);
 
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
