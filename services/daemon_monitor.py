@@ -1,7 +1,6 @@
 import psutil
 from collections import deque
 from typing import Dict, List
-from services.docker_manager import docker_manager
 
 class DaemonMonitor:
     def __init__(self, history_length: int = 20):
@@ -25,9 +24,11 @@ class DaemonMonitor:
         }
 
     def get_instance_status(self) -> Dict[str, int]:
-        containers = docker_manager.list_containers()
-        total = len(containers)
-        running = sum(1 for c in containers if c.get("status") == "running")
+        """读 state_engine 内存快照（零阻塞），不再同步调 docker_manager。"""
+        from services.instance_subsystem import instance_subsystem
+        instances = instance_subsystem.get_all()
+        total = len(instances)
+        running = sum(1 for inst in instances if inst.status == "running")
         return {"total": total, "running": running}
 
     @property

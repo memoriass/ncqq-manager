@@ -19,6 +19,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import BackupIcon from '@mui/icons-material/Backup';
 import ScheduleIcon from '@mui/icons-material/Schedule';
+import SmartToyIcon from '@mui/icons-material/SmartToy';
 import { ThemeModeContext, LanguageContext } from '../App';
 import { useTranslate } from '../i18n';
 import { containerApi, authApi, type Container } from '../services/api';
@@ -131,12 +132,22 @@ export default function AdminLayout() {
                 </Box>
                 <Box sx={{ position: 'absolute', bottom: 0, width: '100%', p: 2 }}>
                     <ListItem disablePadding sx={{ mb: 1 }}>
+                        <ListItemButton
+                            selected={location.pathname === '/admin/botshepherd'}
+                            onClick={() => navigate('/admin/botshepherd')}
+                            sx={{ borderRadius: 2, '&.Mui-selected': { bgcolor: 'rgba(59, 130, 246, 0.15)', '&:hover': { bgcolor: 'rgba(59, 130, 246, 0.25)' } } }}
+                        >
+                            <ListItemIcon sx={{ minWidth: 40, color: location.pathname === '/admin/botshepherd' ? '#60a5fa' : 'text.secondary' }}><SmartToyIcon /></ListItemIcon>
+                            <ListItemText primary={t('admin.botshepherd')} primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: location.pathname === '/admin/botshepherd' ? 600 : 500, color: location.pathname === '/admin/botshepherd' ? '#60a5fa' : 'text.secondary' }} />
+                        </ListItemButton>
+                    </ListItem>
+                    <ListItem disablePadding sx={{ mb: 1 }}>
                         <ListItemButton onClick={() => navigate('/')} sx={{ borderRadius: 2 }}>
                             <ListItemIcon sx={{ minWidth: 40 }}><PublicIcon sx={{ color: 'text.secondary' }} /></ListItemIcon>
                             <ListItemText primary={t('admin.userSpaceBoard')} primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: 500, color: 'text.secondary' }} />
                         </ListItemButton>
                     </ListItem>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, pt: 0 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, pb: 1 }}>
                         {/* WS 连接状态指示 */}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <FiberManualRecordIcon sx={{ fontSize: 10, color: wsConnected ? '#22c55e' : '#ef4444' }} />

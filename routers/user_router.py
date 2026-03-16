@@ -54,6 +54,7 @@ async def api_create_user(
     operation_logger.info("user_create", {
         "operator_ip": request.client.host if request.client else "unknown",
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "target_user_name": req.username,
     })
     return {"status": "ok", "uuid": user["uuid"], "userName": user["userName"]}
@@ -75,6 +76,7 @@ async def api_edit_user(
     operation_logger.info("user_edit", {
         "operator_ip": request.client.host if request.client else "unknown",
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "target_user_uuid": user_uuid,
     })
     return {"status": "ok"}
@@ -95,6 +97,7 @@ async def api_delete_user(
     operation_logger.warning("user_delete", {
         "operator_ip": request.client.host if request.client else "unknown",
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "target_user_name": target_user["userName"] if target_user else "Unknown",
     })
     return {"status": "ok"}

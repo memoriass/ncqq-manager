@@ -38,19 +38,17 @@ def _build_snapshot(containers: list) -> dict:
     return snap
 
 
-def _resolve_ws_token(ws: WebSocket, query_token: str) -> str:
-    """从 query 参数或 cookie 中提取认证 token。
+def _resolve_ws_token(ws: WebSocket) -> str:
+    """从 cookie 中提取认证 token。
     httpOnly cookie 无法被前端 JS 读取，但浏览器在 WS 握手时会自动携带。
     """
-    if query_token:
-        return query_token
     return ws.cookies.get("auth_token", "")
 
 
 @router.websocket("/ws/events")
-async def ws_events(ws: WebSocket, token: str = Query(default="")):
+async def ws_events(ws: WebSocket):
     """容器状态实时推送 — 从状态引擎读内存快照，零 Docker API 调用。"""
-    effective_token = _resolve_ws_token(ws, token)
+    effective_token = _resolve_ws_token(ws)
     session = validate_token_value(effective_token) if effective_token else None
     if not session:
         await ws.close(code=4001, reason="Unauthorized")
@@ -90,10 +88,9 @@ async def ws_events(ws: WebSocket, token: str = Query(default="")):
 async def ws_container_logs(
     ws: WebSocket, name: str,
     node_id: str = Query(default="local"),
-    token: str = Query(default=""),
 ):
     """容器日志实时流推送"""
-    effective_token = _resolve_ws_token(ws, token)
+    effective_token = _resolve_ws_token(ws)
     session = validate_token_value(effective_token) if effective_token else None
     if not session:
         await ws.close(code=4001, reason="Unauthorized")

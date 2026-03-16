@@ -50,8 +50,8 @@ def _run_migrations():
         version = int(version)
 
     migrations = [
-        # version 1: 添加 login_failures 表（S2 IP封禁持久化）
-        # 已在 _SCHEMA 中通过 CREATE TABLE IF NOT EXISTS 处理
+        # version 1: operation_logs 增加结构化操作者字段
+        "operation_logs_operator_columns",
     ]
 
     target = len(migrations)
@@ -61,7 +61,17 @@ def _run_migrations():
     for i in range(version, target):
         try:
             with _lock:
-                _get_conn().executescript(migrations[i])
+                conn = _get_conn()
+                if migrations[i] == "operation_logs_operator_columns":
+                    columns = {
+                        row["name"] for row in conn.execute("PRAGMA table_info(operation_logs)").fetchall()
+                    }
+                    if "operator_name" not in columns:
+                        conn.execute("ALTER TABLE operation_logs ADD COLUMN operator_name TEXT")
+                    if "operator_uuid" not in columns:
+                        conn.execute("ALTER TABLE operation_logs ADD COLUMN operator_uuid TEXT")
+                    if "operator_ip" not in columns:
+                        conn.execute("ALTER TABLE operation_logs ADD COLUMN operator_ip TEXT")
             logger.info("数据库迁移 v%d → v%d 完成", i, i + 1)
         except Exception as e:
             logger.error("数据库迁移 v%d 失败: %s", i + 1, e)
@@ -104,12 +114,15 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 
 CREATE TABLE IF NOT EXISTS operation_logs (
-    id        TEXT PRIMARY KEY,
-    type      TEXT NOT NULL,
-    level     TEXT NOT NULL DEFAULT 'info',
-    time      TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    payload   TEXT DEFAULT '{}'
+    id            TEXT PRIMARY KEY,
+    type          TEXT NOT NULL,
+    level         TEXT NOT NULL DEFAULT 'info',
+    time          TEXT NOT NULL,
+    timestamp     INTEGER NOT NULL,
+    operator_name TEXT,
+    operator_uuid TEXT,
+    operator_ip   TEXT,
+    payload       TEXT DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_oplogs_ts ON operation_logs(timestamp DESC);
 

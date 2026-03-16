@@ -36,6 +36,7 @@ async def pull_image(
         raise HTTPException(status_code=500, detail="Failed to pull image")
     operation_logger.info("image_pull", {
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "operator_ip": request.client.host if request.client else "unknown",
         "image": req.image,
     })
@@ -54,6 +55,7 @@ async def delete_image(
         raise HTTPException(status_code=500, detail="Failed to delete image")
     operation_logger.info("image_delete", {
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "operator_ip": request.client.host if request.client else "unknown",
         "image_id": image_id,
     })

@@ -1,16 +1,16 @@
 """
 告警管理服务 - 规则配置 + Webhook 推送
-支持容器状态变化、CPU/内存超限等告警场景
+支持容器状态变化、CPU/内存超限、实例离线等告警场景
 """
 import json
 import time
 import socket
-import threading
+import asyncio
 import ipaddress
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 
-import requests as http_requests
+import aiohttp
 
 from services.log import logger
 import services.database as db
@@ -135,7 +135,90 @@ class AlertManager:
         db.commit()
         rule = self.get_rule(rule_id)
         if rule and rule.get("webhook_url"):
-            self._send_webhook(rule["webhook_url"], message, level)
+            self._fire_webhook_task(rule["webhook_url"], message, level)
+
+    async def trigger_alert_async(
+        self, rule_id: str, message: str, level: str = "warning",
+        extra: Optional[Dict] = None,
+    ):
+        """异步触发告警：写入历史 + 异步 Webhook 推送。extra 中的字段会合并到 payload。"""
+        db.execute(
+            "INSERT INTO alert_history (rule_id,message,level,created_at) VALUES (?,?,?,?)",
+            (rule_id, message, level, time.time()),
+        )
+        db.commit()
+        rule = self.get_rule(rule_id)
+        if rule and rule.get("webhook_url"):
+            await self._send_webhook_async(rule["webhook_url"], message, level, extra)
+
+    async def notify_instance_offline(self, name: str, node_id: str = "local"):
+        """实例离线通知 — 查找所有 instance_offline 类型且 enabled 的规则并触发。"""
+        rules = self.list_rules()
+        message = f"⚠️ 实例离线: {name} (节点: {node_id})"
+        for rule in rules:
+            if rule.get("type") == "instance_offline" and rule.get("enabled"):
+                # 检查 config 中是否配置了过滤条件
+                cfg = rule.get("config", {})
+                target = cfg.get("instance_name", "")
+                target_node = cfg.get("node_id", "")
+                if target and target != name:
+                    continue
+                if target_node and target_node != node_id:
+                    continue
+                await self.trigger_alert_async(rule["id"], message, "critical")
+
+    async def notify_login_lost(
+        self, name: str, uin: str = "", node_id: str = "local",
+    ):
+        """掉线扫码通知 — 登录态丢失时触发，附带 QR 扫码链接。
+
+        查找所有 login_lost 类型且 enabled 的规则，构建含 QR 链接的通知推送。
+        QR 链接指向面板的公开接口 /api/containers/{name}/qrcode（无需认证）。
+        """
+        rules = self.list_rules()
+        base_url = (db.get_setting("webhook_base_url", "") or "").rstrip("/")
+        lost_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        uin_display = uin or "未知"
+
+        # 构建 QR 链接（仅在配置了 base_url 时生成）
+        qr_url = ""
+        dashboard_url = ""
+        if base_url:
+            qr_url = f"{base_url}/api/containers/{name}/qrcode?node_id={node_id}"
+            dashboard_url = base_url
+
+        # 人类可读消息
+        lines = [
+            f"🔑 实例掉线需重新登录: {name}",
+            f"📋 QQ 账号: {uin_display}",
+            f"🖥️ 节点: {node_id}",
+            f"⏰ 掉线时间: {lost_time}",
+        ]
+        if qr_url:
+            lines.append(f"📱 扫码链接: {qr_url}")
+        message = "\n".join(lines)
+
+        extra = {
+            "event": "login_lost",
+            "instance": name,
+            "node_id": node_id,
+            "uin": uin_display,
+            "lost_time": lost_time,
+        }
+        if qr_url:
+            extra["qr_url"] = qr_url
+            extra["dashboard_url"] = dashboard_url
+
+        for rule in rules:
+            if rule.get("type") == "login_lost" and rule.get("enabled"):
+                cfg = rule.get("config", {})
+                target = cfg.get("instance_name", "")
+                target_node = cfg.get("node_id", "")
+                if target and target != name:
+                    continue
+                if target_node and target_node != node_id:
+                    continue
+                await self.trigger_alert_async(rule["id"], message, "critical", extra)
 
     def get_history(self, limit: int = 50) -> List[Dict]:
         rows = db.fetchall(
@@ -144,19 +227,33 @@ class AlertManager:
         )
         return [dict(r) for r in rows]
 
-    def _send_webhook(self, url: str, message: str, level: str):
-        """异步发送 Webhook 通知"""
-        def _do_send():
-            try:
-                http_requests.post(url, json={
-                    "text": message,
-                    "level": level,
-                    "timestamp": int(time.time()),
-                    "source": "NapCat Manager",
-                }, timeout=10)
-            except Exception as e:
-                logger.debug("Webhook 发送失败: %s", e)
-        threading.Thread(target=_do_send, daemon=True).start()
+    def _fire_webhook_task(self, url: str, message: str, level: str):
+        """在当前事件循环中创建异步 webhook 发送任务（兼容同步调用点）。"""
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._send_webhook_async(url, message, level))
+        except RuntimeError:
+            logger.debug("无事件循环，跳过 webhook")
+
+    async def _send_webhook_async(
+        self, url: str, message: str, level: str,
+        extra: Optional[Dict] = None,
+    ):
+        """异步发送 Webhook 通知 — aiohttp，零线程。extra 字段合并到 payload。"""
+        payload: Dict[str, Any] = {
+            "text": message,
+            "level": level,
+            "timestamp": int(time.time()),
+            "source": "NapCat Manager",
+        }
+        if extra:
+            payload.update(extra)
+        timeout = aiohttp.ClientTimeout(total=10, connect=5)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                await session.post(url, json=payload)
+        except Exception as e:
+            logger.debug("Webhook 异步发送失败: %s", e)
 
     def _parse_rule(self, row) -> Dict:
         d = dict(row)

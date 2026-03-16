@@ -30,6 +30,7 @@ class AlertRuleUpdate(BaseModel):
 
 class AlertSettingsUpdate(BaseModel):
     allow_local_webhook: Optional[bool] = None
+    webhook_base_url: Optional[str] = None
 
 
 # ============ 告警全局设置 ============
@@ -39,6 +40,7 @@ def get_alert_settings(session: dict = Depends(require_admin)):
     return {
         "status": "ok",
         "allow_local_webhook": db.get_setting("allow_local_webhook", False),
+        "webhook_base_url": db.get_setting("webhook_base_url", ""),
     }
 
 
@@ -46,6 +48,8 @@ def get_alert_settings(session: dict = Depends(require_admin)):
 def update_alert_settings(req: AlertSettingsUpdate, session: dict = Depends(require_admin)):
     if req.allow_local_webhook is not None:
         db.set_setting("allow_local_webhook", req.allow_local_webhook)
+    if req.webhook_base_url is not None:
+        db.set_setting("webhook_base_url", req.webhook_base_url.rstrip("/"))
     return {"status": "ok"}
 
 

@@ -14,6 +14,7 @@ import services.database as db
 
 _TOKEN_TTL = 86400 * 7  # 7天过期
 _SLIDE_INTERVAL = 600   # 滑动过期：每 10 分钟刷新一次 last_active
+_PERMISSION_SYNC_INTERVAL = 300  # 权限/用户名同步：每 5 分钟回查 users 表
 
 
 def create_token(user: dict) -> str:
@@ -51,7 +52,7 @@ def cleanup_expired_tokens():
 
 
 def _validate_token(token: str) -> Optional[dict]:
-    """验证 Token 并返回 session 信息，含滑动过期"""
+    """验证 Token 并返回 session 信息，含滑动过期与权限同步。"""
     row = db.fetchone("SELECT * FROM sessions WHERE token=?", (token,))
     if not row:
         return None
@@ -62,10 +63,36 @@ def _validate_token(token: str) -> Optional[dict]:
         db.execute("DELETE FROM sessions WHERE token=?", (token,))
         db.commit()
         return None
+
+    needs_slide_refresh = now - session.get("last_active", 0) > _SLIDE_INTERVAL
+    needs_permission_sync = now - session.get("last_active", 0) > _PERMISSION_SYNC_INTERVAL
+
+    if needs_permission_sync and session.get("uuid"):
+        user_row = db.fetchone("SELECT userName, permission FROM users WHERE uuid=?", (session["uuid"],))
+        if not user_row:
+            db.execute("DELETE FROM sessions WHERE token=?", (token,))
+            db.commit()
+            return None
+        user = db.row_to_dict(user_row)
+        if (
+            user.get("permission") != session.get("permission")
+            or user.get("userName") != session.get("userName")
+        ):
+            db.execute(
+                "UPDATE sessions SET userName=?, permission=?, last_active=? WHERE token=?",
+                (user.get("userName", ""), user.get("permission", 0), now, token),
+            )
+            db.commit()
+            session["userName"] = user.get("userName", "")
+            session["permission"] = user.get("permission", 0)
+            session["last_active"] = now
+            return session
+
     # 滑动过期：定期刷新 last_active
-    if now - session.get("last_active", 0) > _SLIDE_INTERVAL:
+    if needs_slide_refresh:
         db.execute("UPDATE sessions SET last_active=? WHERE token=?", (now, token))
         db.commit()
+        session["last_active"] = now
     return session
 
 
@@ -73,7 +100,7 @@ def get_current_user(request: Request) -> dict:
     """
     核心认证依赖 - 支持多种认证方式:
     1. Cookie Token
-    2. API Key (Header / Query)
+    2. API Key (Header)
     """
     from services.user_manager import user_manager, ROLE
 
@@ -86,10 +113,8 @@ def get_current_user(request: Request) -> dict:
                 raise HTTPException(status_code=403, detail="Account banned")
             return session
 
-    # 2. API Key 认证
+    # 2. API Key 认证（仅请求头）
     api_key = request.headers.get("x-request-api-key")
-    if not api_key:
-        api_key = request.query_params.get("apikey")
 
     if api_key:
         if api_key == app_config.get("api_key"):

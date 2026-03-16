@@ -1,0 +1,287 @@
+"""
+BotShepherd 集成管理器 - 已嵌入本项目，负责初始化、进程启停和状态查询
+"""
+import os, sys, signal, subprocess, asyncio, json, glob
+from typing import Optional, Dict, Any
+import aiohttp
+from services.log import logger
+from services.config import BASE_DIR
+
+BOTSHEPHERD_DIR = os.path.join(BASE_DIR, "botshepherd")
+BOTSHEPHERD_DEFAULT_PORT = 5100
+
+
+def _get_venv_python() -> Optional[str]:
+    venv_dir = os.path.join(BOTSHEPHERD_DIR, "venv")
+    if not os.path.isdir(venv_dir):
+        return None
+    if sys.platform == "win32":
+        p = os.path.join(venv_dir, "Scripts", "python.exe")
+    else:
+        p = os.path.join(venv_dir, "bin", "python")
+    return p if os.path.isfile(p) else None
+
+
+class BSApiClient:
+    """异步 BS API 客户端 — 持久 aiohttp.ClientSession + cookie 复用 + 401 自动重登"""
+
+    def __init__(self, manager: "BotShepherdManager"):
+        self._mgr = manager
+        self._session: Optional[aiohttp.ClientSession] = None
+        self._authed = False
+
+    @property
+    def _base(self) -> str:
+        return f"http://127.0.0.1:{self._mgr.port}"
+
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            jar = aiohttp.CookieJar(unsafe=True)
+            self._session = aiohttp.ClientSession(cookie_jar=jar)
+            self._authed = False
+        return self._session
+
+    async def _login(self) -> bool:
+        sess = await self._ensure_session()
+        auth = self._mgr._read_bs_auth()
+        try:
+            async with sess.post(f"{self._base}/login", data=auth,
+                                 timeout=aiohttp.ClientTimeout(total=5),
+                                 allow_redirects=False) as r:
+                self._authed = r.status in (200, 302)
+                return self._authed
+        except Exception:
+            self._authed = False
+            return False
+
+    async def request(self, method: str, path: str, **kwargs) -> Optional[Any]:
+        """通用请求：自动登录 + 401 重试"""
+        if not self._mgr.running:
+            return None
+        sess = await self._ensure_session()
+        if not self._authed:
+            if not await self._login():
+                return None
+        url = f"{self._base}{path}"
+        try:
+            async with sess.request(method, url,
+                                    timeout=aiohttp.ClientTimeout(total=10),
+                                    **kwargs) as resp:
+                if resp.status == 401:
+                    if await self._login():
+                        async with sess.request(method, url,
+                                                timeout=aiohttp.ClientTimeout(total=10),
+                                                **kwargs) as r2:
+                            if r2.status == 200:
+                                return await r2.json()
+                    return None
+                if resp.status == 200:
+                    return await resp.json()
+                body = await resp.json()
+                return {"_error": True, "status": resp.status, **(body if isinstance(body, dict) else {"detail": body})}
+        except Exception as e:
+            logger.debug("BS API %s %s failed: %s", method, path, e)
+            return None
+
+    async def close(self):
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+            self._authed = False
+
+    def invalidate(self):
+        """BS 重启后失效 session"""
+        self._authed = False
+
+
+class BotShepherdManager:
+    def __init__(self):
+        self._process: Optional[subprocess.Popen] = None
+        self._port: int = BOTSHEPHERD_DEFAULT_PORT
+        self._auto_start: bool = True
+        self.api: BSApiClient = None  # type: ignore  — 延迟初始化
+
+    def _ensure_api(self) -> BSApiClient:
+        if self.api is None:
+            self.api = BSApiClient(self)
+        return self.api
+
+    @property
+    def installed(self) -> bool:
+        return os.path.isfile(os.path.join(BOTSHEPHERD_DIR, "main.py"))
+
+    @property
+    def initialized(self) -> bool:
+        return os.path.isdir(os.path.join(BOTSHEPHERD_DIR, "config"))
+
+    @property
+    def running(self) -> bool:
+        return self._process is not None and self._process.poll() is None
+
+    @property
+    def port(self) -> int:
+        if self.installed:
+            try:
+                cfg = os.path.join(BOTSHEPHERD_DIR, "config", "global_config.json")
+                if os.path.isfile(cfg):
+                    with open(cfg, "r", encoding="utf-8") as f:
+                        return json.load(f).get("web_port", self._port)
+            except Exception:
+                pass
+        return self._port
+
+    @property
+    def pid(self) -> Optional[int]:
+        return self._process.pid if self.running else None
+
+    def status(self) -> Dict[str, Any]:
+        return {
+            "installed": self.installed, "initialized": self.initialized,
+            "running": self.running, "port": self.port, "pid": self.pid,
+            "auto_start": self._auto_start, "dir": BOTSHEPHERD_DIR,
+            "webui_url": f"http://localhost:{self.port}" if self.running else None,
+        }
+
+    async def setup(self) -> Dict[str, Any]:
+        if not self.installed:
+            return {"status": "error", "message": "botshepherd/ 目录缺失"}
+        logger.info("Setting up BotShepherd...")
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+        proc = await asyncio.to_thread(subprocess.run,
+            [sys.executable, "main.py", "--setup"],
+            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR, timeout=300, env=env)
+        if proc.returncode != 0:
+            return {"status": "error", "message": proc.stderr or proc.stdout}
+        return {"status": "ok", "message": "setup complete"}
+
+    def start(self) -> Dict[str, Any]:
+        if self.running:
+            return {"status": "ok", "message": "already running"}
+        if not self.installed:
+            return {"status": "error", "message": "not installed"}
+        venv_py = _get_venv_python()
+        python = venv_py if venv_py else sys.executable
+        try:
+            kw: Dict[str, Any] = {}
+            if sys.platform == "win32":
+                kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+            self._process = subprocess.Popen(
+                [python, "main.py"], cwd=BOTSHEPHERD_DIR,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, **kw)
+            logger.info("BotShepherd started, PID=%s", self._process.pid)
+            self._ensure_api().invalidate()
+            return {"status": "ok", "message": f"PID={self._process.pid}"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
+    def stop(self) -> Dict[str, Any]:
+        if not self.running:
+            return {"status": "ok", "message": "not running"}
+        try:
+            if sys.platform == "win32":
+                self._process.send_signal(signal.CTRL_BREAK_EVENT)
+            else:
+                self._process.terminate()
+            self._process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+        self._process = None
+        self._ensure_api().invalidate()
+        return {"status": "ok", "message": "stopped"}
+
+    def set_auto_start(self, enabled: bool):
+        self._auto_start = enabled
+
+    def _read_bs_auth(self) -> Dict[str, str]:
+        try:
+            cfg = os.path.join(BOTSHEPHERD_DIR, "config", "global_config.json")
+            if os.path.isfile(cfg):
+                with open(cfg, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                auth = data.get("web_auth", {})
+                return {"username": auth.get("username", "admin"),
+                        "password": auth.get("password", "admin")}
+        except Exception:
+            pass
+        return {"username": "admin", "password": "admin"}
+
+    def _read_configs_from_dir(self, subdir: str) -> Dict[str, Any]:
+        """从 BS config 子目录读取 JSON 文件（降级用）"""
+        result: Dict[str, Any] = {}
+        d = os.path.join(BOTSHEPHERD_DIR, "config", subdir)
+        if not os.path.isdir(d):
+            return result
+        for fp in glob.glob(os.path.join(d, "*.json")):
+            try:
+                with open(fp, "r", encoding="utf-8") as f:
+                    result[os.path.splitext(os.path.basename(fp))[0]] = json.load(f)
+            except Exception:
+                pass
+        return result
+
+    # ---- 连接管理 ----
+
+    async def get_connections(self) -> Dict[str, Any]:
+        api = self._ensure_api()
+        data = await api.request("GET", "/api/connections")
+        if data is not None and not (isinstance(data, dict) and data.get("_error")):
+            return {"source": "api", "connections": data}
+        return {"source": "file", "connections": self._read_configs_from_dir("connections")}
+
+    async def update_connection(self, conn_id: str, config: dict) -> Dict[str, Any]:
+        api = self._ensure_api()
+        r = await api.request("PUT", f"/api/connections/{conn_id}", json=config)
+        if r is None:
+            return {"success": False, "error": "BS 未运行或无法连接"}
+        return r
+
+    async def copy_connection(self, conn_id: str, body: dict) -> Dict[str, Any]:
+        api = self._ensure_api()
+        r = await api.request("POST", f"/api/connections/{conn_id}/copy", json=body)
+        if r is None:
+            return {"success": False, "error": "BS 未运行或无法连接"}
+        return r
+
+    async def delete_connection(self, conn_id: str) -> Dict[str, Any]:
+        api = self._ensure_api()
+        r = await api.request("DELETE", f"/api/connections/{conn_id}")
+        if r is None:
+            return {"success": False, "error": "BS 未运行或无法连接"}
+        return r
+
+    # ---- 账号管理 ----
+
+    async def get_accounts(self) -> Dict[str, Any]:
+        api = self._ensure_api()
+        data = await api.request("GET", "/api/accounts")
+        if data is not None and not (isinstance(data, dict) and data.get("_error")):
+            return {"source": "api", "accounts": data}
+        return {"source": "file", "accounts": self._read_configs_from_dir("account")}
+
+    async def update_account(self, account_id: str, config: dict) -> Dict[str, Any]:
+        api = self._ensure_api()
+        r = await api.request("PUT", f"/api/accounts/{account_id}", json=config)
+        if r is None:
+            return {"success": False, "error": "BS 未运行或无法连接"}
+        return r
+
+    async def delete_account(self, account_id: str) -> Dict[str, Any]:
+        api = self._ensure_api()
+        r = await api.request("DELETE", f"/api/accounts/{account_id}")
+        if r is None:
+            return {"success": False, "error": "BS 未运行或无法连接"}
+        return r
+
+    async def get_account_online(self, account_id: str) -> Dict[str, Any]:
+        api = self._ensure_api()
+        r = await api.request("GET", f"/api/accounts/{account_id}/online-status")
+        if r is None:
+            return {"online": False, "error": "BS 未运行或无法连接"}
+        return r
+
+
+botshepherd_manager = BotShepherdManager()
+

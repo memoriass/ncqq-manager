@@ -22,6 +22,7 @@ export default function Nodes() {
     const toast = useToast();
     const [loading, setLoading] = useState(true);
     const [nodes, setNodes] = useState<Node[]>([]);
+    const [remoteLoading, setRemoteLoading] = useState(true);  // 远程节点状态加载中
     const [openDialog, setOpenDialog] = useState(false);
 
     // form state
@@ -43,14 +44,22 @@ export default function Nodes() {
 
     const fetchNodes = async () => {
         setLoading(true);
+        setRemoteLoading(true);
         try {
-            const data = await nodeApi.list();
+            // 第一阶段：quick 模式 — 本地节点完整，远程节点骨架（<50ms）
+            const data = await nodeApi.list(true);
             setNodes(data.nodes || []);
         } catch (e) {
             console.error(e);
         } finally {
             setLoading(false);
         }
+        // 第二阶段：异步获取远程节点完整状态（含健康检查）
+        try {
+            const full = await nodeApi.list(false);
+            setNodes(full.nodes || []);
+        } catch { /* 远程状态获取失败不影响页面 */ }
+        setRemoteLoading(false);
     };
 
     useEffect(() => {
@@ -186,8 +195,22 @@ export default function Nodes() {
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: 3 }}>
                 {loading ? (
                     [...Array(2)].map((_, i) => <Skeleton key={i} variant="rounded" height={300} sx={{ borderRadius: 3 }} />)
-                ) : nodes.map(node => (
-                    <Box key={node.id} sx={{ borderRadius: 3, background: theme.palette.mode === 'dark' ? 'rgba(45, 45, 50, 0.4)' : '#fff', border: `1px solid ${theme.palette.divider}`, overflow: 'hidden', transition: 'all 0.3s', '&:hover': { border: '1px solid rgba(59,130,246,0.5)', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' } }}>
+                ) : nodes.map(node => {
+                    const isRemoteLoading = remoteLoading && node.id !== 'local' && node.status === 'unknown';
+                    return (
+                    <Box key={node.id} sx={{ position: 'relative', borderRadius: 3, background: theme.palette.mode === 'dark' ? 'rgba(45, 45, 50, 0.4)' : '#fff', border: `1px solid ${theme.palette.divider}`, overflow: 'hidden', transition: 'all 0.3s', '&:hover': { border: '1px solid rgba(59,130,246,0.5)', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' } }}>
+                        {/* 远程节点加载遮罩 */}
+                        {isRemoteLoading && (
+                            <Box sx={{
+                                position: 'absolute', inset: 0, zIndex: 10,
+                                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1.5,
+                                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,35,0.85)' : 'rgba(255,255,255,0.85)',
+                                backdropFilter: 'blur(4px)', borderRadius: 3,
+                            }}>
+                                <CircularProgress size={28} sx={{ color: '#3b82f6' }} />
+                                <Typography variant="caption" color="text.secondary">{t('nodePanel.connecting') || '正在连接...'}</Typography>
+                            </Box>
+                        )}
                         <Box sx={{ p: 3 }}>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
                                 <Typography variant="h6" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -278,7 +301,8 @@ export default function Nodes() {
                             </Box>
                         </Box>
                     </Box>
-                ))}
+                    );
+                })}
             </Box>
 
             <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none', bgcolor: theme.palette.mode === 'dark' ? '#1e1e1e' : '#fff' } }}>

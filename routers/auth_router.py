@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from middleware.auth import (
-    get_current_user, create_token, remove_token,
+    get_current_user, create_token, remove_token, get_optional_user,
 )
 from services.user_manager import user_manager
 from services.config import app_config
@@ -43,6 +43,7 @@ async def api_login(req: LoginRequest, request: Request):
         operation_logger.info("user_login", {
             "operator_ip": ip,
             "operator_name": user["userName"],
+            "operator_uuid": user["uuid"],
         })
         response = JSONResponse({
             "status": "ok",
@@ -63,6 +64,7 @@ async def api_login(req: LoginRequest, request: Request):
     user_manager.record_login_failure(ip)
     operation_logger.warning("user_login_failed", {
         "operator_ip": ip,
+        "operator_name": req.username,
         "target_user_name": req.username,
     })
     return JSONResponse(
@@ -74,10 +76,13 @@ async def api_login(req: LoginRequest, request: Request):
 @router.post("/logout")
 async def api_logout(request: Request):
     token = request.cookies.get("auth_token")
+    session = get_optional_user(request)
     if token:
         remove_token(token)
     operation_logger.info("user_logout", {
         "operator_ip": request.client.host if request.client else "unknown",
+        "operator_name": session.get("userName") if session else None,
+        "operator_uuid": session.get("uuid") if session else None,
     })
     response = JSONResponse({"status": "ok", "message": "Logged out"})
     response.delete_cookie("auth_token")
@@ -188,6 +193,7 @@ async def api_setup_init(req: SetupRequest, request: Request):
     ip = request.client.host if request.client else "unknown"
     operation_logger.info("system_initialized", {
         "operator_ip": ip,
+        "operator_name": req.admin_username,
         "admin_user": req.admin_username,
         "host": req.host,
         "port": req.port,

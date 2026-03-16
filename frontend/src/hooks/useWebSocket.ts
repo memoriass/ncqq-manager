@@ -25,15 +25,6 @@ export function useWebSocket<T = unknown>(options: UseWSOptions) {
     // 标记组件是否已卸载 / effect 是否已 cleanup，防止 onclose 回调触发多余重连
     const disposedRef = useRef(false);
 
-    const getToken = useCallback(() => {
-        const cookies = document.cookie.split(';');
-        for (const c of cookies) {
-            const [key, val] = c.trim().split('=');
-            if (key === 'auth_token') return val;
-        }
-        return '';
-    }, []);
-
     // 稳定引用：把 path / enabled / reconnectInterval 存到 ref，避免 connect 依赖变化导致 useEffect 重跑
     const optRef = useRef({ path, enabled, reconnectInterval });
     optRef.current = { path, enabled, reconnectInterval };
@@ -48,9 +39,8 @@ export function useWebSocket<T = unknown>(options: UseWSOptions) {
             wsRef.current = null;
         }
 
-        const token = getToken();
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const url = `${protocol}//${window.location.host}${p}?token=${token}`;
+        const url = `${protocol}//${window.location.host}${p}`;
 
         const ws = new WebSocket(url);
         wsRef.current = ws;
@@ -88,7 +78,7 @@ export function useWebSocket<T = unknown>(options: UseWSOptions) {
             } catch { /* ignore */ }
         };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [getToken]); // 仅依赖 getToken（稳定），其余通过 optRef 读取
+    }, []);
 
     useEffect(() => {
         disposedRef.current = false;

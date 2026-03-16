@@ -151,9 +151,16 @@ class ContainerStateEngine:
         """单次刷新周期 — 写入 instance_subsystem。
 
         v5: 全部走纯异步 — 本地 aiodocker + 远程 aiohttp，零线程池。
+        v6: 新增实例离线检测 — running → 非 running 时触发 webhook 告警。
         """
         from services.cluster_manager import cluster_manager
         from services.config import get_data_dir
+
+        # ---- 0. 记录刷新前的运行状态（用于离线检测） ----
+        prev_running: set = set()
+        for inst in instance_subsystem.get_all():
+            if inst.status == "running":
+                prev_running.add((inst.name, inst.node_id))
 
         # ---- 1. 刷新容器列表 → upsert 到 instance_subsystem ----
         # 本地容器：aiodocker 纯异步 ⭐
@@ -202,6 +209,20 @@ class ContainerStateEngine:
         # 清理已不存在的容器
         instance_subsystem.cleanup(active_names)
 
+        # ---- 1.6 实例离线检测 — running → 非 running 时触发 webhook ----
+        curr_running: set = set()
+        for inst in instance_subsystem.get_all():
+            if inst.status == "running":
+                curr_running.add((inst.name, inst.node_id))
+        went_offline = prev_running - curr_running
+        if went_offline:
+            from services.alert_manager import alert_manager
+            for name, node_id in went_offline:
+                try:
+                    await alert_manager.notify_instance_offline(name, node_id)
+                except Exception as e:
+                    logger.debug("离线通知异常: %s", e)
+
         # ---- 1.5 批量解析端口（运行中的本地容器）— aiodocker 纯异步 ⭐ ----
         need_ports = [n for n in running_local_names
                       if instance_subsystem.get(n)
@@ -228,6 +249,11 @@ class ContainerStateEngine:
             if now - inst.login_ts >= ttl:
                 need_login_instances.append(inst)
 
+        # 记录检测前的登录状态（用于掉线扫码通知）
+        prev_login: Dict[str, tuple] = {}
+        for inst in need_login_instances:
+            prev_login[inst.name] = (inst.logged_in, inst.uin, inst.node_id)
+
         if need_login_instances:
             login_results = await async_login_checker.batch_check_login(
                 need_login_instances
@@ -239,6 +265,19 @@ class ContainerStateEngine:
                         logged_in=result.get("logged_in", False),
                         uin=result.get("uin", ""),
                     )
+
+        # ---- 2.5 掉线扫码通知 — logged_in: true → false 时推送 ----
+        for name, (was_logged_in, old_uin, nid) in prev_login.items():
+            if not was_logged_in:
+                continue  # 之前就没登录，跳过
+            inst = instance_subsystem.get(name)
+            if inst and not inst.logged_in:
+                # 登录态丢失 — 异步推送通知
+                try:
+                    from services.alert_manager import alert_manager
+                    await alert_manager.notify_login_lost(name, old_uin, nid)
+                except Exception as e:
+                    logger.debug("掉线扫码通知异常: %s", e)
 
         # ---- 3. QR 码刷新（未登录 & running） ----
         data_dir = get_data_dir()

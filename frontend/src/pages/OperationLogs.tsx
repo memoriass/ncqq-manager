@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
     Box,
     Paper,
@@ -23,15 +23,73 @@ const OperationLogs: React.FC = () => {
     const [logs, setLogs] = useState<OperationLog[]>([]);
     const [loading, setLoading] = useState(false);
     const [limit, setLimit] = useState(50);
+    const [pendingNewCount, setPendingNewCount] = useState(0);
+    const [highlightedLogIds, setHighlightedLogIds] = useState<string[]>([]);
     const t = useTranslate();
 
     const toast = useToast();
+    const listRef = useRef<HTMLUListElement | null>(null);
+    const preserveScrollRef = useRef(false);
+    const scrollOffsetRef = useRef(0);
+    const latestLogIdRef = useRef<string | null>(null);
+    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const fetchLogs = async () => {
+    const captureScrollState = () => {
+        const list = listRef.current;
+        if (!list) {
+            preserveScrollRef.current = false;
+            return;
+        }
+        const topThreshold = 24;
+        preserveScrollRef.current = list.scrollTop > topThreshold;
+        if (preserveScrollRef.current) {
+            scrollOffsetRef.current = list.scrollHeight - list.scrollTop;
+        }
+    };
+
+    const scrollToTop = () => {
+        const list = listRef.current;
+        if (!list) {
+            return;
+        }
+        list.scrollTo({ top: 0, behavior: 'smooth' });
+        preserveScrollRef.current = false;
+        setPendingNewCount(0);
+    };
+
+
+    const fetchLogs = async (mode: 'auto' | 'manual' | 'initial' = 'manual') => {
+        captureScrollState();
         setLoading(true);
         try {
             const data = await operationLogsApi.list(limit);
-            setLogs((data.logs || []).reverse());
+            const nextLogs = data.logs || [];
+            const previousTopId = latestLogIdRef.current;
+            const nextTopId = nextLogs[0]?.id || null;
+            const previousTopIndex = previousTopId
+                ? nextLogs.findIndex((log) => log.id === previousTopId)
+                : -1;
+            const newLogs = previousTopIndex > 0 ? nextLogs.slice(0, previousTopIndex) : [];
+
+            if (preserveScrollRef.current && mode === 'auto' && newLogs.length > 0) {
+                setPendingNewCount((count) => count + newLogs.length);
+            } else if (!preserveScrollRef.current || mode !== 'auto') {
+                setPendingNewCount(0);
+            }
+
+            if (newLogs.length > 0) {
+                const ids = newLogs.map((log) => log.id).filter(Boolean) as string[];
+                setHighlightedLogIds(ids);
+                if (highlightTimerRef.current) {
+                    clearTimeout(highlightTimerRef.current);
+                }
+                highlightTimerRef.current = setTimeout(() => {
+                    setHighlightedLogIds([]);
+                }, 3000);
+            }
+
+            latestLogIdRef.current = nextTopId;
+            setLogs(nextLogs);
         } catch (error) {
             toast.error('获取操作日志失败');
         } finally {
@@ -40,18 +98,61 @@ const OperationLogs: React.FC = () => {
     };
 
     useEffect(() => {
-        fetchLogs();
+        fetchLogs('initial');
     }, [limit]);
+
+    useLayoutEffect(() => {
+        const list = listRef.current;
+        if (!list || !preserveScrollRef.current) {
+            return;
+        }
+        list.scrollTop = Math.max(0, list.scrollHeight - scrollOffsetRef.current);
+    }, [logs]);
+
+    useEffect(() => {
+        const list = listRef.current;
+        if (!list) {
+            return;
+        }
+        const handleScroll = () => {
+            if (list.scrollTop <= 24) {
+                setPendingNewCount(0);
+                preserveScrollRef.current = false;
+            }
+        };
+        list.addEventListener('scroll', handleScroll);
+        return () => list.removeEventListener('scroll', handleScroll);
+    }, [logs.length]);
+    useEffect(() => {
+        return () => {
+            if (highlightTimerRef.current) {
+                clearTimeout(highlightTimerRef.current);
+            }
+        };
+    }, []);
 
     // 15s 自动刷新 + 可见性感知
     useEffect(() => {
         let interval: ReturnType<typeof setInterval>;
-        const start = () => { interval = setInterval(fetchLogs, 15000); };
-        const stop = () => { clearInterval(interval); };
-        const onVis = () => { document.hidden ? stop() : start(); };
-        if (!document.hidden) start();
+        const start = () => {
+            interval = setInterval(() => {
+                fetchLogs('auto');
+            }, 15000);
+        };
+        const stop = () => {
+            clearInterval(interval);
+        };
+        const onVis = () => {
+            document.hidden ? stop() : start();
+        };
+        if (!document.hidden) {
+            start();
+        }
         document.addEventListener('visibilitychange', onVis);
-        return () => { stop(); document.removeEventListener('visibilitychange', onVis); };
+        return () => {
+            stop();
+            document.removeEventListener('visibilitychange', onVis);
+        };
     }, [limit]);
 
     const getLevelColor = (level: string): 'info' | 'warning' | 'error' | 'default' => {
@@ -119,7 +220,7 @@ const OperationLogs: React.FC = () => {
                         <Button
                             variant="outlined"
                             startIcon={<RefreshIcon />}
-                            onClick={fetchLogs}
+                            onClick={() => fetchLogs('manual')}
                             disabled={loading}
                         >
                             {t('admin.refresh')}
@@ -134,6 +235,30 @@ const OperationLogs: React.FC = () => {
                  </Box>
                 </Box>
 
+                {pendingNewCount > 0 && (
+                    <Box
+                        sx={{
+                            position: 'sticky',
+                            top: 0,
+                            zIndex: 1,
+                            display: 'flex',
+                            justifyContent: 'center',
+                            py: 1,
+                            mb: 2,
+                            backgroundColor: 'background.paper',
+                        }}
+                    >
+                        <Button
+                            size="small"
+                            variant="contained"
+                            onClick={scrollToTop}
+                            sx={{ textTransform: 'none' }}
+                        >
+                            {`有 ${pendingNewCount} 条新日志，点击回到顶部`}
+                        </Button>
+                    </Box>
+                )}
+
                 {loading ? (
                     <Box sx={{ display: 'flex', justifyContent: 'center', py: 5 }}>
                         <CircularProgress />
@@ -146,19 +271,34 @@ const OperationLogs: React.FC = () => {
                         </Typography>
                     </Box>
                 ) : (
-                    <List dense>
-                        {logs.map((log) => (
-                            <ListItem key={log.id || log.timestamp} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-                                <ListItemIcon sx={{ minWidth: 32 }}>
-                                    <DotIcon sx={{ fontSize: 12, color: getLevelColor(log.level) === 'info' ? 'info.main' : getLevelColor(log.level) === 'warning' ? 'warning.main' : getLevelColor(log.level) === 'error' ? 'error.main' : 'grey.500' }} />
-                                </ListItemIcon>
-                                <ListItemText
-                                    primary={formatLogText(log)}
-                                    secondary={log.time}
-                                />
-                                <Chip label={log.level} size="small" color={getLevelColor(log.level)} variant="outlined" />
-                            </ListItem>
-                        ))}
+                    <List
+                        ref={listRef}
+                        dense
+                        sx={{ maxHeight: '70vh', overflowY: 'auto' }}
+                    >
+                        {logs.map((log) => {
+                            const isHighlighted = highlightedLogIds.includes(log.id);
+                            return (
+                                <ListItem
+                                    key={log.id || log.timestamp}
+                                    sx={{
+                                        borderBottom: '1px solid',
+                                        borderColor: 'divider',
+                                        backgroundColor: isHighlighted ? 'action.hover' : 'transparent',
+                                        transition: 'background-color 0.6s ease',
+                                    }}
+                                >
+                                    <ListItemIcon sx={{ minWidth: 32 }}>
+                                        <DotIcon sx={{ fontSize: 12, color: getLevelColor(log.level) === 'info' ? 'info.main' : getLevelColor(log.level) === 'warning' ? 'warning.main' : getLevelColor(log.level) === 'error' ? 'error.main' : 'grey.500' }} />
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={formatLogText(log)}
+                                        secondary={log.time}
+                                    />
+                                    <Chip label={log.level} size="small" color={getLevelColor(log.level)} variant="outlined" />
+                                </ListItem>
+                            );
+                        })}
                     </List>
                 )}
             </Paper>

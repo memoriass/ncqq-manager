@@ -2,13 +2,14 @@
 容器管理路由 - CRUD + 操作 + 统计 + 日志 + QR + 配置
 
 v6: CRUD 异步化 — 本地操作改用 async_docker_manager (aiodocker)，
-    消除 run_in_threadpool + docker-py 同步阻塞。
-    远程节点操作仍走 run_in_threadpool + requests（待后续 aiohttp 化）。
+    远程节点操作改用 cluster_manager 异步方法 (aiohttp)。
 """
 import os
 import re
 import base64
-import requests as http_requests
+import json
+from enum import Enum
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -30,6 +31,75 @@ router = APIRouter(prefix="/api", tags=["containers"])
 
 # 容器名称校验：仅允许字母、数字、连字符、下划线、点号，1-64 字符
 _CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
+_ENV_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
+_MAX_ENV_VARS = 20
+_ENV_BLOCKED_KEYS = {"ACCOUNT", "HOME", "PATH", "USER"}
+_ENV_BLOCKED_PREFIXES = ("DOCKER_", "LD_")
+
+
+class ContainerAction(str, Enum):
+    START = "start"
+    STOP = "stop"
+    RESTART = "restart"
+    PAUSE = "pause"
+    UNPAUSE = "unpause"
+    KILL = "kill"
+    DELETE = "delete"
+
+
+def _generate_onebot11_config_with_ws_client(config_dir: str, ws_client_url: str, ws_client_token: str = "", uin: str = "default") -> None:
+    """
+    生成或更新 onebot11 配置文件，注入 WS 客户端端点（支持合并）。
+
+    参考 NetworkConfig.tsx 中 ENDPOINT_DEFAULTS.ws_client 的格式。
+    """
+    try:
+        config_file = os.path.join(config_dir, f"onebot11_{uin}.json")
+
+        # 构建端点配置
+        ws_client_config = {
+            "name": "BS-Takeover" if uin != "default" else "",
+            "enable": True,
+            "url": ws_client_url,
+            "reportSelfMessage": False,
+            "messagePostFormat": "array",
+            "token": ws_client_token,
+            "debug": False,
+            "heartInterval": 30000,
+            "reconnectInterval": 30000,
+        }
+
+        # 尝试读取现有配置
+        full_config = {"network": {}}
+        if os.path.exists(config_file):
+            try:
+                with open(config_file, "r", encoding="utf-8") as f:
+                    full_config = json.load(f)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"读取现有配置失败，将重新生成: {e}")
+
+        network = full_config.get("network", {})
+        ws_clients = network.get("websocketClients", [])
+        if not isinstance(ws_clients, list):
+            ws_clients = []
+
+        # 检查是否已存在相同 URL 的端点，避免重复注入
+        exists = any(c.get("url") == ws_client_url for c in ws_clients if isinstance(c, dict))
+        if not exists:
+            ws_clients.append(ws_client_config)
+            network["websocketClients"] = ws_clients
+            full_config["network"] = network
+
+            # 写入配置文件
+            with open(config_file, "w", encoding="utf-8") as f:
+                json.dump(full_config, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"已为账号 {uin} 注入/更新 WS 客户端配置: {config_file}")
+        else:
+            logger.debug(f"账号 {uin} 的配置中已存在相同 WS 客户端，跳过注入")
+
+    except Exception as e:
+        logger.error(f"注入 onebot11 配置失败 (uin={uin}): {e}")
 
 
 class CreateRequest(BaseModel):
@@ -43,7 +113,7 @@ class CreateRequest(BaseModel):
     memory_limit: int = 0           # MB, 0 = 不限制
     restart_policy: str = "always"  # always / unless-stopped / on-failure / no
     network_mode: str = "bridge"    # bridge / host / none
-    env_vars: list = []             # ["KEY=VALUE", ...]
+    env_vars: list[str] = []        # ["KEY=VALUE", ...]
 
 
 class DeleteRequest(BaseModel):
@@ -62,6 +132,27 @@ def _safe_path(base: str, *parts: str) -> str:
     if not real.startswith(real_base):
         raise HTTPException(status_code=400, detail="Invalid path: directory traversal detected")
     return real
+
+
+def _parse_env_vars(env_vars: list[str]) -> dict[str, str]:
+    """解析并校验容器环境变量。"""
+    if not env_vars:
+        return {"ACCOUNT": ""}
+    if len(env_vars) > _MAX_ENV_VARS:
+        raise HTTPException(status_code=400, detail=f"env_vars exceeds max size {_MAX_ENV_VARS}")
+
+    env: dict[str, str] = {"ACCOUNT": ""}
+    for item in env_vars:
+        if "=" not in item:
+            raise HTTPException(status_code=400, detail="env_vars item must be KEY=VALUE format")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not _ENV_KEY_RE.match(key):
+            raise HTTPException(status_code=400, detail=f"Invalid env key: {key}")
+        if key in _ENV_BLOCKED_KEYS or any(key.startswith(prefix) for prefix in _ENV_BLOCKED_PREFIXES):
+            raise HTTPException(status_code=400, detail=f"Blocked env key: {key}")
+        env[key] = value
+    return env
 
 
 # ============ 公开容器状态（无需认证） ============
@@ -130,16 +221,15 @@ async def api_create_container(
         node = next((n for n in nodes if n["id"] == req.node_id), None)
         if not node:
             raise HTTPException(status_code=400, detail="Invalid node_id")
-        addr = cluster_manager._normalize_address(node["address"])
-        resp = await run_in_threadpool(
-            lambda: http_requests.post(
-                f"{addr}/api/containers",
-                headers={"x-request-api-key": node["api_key"]},
-                json={"name": req.name, "node_id": "local"},
-                timeout=5,
-            )
+        import json as _json
+        code, body, _ = await cluster_manager._proxy_to_node_async(
+            req.node_id, "POST", "/api/containers",
+            timeout=5.0,
+            json={"name": req.name, "node_id": "local"},
         )
-        return resp.json()
+        if body:
+            return _json.loads(body)
+        return {"status": "error", "message": "Remote node unreachable"}
 
     # 本地创建
     data_dir = os.path.join(get_data_dir(), req.name)
@@ -180,11 +270,7 @@ async def api_create_container(
     docker_image = req.docker_image or app_config.get("docker_image", "mlikiowa/napcat-docker:latest")
 
     # 高级参数传递
-    env = {"ACCOUNT": ""}
-    for item in (req.env_vars or []):
-        if "=" in item:
-            k, v = item.split("=", 1)
-            env[k] = v
+    env = _parse_env_vars(req.env_vars or [])
 
     restart_policy = {"Name": req.restart_policy} if req.restart_policy and req.restart_policy != "no" else {"Name": "always"}
 
@@ -200,12 +286,15 @@ async def api_create_container(
     if not cid:
         raise HTTPException(status_code=500, detail="Failed to create container")
 
+    # WS / BS 注入均延迟到登录完成后触发（docker_manager._on_login_detected）
+
     docker_manager.invalidate_containers_cache()
     state_engine.notify_change()
 
     operation_logger.info("container_create", {
         "operator_ip": request.client.host if request.client else "unknown",
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "container_name": req.name,
         "node_id": req.node_id,
         "ports": {"webui": webui_port, "http": http_port, "ws": ws_port},
@@ -213,11 +302,33 @@ async def api_create_container(
     return {"status": "ok", "container_id": cid, "ports": {"webui": webui_port, "http": http_port, "ws": ws_port}}
 
 
+@router.post("/containers/{name}/inject-ws-client")
+async def api_inject_ws_client(
+    name: str, uin: str = "default",
+    session: dict = Depends(get_current_user),
+):
+    """
+    为指定容器和账号手动注入 WS 客户端配置。
+    """
+    if not app_config.get("init_ws_client_enabled", False):
+        raise HTTPException(status_code=400, detail="WS Client Injection is disabled in cluster settings")
+
+    config_dir = os.path.join(get_data_dir(), name, "config")
+    ws_client_url = str(app_config.get("init_ws_client_url", ""))
+    ws_client_token = str(app_config.get("init_ws_client_token", ""))
+
+    if not ws_client_url:
+        raise HTTPException(status_code=400, detail="Injection URL is not configured")
+
+    _generate_onebot11_config_with_ws_client(config_dir, ws_client_url, ws_client_token, uin)
+    return {"status": "ok", "message": f"Injected into onebot11_{uin}.json"}
+
+
 # ============ 容器操作 (启动/停止/重启/删除...) ============
 
 @router.post("/containers/{name}/action", dependencies=[Depends(speed_limit(2.0))])
 async def api_container_action(
-    name: str, action: str,
+    name: str, action: ContainerAction,
     node_id: str = "local",
     delete_data: bool = False,
     request: Request = None,
@@ -226,11 +337,13 @@ async def api_container_action(
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
 
+    action_value = action.value
+
     # 本地操作走 aiodocker 纯异步；远程操作走 cluster_manager（run_in_threadpool）
     if node_id == "local":
-        success = await async_docker_manager.action_container(name, action)
+        success = await async_docker_manager.action_container(name, action_value)
     else:
-        success = await run_in_threadpool(cluster_manager.action_container, node_id, name, action)
+        success = await cluster_manager.action_container_async(node_id, name, action_value)
     if not success:
         raise HTTPException(status_code=500, detail="Action failed")
 
@@ -239,7 +352,7 @@ async def api_container_action(
     state_engine.notify_change()
 
     # 删除时可选清理本地数据目录
-    if action == "delete" and delete_data and node_id == "local":
+    if action_value == "delete" and delete_data and node_id == "local":
         import shutil
         data_dir = os.path.join(get_data_dir(), name)
         if os.path.exists(data_dir):
@@ -249,8 +362,9 @@ async def api_container_action(
     operation_logger.info("container_action", {
         "operator_ip": request.client.host if request.client else "unknown",
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "container_name": name,
-        "action": action,
+        "action": action_value,
         "node_id": node_id,
         "delete_data": delete_data,
     })
@@ -266,7 +380,7 @@ async def get_container_stats(
 ):
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
-    return await run_in_threadpool(cluster_manager.get_stats, node_id, name)
+    return await cluster_manager.get_stats_async(node_id, name)
 
 
 # ============ 容器日志 ============
@@ -282,7 +396,7 @@ async def get_container_logs(
     if node_id == "local":
         logs = await async_docker_manager.get_logs(name, lines)
     else:
-        logs = await run_in_threadpool(cluster_manager.get_logs, node_id, name, lines)
+        logs = await cluster_manager.get_logs_async(node_id, name, lines)
     return {"status": "ok", "logs": logs}
 
 
@@ -297,7 +411,7 @@ async def download_container_logs(
     if node_id == "local":
         logs = await async_docker_manager.get_logs(name, lines)
     else:
-        logs = await run_in_threadpool(cluster_manager.get_logs, node_id, name, lines)
+        logs = await cluster_manager.get_logs_async(node_id, name, lines)
     import time
     ts = time.strftime("%Y%m%d_%H%M%S")
     filename = f"{name}_logs_{ts}.txt"
@@ -324,7 +438,7 @@ async def get_qr_code(
     import re
 
     if node_id != "local":
-        result = await run_in_threadpool(cluster_manager.get_qr_status, node_id, name)
+        result = await cluster_manager.get_qr_status_async(node_id, name)
         if result:
             return result
         return {"status": "waiting"}

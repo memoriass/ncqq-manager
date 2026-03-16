@@ -30,6 +30,7 @@ from routers.alert_router import router as alert_router
 from routers.backup_router import router as backup_router
 from routers.scheduler_router import router as scheduler_router
 from routers.resource_router import router as resource_router
+from routers.botshepherd_router import router as botshepherd_router
 
 
 # ============ 生命周期管理 ============
@@ -68,6 +69,9 @@ async def lifespan(app: FastAPI):
     from services.cluster_manager import cluster_manager
     cluster_manager.init()
 
+    # 启动集群管理器 aiohttp 连接池（远程节点异步通信）
+    await cluster_manager.start_session()
+
     # 启动时清理过期 token
     cleanup_expired_tokens()
 
@@ -103,6 +107,11 @@ async def lifespan(app: FastAPI):
     from services.scheduler import scheduler
     await scheduler.start()
 
+    # 自动启动 BotShepherd（如已安装且配置为自动启动）
+    from services.botshepherd import botshepherd_manager
+    if botshepherd_manager.installed and botshepherd_manager._auto_start:
+        botshepherd_manager.start()
+
     yield
 
     # 关闭时清理
@@ -112,7 +121,9 @@ async def lifespan(app: FastAPI):
     await state_engine.stop()
     await async_docker_manager.stop()
     await async_login_checker.stop()
+    await cluster_manager.stop_session()
     await scheduler.stop()
+    botshepherd_manager.stop()
     operation_logger.flush()
     cleanup_expired_tokens()
     database.close_db()
@@ -153,8 +164,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         if request.method not in _CSRF_SAFE_METHODS:
             has_cookie = "auth_token" in request.cookies
-            has_api_key = (request.headers.get("x-request-api-key")
-                          or request.query_params.get("apikey"))
+            has_api_key = request.headers.get("x-request-api-key")
             # 仅对 Cookie 认证的写操作校验 CSRF 头
             if has_cookie and not has_api_key:
                 xhr = request.headers.get("x-requested-with", "")
@@ -183,6 +193,7 @@ app.include_router(alert_router)
 app.include_router(backup_router)
 app.include_router(scheduler_router)
 app.include_router(resource_router)
+app.include_router(botshepherd_router)
 
 
 # ============ 全局异常处理器 ============

@@ -138,7 +138,7 @@ export default function Dashboard() {
 
     const fetchNodes = async () => {
         try {
-            const data = await nodeApi.list();
+            const data = await nodeApi.list(true);
             setNodes(data.nodes || []);
         } catch (e) {
             toast.error('获取节点列表失败');

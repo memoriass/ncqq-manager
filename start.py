@@ -146,6 +146,32 @@ def check_docker():
         info("Docker 运行正常")
 
 
+BOTSHEPHERD_DIR = os.path.join(BASE_DIR, "botshepherd")
+
+
+def check_botshepherd():
+    """检测并初始化已嵌入的 BotShepherd 中间件"""
+    step("检查 BotShepherd 中间件")
+    main_py = os.path.join(BOTSHEPHERD_DIR, "main.py")
+    if not os.path.isfile(main_py):
+        warn("botshepherd/ 目录不完整，跳过")
+        return
+    # 检查是否已初始化（config 目录存在）
+    cfg = os.path.join(BOTSHEPHERD_DIR, "config", "global_config.json")
+    if os.path.isfile(cfg):
+        info("BotShepherd 已初始化")
+        return
+    info("首次运行，正在初始化 BotShepherd (安装依赖)...")
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    r = subprocess.run([sys.executable, "main.py", "--setup"],
+                       capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+                       timeout=300, env=env)
+    if r.returncode != 0:
+        warn("BotShepherd 初始化失败，可在管理面板中重试")
+    else:
+        info("BotShepherd 初始化完成，将随面板自动启动")
+
+
 def start_server(port: int, dev: bool):
     """启动后端服务"""
     # 从配置读取 host（首次初始化设置中用户选择的绑定地址）
@@ -215,6 +241,7 @@ def main():
     else:
         info("已跳过前端构建 (--skip-build)")
 
+    check_botshepherd()
     start_server(args.port, args.dev)
 
 

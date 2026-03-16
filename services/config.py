@@ -28,7 +28,9 @@ class AppConfig:
 
     # 运行时字段（存储在 SQLite settings 表）
     _RUNTIME_KEYS = {"webui_base_port", "http_base_port", "ws_base_port",
-                     "docker_image", "api_key", "data_dir"}
+                     "docker_image", "api_key", "data_dir",
+                     "init_ws_client_enabled", "init_ws_client_url", "init_ws_client_token",
+                     "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets"}
 
     _BOOTSTRAP_DEFAULT = {
         "initialized": False,
@@ -43,6 +45,12 @@ class AppConfig:
         "docker_image": "mlikiowa/napcat-docker:latest",
         "api_key": "",
         "data_dir": os.path.join(BASE_DIR, "data"),
+        "init_ws_client_enabled": False,
+        "init_ws_client_url": "ws://127.0.0.1:5100/onebot/v11/ws",
+        "init_ws_client_token": "",
+        "init_bs_enabled": False,
+        "init_bs_client_base_port": 6100,
+        "init_bs_targets": "[]",  # JSON 字符串，如 '["ws://target1:3001/ws"]'
     }
 
     def __init__(self):

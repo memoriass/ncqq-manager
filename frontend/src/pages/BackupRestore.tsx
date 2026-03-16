@@ -58,7 +58,7 @@ export default function BackupRestore() {
                 </Box>
             </Box>
 
-            {/* 数据库信息 */}
+            {/* 备份信息 */}
             <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: `1px solid ${theme.palette.divider}`, mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                     <StorageIcon color="action" />
@@ -85,7 +85,7 @@ export default function BackupRestore() {
                     sx={{ borderRadius: 2 }}>
                     {uploading ? t('backup.uploading') : t('backup.restore')}
                 </Button>
-                <input type="file" accept=".db" ref={fileInputRef}
+                <input type="file" accept=".zip" ref={fileInputRef}
                     style={{ display: 'none' }} onChange={handleUpload} />
             </Box>
 

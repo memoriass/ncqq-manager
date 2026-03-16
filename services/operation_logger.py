@@ -28,6 +28,9 @@ class OperationLogger:
             "level": level,
             "time": time.strftime("%Y-%m-%d %H:%M:%S"),
             "timestamp": int(time.time()),
+            "operator_name": payload.get("operator_name"),
+            "operator_uuid": payload.get("operator_uuid"),
+            "operator_ip": payload.get("operator_ip"),
             "payload": payload,
         }
         self._buffer.append(entry)
@@ -52,9 +55,12 @@ class OperationLogger:
             while self._buffer:
                 entry = self._buffer.popleft()
                 db.execute(
-                    "INSERT OR IGNORE INTO operation_logs (id,type,level,time,timestamp,payload) VALUES (?,?,?,?,?,?)",
+                    "INSERT OR IGNORE INTO operation_logs "
+                    "(id,type,level,time,timestamp,operator_name,operator_uuid,operator_ip,payload) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
                     (entry["id"], entry["type"], entry["level"],
                      entry["time"], entry["timestamp"],
+                     entry.get("operator_name"), entry.get("operator_uuid"), entry.get("operator_ip"),
                      json.dumps(entry["payload"], ensure_ascii=False)),
                 )
             db.commit()
@@ -94,6 +100,13 @@ class OperationLogger:
             flat = {k: v for k, v in entry.items() if k != "payload"}
             if isinstance(entry.get("payload"), dict):
                 flat.update(entry["payload"])
+            if "operator" not in flat:
+                if "operator_name" in flat:
+                    flat["operator"] = flat["operator_name"]
+                elif "admin_user" in flat:
+                    flat["operator"] = flat["admin_user"]
+                elif "target_user_name" in flat:
+                    flat["operator"] = flat["target_user_name"]
             result.append(flat)
         return result
 

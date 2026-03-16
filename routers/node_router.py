@@ -3,11 +3,9 @@
 """
 import uuid as uuid_mod
 
-import requests as http_requests
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
-from starlette.concurrency import run_in_threadpool
 
 from middleware.auth import get_current_user, require_admin
 from services.cluster_manager import cluster_manager
@@ -38,6 +36,12 @@ async def get_cluster_config(session: dict = Depends(get_current_user)):
             "ws_base_port": app_config.get("ws_base_port"),
             "api_key": app_config.get("api_key"),
             "data_dir": app_config.get("data_dir"),
+            "init_ws_client_enabled": app_config.get("init_ws_client_enabled", False),
+            "init_ws_client_url": app_config.get("init_ws_client_url", "ws://127.0.0.1:5100/onebot/v11/ws"),
+            "init_ws_client_token": app_config.get("init_ws_client_token", ""),
+            "init_bs_enabled": app_config.get("init_bs_enabled", False),
+            "init_bs_client_base_port": app_config.get("init_bs_client_base_port", 6100),
+            "init_bs_targets": app_config.get("init_bs_targets", "[]"),
         },
         "system": {
             "cpu_percent": psutil.cpu_percent(interval=None) or 0.1,
@@ -55,7 +59,9 @@ async def save_cluster_config(
     session: dict = Depends(require_admin),
 ):
     body = await request.json()
-    allowed_keys = {"webui_base_port", "http_base_port", "ws_base_port", "docker_image", "api_key", "data_dir"}
+    allowed_keys = {"webui_base_port", "http_base_port", "ws_base_port", "docker_image", "api_key", "data_dir",
+                     "init_ws_client_enabled", "init_ws_client_url", "init_ws_client_token",
+                     "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets"}
     updates = {k: v for k, v in body.items() if k in allowed_keys}
 
     # 端口范围校验
@@ -113,8 +119,11 @@ async def cluster_status(session: dict = Depends(get_current_user)):
 # ============ 节点 CRUD ============
 
 @router.get("/nodes")
-async def api_get_nodes(session: dict = Depends(get_current_user)):
-    nodes = await run_in_threadpool(cluster_manager.get_nodes_with_status)
+async def api_get_nodes(quick: bool = False, session: dict = Depends(get_current_user)):
+    if quick:
+        nodes = await cluster_manager.get_nodes_quick()
+    else:
+        nodes = await cluster_manager.get_nodes_with_status_async()
     return {"status": "ok", "nodes": nodes}
 
 
@@ -127,6 +136,7 @@ async def api_add_node(
     cluster_manager.add_node(new_id, req.name, req.address, req.api_key)
     operation_logger.info("node_add", {
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "node_name": req.name,
         "node_address": req.address,
     })
@@ -154,6 +164,7 @@ async def api_delete_node(
     cluster_manager.delete_node(node_id)
     operation_logger.warning("node_delete", {
         "operator_name": session["userName"],
+        "operator_uuid": session.get("uuid"),
         "node_id": node_id,
         "node_name": node["name"] if node else "Unknown",
     })
@@ -180,13 +191,13 @@ async def get_node_logs(
         from services.log import get_node_logs as _get_logs
         return {"status": "ok", "logs": _get_logs(lines)}
 
-    # 远程节点：通过代理获取
-    resp = await run_in_threadpool(
-        cluster_manager._proxy_to_node,
+    # 远程节点：异步代理获取
+    code, body, _ = await cluster_manager._proxy_to_node_async(
         node_id, "GET", f"/api/node/logs?lines={lines}",
     )
-    if resp and resp.status_code == 200:
-        data = resp.json()
+    if code == 200 and body:
+        import json
+        data = json.loads(body)
         return {"status": "ok", "logs": data.get("logs", "")}
     return {"status": "error", "logs": ""}
 
@@ -219,28 +230,19 @@ async def proxy_node_request(
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    addr = cluster_manager._normalize_address(node["address"])
-    url = f"{addr}/api/{path}"
-    params = dict(request.query_params)
+    # 构建查询参数字符串
+    qs = str(request.query_params)
+    full_path = f"/api/{path}" + (f"?{qs}" if qs else "")
     body = await request.body()
-    headers = {"x-request-api-key": node["api_key"]}
 
-    def do_request():
-        return http_requests.request(
-            request.method, url,
-            headers=headers, params=params, data=body, timeout=10,
-        )
-
-    try:
-        resp = await run_in_threadpool(do_request)
-        return Response(
-            content=resp.content,
-            status_code=resp.status_code,
-            media_type=resp.headers.get("content-type"),
-        )
-    except Exception as e:
-        return JSONResponse(
-            content={"status": "error", "message": str(e)},
-            status_code=500,
-        )
+    code, resp_body, ct = await cluster_manager._proxy_to_node_async(
+        node_id, request.method, full_path,
+        timeout=10.0, data=body if body else None,
+    )
+    if resp_body is not None:
+        return Response(content=resp_body, status_code=code, media_type=ct)
+    return JSONResponse(
+        content={"status": "error", "message": "Node unreachable"},
+        status_code=502,
+    )
 

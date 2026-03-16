@@ -626,18 +626,19 @@ class DockerManager:
         返回 {logged_in, uin, nickname, method} 或 {logged_in: False}
         """
         now = time.time()
+        prev = _login_cache.get(name, {})
 
-        if not force and name in _login_cache:
-            cached = _login_cache[name]
-            ttl = _LOGIN_CACHE_TTL if cached.get("logged_in") else _LOGIN_CACHE_TTL_FAIL
-            if now - cached.get("ts", 0) < ttl:
-                return cached
+        if not force and prev:
+            ttl = _LOGIN_CACHE_TTL if prev.get("logged_in") else _LOGIN_CACHE_TTL_FAIL
+            if now - prev.get("ts", 0) < ttl:
+                return prev
 
         # 层 1: OneBot HTTP API（最可靠）
         result = self.check_login_via_onebot(name)
         if result["logged_in"]:
             result["ts"] = now
             _login_cache[name] = result
+            self._on_login_detected(name, result, prev)
             return result
 
         # 层 2: WebUI API
@@ -645,6 +646,7 @@ class DockerManager:
         if result["logged_in"]:
             result["ts"] = now
             _login_cache[name] = result
+            self._on_login_detected(name, result, prev)
             return result
 
         # 全部失败 → 未登录（短缓存避免频繁请求）
@@ -697,19 +699,92 @@ class DockerManager:
         """方案 C 预留：插件事件直接更新缓存。
         event 格式: {event: 'login'|'logout', uin, nickname}
         """
+        prev = _login_cache.get(name, {})
         if event.get("event") == "login" and event.get("uin"):
-            _login_cache[name] = {
+            uin = str(event["uin"])
+            new_entry = {
                 "logged_in": True,
-                "uin": str(event["uin"]),
+                "uin": uin,
                 "nickname": event.get("nickname", ""),
                 "method": "plugin",
                 "ts": time.time(),
             }
+            _login_cache[name] = new_entry
+            docker_manager._on_login_detected(name, new_entry, prev)
         elif event.get("event") == "logout":
             _login_cache[name] = {
                 "logged_in": False,
                 "ts": time.time(),
             }
+
+    def _on_login_detected(self, name: str, current: Dict, prev: Dict) -> None:
+        """登录完成后统一触发：WS 客户端注入 + BS 中间件接管。
+
+        仅在首次登录（或换号登录）时触发，已登录且 UIN 相同则跳过。
+        """
+        uin = str(current.get("uin", ""))
+        nickname = current.get("nickname", "")
+        if not uin:
+            return
+
+        # 跳过重复：上次已登录且 UIN 相同
+        if prev.get("logged_in") and str(prev.get("uin", "")) == uin:
+            return
+
+        from services.config import app_config, get_data_dir
+        config_dir = os.path.join(get_data_dir(), name, "config")
+        ws_enabled = app_config.get("init_ws_client_enabled", False)
+        bs_enabled = app_config.get("init_bs_enabled", False)
+
+        if not ws_enabled and not bs_enabled:
+            return
+
+        # ---- ① WS 客户端注入到 onebot11_{uin}.json ----
+        ws_url = ""
+        ws_token = str(app_config.get("init_ws_client_token", ""))
+
+        if bs_enabled:
+            # BS 模式：分配递增端口作为 client_endpoint
+            bs_base_port = int(app_config.get("init_bs_client_base_port", 6100))
+            used = self.get_used_ports()
+            bs_port = self.find_available_port(bs_base_port, used)
+            ws_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
+        elif ws_enabled:
+            # 纯 WS 模式：使用固定 URL
+            ws_url = str(app_config.get("init_ws_client_url", ""))
+
+        if ws_url:
+            try:
+                from routers.container_router import _generate_onebot11_config_with_ws_client
+                _generate_onebot11_config_with_ws_client(config_dir, ws_url, ws_token, uin)
+            except Exception as e:
+                logger.error(f"登录后 WS 注入失败 ({name}/{uin}): {e}")
+
+        # ---- ② BS 中间件接管（异步 fire-and-forget）----
+        if bs_enabled and ws_url:
+            try:
+                import asyncio
+                raw = app_config.get("init_bs_targets", "[]")
+                targets = json.loads(raw) if isinstance(raw, str) else raw
+                if isinstance(targets, list) and targets:
+                    conn_config = {
+                        "name": nickname or name,
+                        "description": f"Auto [{uin}]",
+                        "enabled": True,
+                        "client_endpoint": ws_url,
+                        "target_endpoints": targets,
+                    }
+                    loop = asyncio.get_event_loop()
+                    if loop.is_running():
+                        from services.botshepherd import botshepherd_manager
+                        asyncio.run_coroutine_threadsafe(
+                            botshepherd_manager.update_connection(name, conn_config), loop
+                        )
+                        logger.info(f"已调度 BS 连接同步: {name} → {ws_url}")
+                    else:
+                        logger.warning("事件循环未运行，跳过 BS 连接同步")
+            except Exception as e:
+                logger.error(f"登录后 BS 注入失败 ({name}): {e}")
 
     def get_used_ports(self) -> set:
         """扫描所有已使用的宿主机端口（Docker容器 + 系统监听）"""

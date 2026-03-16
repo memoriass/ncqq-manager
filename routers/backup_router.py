@@ -1,45 +1,83 @@
 """
-备份与恢复路由 - 数据库导出/导入
+备份与恢复路由 - config 和 data 文件夹导出/导入
 """
 import os
 import time
 import shutil
 import tempfile
+import zipfile
 
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File
 from fastapi.responses import FileResponse
 
 from middleware.auth import require_admin
-from services.database import DB_PATH
+from services.config import CONFIG_DIR, DATA_DIR
 from services.operation_logger import operation_logger
 from services.log import logger
 
 router = APIRouter(prefix="/api", tags=["backup"])
 
-_MAX_UPLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
+_MAX_UPLOAD_SIZE = 200 * 1024 * 1024  # 200 MB
+
+
+def _get_dir_size(path: str) -> int:
+    """计算目录大小（字节）"""
+    total = 0
+    try:
+        for root, dirs, files in os.walk(path):
+            for f in files:
+                fp = os.path.join(root, f)
+                if os.path.exists(fp):
+                    total += os.path.getsize(fp)
+    except Exception:
+        pass
+    return total
 
 
 @router.get("/backup/download")
 async def download_backup(request: Request, session: dict = Depends(require_admin)):
-    """下载数据库备份文件"""
-    if not os.path.exists(DB_PATH):
-        raise HTTPException(status_code=404, detail="Database not found")
+    """下载 config 和 data 文件夹备份"""
+    if not os.path.exists(CONFIG_DIR):
+        raise HTTPException(status_code=404, detail="Config directory not found")
+    if not os.path.exists(DATA_DIR):
+        raise HTTPException(status_code=404, detail="Data directory not found")
 
     ts = time.strftime("%Y%m%d_%H%M%S")
-    # 先复制一份避免锁冲突
-    tmp_path = os.path.join(tempfile.gettempdir(), f"napcat_backup_{ts}.db")
-    shutil.copy2(DB_PATH, tmp_path)
+    tmp_path = os.path.join(tempfile.gettempdir(), f"napcat_backup_{ts}.zip")
 
-    operation_logger.info("backup_download", {
-        "operator_name": session["userName"],
-        "operator_ip": request.client.host if request.client else "unknown",
-    })
+    try:
+        # 创建 zip 备份
+        with zipfile.ZipFile(tmp_path, 'w', compression=zipfile.ZIP_DEFLATED) as zipf:
+            # 备份 config 文件夹
+            for root, dirs, files in os.walk(CONFIG_DIR):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.join("config", os.path.relpath(file_path, CONFIG_DIR))
+                    zipf.write(file_path, arcname)
 
-    return FileResponse(
-        path=tmp_path,
-        filename=f"napcat_backup_{ts}.db",
-        media_type="application/octet-stream",
-    )
+            # 备份 data 文件夹
+            for root, dirs, files in os.walk(DATA_DIR):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.join("data", os.path.relpath(file_path, DATA_DIR))
+                    zipf.write(file_path, arcname)
+
+        operation_logger.info("backup_download", {
+            "operator_name": session["userName"],
+            "operator_uuid": session.get("uuid"),
+            "operator_ip": request.client.host if request.client else "unknown",
+        })
+
+        return FileResponse(
+            path=tmp_path,
+            filename=f"napcat_backup_{ts}.zip",
+            media_type="application/zip",
+        )
+    except Exception as e:
+        logger.error(f"创建备份失败: {e}")
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise HTTPException(status_code=500, detail=f"Backup creation failed: {str(e)}")
 
 
 @router.post("/backup/upload")
@@ -48,9 +86,9 @@ async def upload_backup(
     file: UploadFile = File(...),
     session: dict = Depends(require_admin),
 ):
-    """上传恢复数据库备份（覆盖当前数据库，需要重启生效）"""
-    if not file.filename or not file.filename.endswith(".db"):
-        raise HTTPException(status_code=400, detail="Invalid file type. Only .db files accepted.")
+    """上传恢复 config 和 data 文件夹备份（覆盖当前文件夹，需要重启生效）"""
+    if not file.filename or not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Invalid file type. Only .zip files accepted.")
 
     # 先通过 Content-Length 快速拒绝超大文件
     content_length = request.headers.get("content-length")
@@ -61,40 +99,87 @@ async def upload_backup(
     if len(content) > _MAX_UPLOAD_SIZE:
         raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {_MAX_UPLOAD_SIZE // (1024*1024)} MB.")
     if len(content) < 100:
-        raise HTTPException(status_code=400, detail="File too small to be a valid database")
+        raise HTTPException(status_code=400, detail="File too small to be a valid backup")
 
-    # 备份当前数据库
+    # 保存上传的文件到临时位置
     ts = time.strftime("%Y%m%d_%H%M%S")
-    backup_path = DB_PATH + f".pre_restore_{ts}"
-    if os.path.exists(DB_PATH):
-        shutil.copy2(DB_PATH, backup_path)
-        logger.info("已备份当前数据库到: %s", backup_path)
+    tmp_upload = os.path.join(tempfile.gettempdir(), f"upload_{ts}.zip")
 
-    # 写入新数据库
-    with open(DB_PATH, "wb") as f:
-        f.write(content)
+    try:
+        with open(tmp_upload, "wb") as f:
+            f.write(content)
 
-    operation_logger.info("backup_restore", {
-        "operator_name": session["userName"],
-        "operator_ip": request.client.host if request.client else "unknown",
-        "filename": file.filename,
-    })
+        # 验证 zip 文件
+        if not zipfile.is_zipfile(tmp_upload):
+            raise HTTPException(status_code=400, detail="Invalid zip file")
 
-    return {"status": "ok", "message": "Database restored. Restart required."}
+        # 备份当前 config 和 data 文件夹
+        backup_base = os.path.join(tempfile.gettempdir(), f"pre_restore_{ts}")
+        os.makedirs(backup_base, exist_ok=True)
+
+        if os.path.exists(CONFIG_DIR):
+            backup_config = os.path.join(backup_base, "config")
+            shutil.copytree(CONFIG_DIR, backup_config, dirs_exist_ok=True)
+            logger.info("已备份当前 config 到: %s", backup_config)
+
+        if os.path.exists(DATA_DIR):
+            backup_data = os.path.join(backup_base, "data")
+            shutil.copytree(DATA_DIR, backup_data, dirs_exist_ok=True)
+            logger.info("已备份当前 data 到: %s", backup_data)
+
+        # 解压并恢复
+        with zipfile.ZipFile(tmp_upload, 'r') as zipf:
+            # 获取基础目录
+            base_dir = os.path.dirname(CONFIG_DIR)
+
+            # 解压所有文件
+            zipf.extractall(base_dir)
+
+        operation_logger.info("backup_restore", {
+            "operator_name": session["userName"],
+            "operator_uuid": session.get("uuid"),
+            "operator_ip": request.client.host if request.client else "unknown",
+            "filename": file.filename,
+        })
+
+        return {"status": "ok", "message": "Backup restored successfully. Restart required."}
+
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Corrupted zip file")
+    except Exception as e:
+        logger.error(f"恢复备份失败: {e}")
+        raise HTTPException(status_code=500, detail=f"Restore failed: {str(e)}")
+    finally:
+        # 清理临时文件
+        if os.path.exists(tmp_upload):
+            os.remove(tmp_upload)
 
 
 @router.get("/backup/info")
 async def backup_info(session: dict = Depends(require_admin)):
-    """获取当前数据库信息"""
+    """获取当前 config 和 data 文件夹信息"""
+    config_size = _get_dir_size(CONFIG_DIR) if os.path.exists(CONFIG_DIR) else 0
+    data_size = _get_dir_size(DATA_DIR) if os.path.exists(DATA_DIR) else 0
+    total_size = config_size + data_size
+
     info = {
-        "exists": os.path.exists(DB_PATH),
-        "size": 0,
+        "exists": os.path.exists(CONFIG_DIR) and os.path.exists(DATA_DIR),
+        "size": round(total_size / 1024, 1),  # KB
+        "config_size": round(config_size / 1024, 1),  # KB
+        "data_size": round(data_size / 1024, 1),  # KB
         "modified": "",
-        "path": os.path.basename(DB_PATH),
+        "path": "config + data folders",
     }
-    if info["exists"]:
-        stat = os.stat(DB_PATH)
-        info["size"] = round(stat.st_size / 1024, 1)  # KB
-        info["modified"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime))
+
+    # 获取最近修改时间
+    try:
+        config_mtime = os.path.getmtime(CONFIG_DIR) if os.path.exists(CONFIG_DIR) else 0
+        data_mtime = os.path.getmtime(DATA_DIR) if os.path.exists(DATA_DIR) else 0
+        latest_mtime = max(config_mtime, data_mtime)
+        if latest_mtime > 0:
+            info["modified"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(latest_mtime))
+    except Exception:
+        pass
+
     return {"status": "ok", "info": info}
 

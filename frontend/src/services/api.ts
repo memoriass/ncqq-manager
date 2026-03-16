@@ -304,8 +304,8 @@ export const containerApi = {
 // ============ 节点相关 API ============
 
 export const nodeApi = {
-    // 获取节点列表
-    list: () => request<{ status: string; nodes: Node[] }>('/nodes'),
+    // 获取节点列表（quick=true 跳过远程健康检查，首屏快速渲染）
+    list: (quick?: boolean) => request<{ status: string; nodes: Node[] }>(quick ? '/nodes?quick=true' : '/nodes'),
 
     // 添加节点
     add: (name: string, address: string, apiKey: string) =>
@@ -562,4 +562,81 @@ export const setupApi = {
             if (!r.ok) throw new Error(json.message || 'Setup failed');
             return json as { status: string; message: string; user: AuthUser };
         }),
+};
+
+// ============ BotShepherd API ============
+
+export interface BotShepherdStatus {
+    installed: boolean;
+    initialized: boolean;
+    running: boolean;
+    port: number;
+    pid: number | null;
+    auto_start: boolean;
+    dir: string;
+    webui_url: string | null;
+}
+
+export interface BSConnectionStatus {
+    enabled: boolean;
+    client_status: 'disabled' | 'starting' | 'listening' | 'connected' | 'error';
+    client_endpoint: string;
+    target_statuses: Record<string, unknown>;
+    error: string | null;
+    client_address?: string;
+    self_id?: number | null;
+}
+
+export interface BSConnection {
+    name?: string;
+    description?: string;
+    enabled?: boolean;
+    client_endpoint?: string;
+    target_endpoints?: string[];
+    group?: string;
+    status?: BSConnectionStatus;
+}
+
+export interface BSConnectionsResponse {
+    source: 'api' | 'file';
+    connections: Record<string, BSConnection>;
+}
+
+export interface BSAccount {
+    name?: string;
+    description?: string;
+    enabled?: boolean;
+    aliases?: Record<string, string[]>;
+    last_receive_time?: string;
+    last_send_time?: string;
+}
+
+export interface BSAccountsResponse {
+    source: 'api' | 'file';
+    accounts: Record<string, BSAccount>;
+}
+
+export const botshepherdApi = {
+    status: () => request<BotShepherdStatus>('/botshepherd/status'),
+    setup: () => request<{ status: string; message: string }>('/botshepherd/setup', { method: 'POST' }),
+    start: () => request<{ status: string; message: string }>('/botshepherd/start', { method: 'POST' }),
+    stop: () => request<{ status: string; message: string }>('/botshepherd/stop', { method: 'POST' }),
+    // 连接管理
+    connections: () => request<BSConnectionsResponse>('/botshepherd/connections'),
+    updateConnection: (id: string, data: Partial<BSConnection>) =>
+        request<{ success: boolean }>(`/botshepherd/connections/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    copyConnection: (id: string, newId: string, newName?: string) =>
+        request<{ success: boolean; message?: string }>(`/botshepherd/connections/${id}/copy`, {
+            method: 'POST', body: JSON.stringify({ new_id: newId, new_name: newName ?? '' }),
+        }),
+    deleteConnection: (id: string) =>
+        request<{ success: boolean }>(`/botshepherd/connections/${id}`, { method: 'DELETE' }),
+    // 账号管理
+    accounts: () => request<BSAccountsResponse>('/botshepherd/accounts'),
+    updateAccount: (id: string, data: Partial<BSAccount>) =>
+        request<{ success: boolean }>(`/botshepherd/accounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deleteAccount: (id: string) =>
+        request<{ success: boolean }>(`/botshepherd/accounts/${id}`, { method: 'DELETE' }),
+    accountOnline: (id: string) =>
+        request<{ online: boolean }>(`/botshepherd/accounts/${id}/online-status`),
 };
