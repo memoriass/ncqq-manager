@@ -1,53 +1,44 @@
 # Plan
 
-Updated: 2026-03-16T04:49:05Z
+Updated: 2026-03-16T10:20:55Z
 
 ## Intake
-- retrieval.hit.1: docs/current/优化说明文档.md:96 ws-manager-lock-and-public-count-guidance
-- retrieval.hit.2: services/ws_manager.py:28 broadcast-holds-lock-during-send
-- retrieval.hit.3: routers/ws_router.py:125 ws_public-public-count-and-payload-hash
-- retrieval.hit.4: services/container_state.py:138 health_info-tick-available
-- retrieval.hit.5: services/instance_subsystem.py:89 query-page-page_size-available
-- retrieval.hit.6: docs/current/优化说明文档.md:376 scheduler-missing-reentry-protection-and-result-recording
-- retrieval.hit.7: services/scheduler.py:103 scheduler-check-and-run-without-running-set
-- retrieval.hit.8: routers/scheduler_router.py:30 scheduler-list-route-returns-task-fields
-- retrieval.hit.9: docs/current/优化说明文档.md:608 config-reload-semantics-gap
-- retrieval.hit.10: services/config.py:88 load-runtime-once-only-and-reload-noop-risk
-- retrieval.hit.11: main.py:58 lifespan-load-runtime-callsite
+- retrieval.hit.1: frontend/src/App.tsx:17 OperationLogs lazy route -> ./pages/OperationLogsPage
+- retrieval.hit.2: frontend/src/services/api.ts:82-86 OperationLog/OperationLogsQuery/OperationLogsResponse re-export
+- retrieval.hit.3: frontend/src/services/api.ts:390-393 buildOperationLogsDownloadUrl/operationLogsApi re-export
+- retrieval.hit.4: frontend/src/pages/OperationLogsPage.tsx:11-79 OperationLogsPage uses useOperationLogsFeed + OperationLogsToolbar + OperationLogsList
+- retrieval.hit.5: frontend/src/hooks/useOperationLogsFeed.ts:24-150 buildOperationLogsQuery/useOperationLogsFeed
+- retrieval.hit.6: frontend/src/services/operationLogs.ts:13-85 OperationLogsQuery/operationLogsApi/buildOperationLogsDownloadUrl
+- retrieval.hit.7: frontend/src/pages/OperationLogs.tsx:24-381 legacy duplicate page implementation still present but route detached
 - example.status: code-examples/ not found; aligned to existing same-layer implementation
 
 ## AffectedFiles
-- services/operation_logger.py:get/_normalize_limit/_normalize_page/_normalize_time_bound/_query_db/_filter_items L51-L250 ~±120
-- services/database.py:migrations/_SCHEMA operation_logs indexes + scheduled_tasks result fields ~±40
-- routers/operation_logs_router.py:get_operation_logs/download_operation_logs L18-L81 ~±35
-- frontend/src/services/api.ts:OperationLogsQuery/OperationLogsResponse/operationLogsApi.list L94-L440 ~±40
-- frontend/src/pages/OperationLogs.tsx:query-state/fetchLogs/export/pagination L27-L383 ~±95
-- frontend/src/i18n.ts:opLogs.operator/opLogs.type/opLogs.allLevels ~±6
-- services/ws_manager.py:can_accept/connect_if_available/broadcast L24-L56 ~±22
-- routers/ws_router.py:_build_public_version/ws_public L40-L209 ~±20
-- services/scheduler.py:_init_table/_record_result/_check_and_run/_execute/_do_backup/_prune_auto_backups/_parse L20-L210 ~±85
-- services/config.py:_load_runtime_from_db/load_runtime_once/reload_runtime/load_runtime/reload/source_matrix L88-L164 ~±45
-- main.py:lifespan uses load_runtime_once L58-L60 ~±1
+- frontend/src/App.tsx:OperationLogs lazy import L17-L17 ~±1
+- frontend/src/services/api.ts:OperationLog/OperationLogsQuery/OperationLogsResponse re-export + operationLogsApi/buildOperationLogsDownloadUrl re-export L82-L86,L390-L393 ~±8
+- frontend/src/services/operationLogs.ts:OperationLog/OperationLogsQuery/OperationLogsResponse/requestOperationLogs/operationLogsApi/buildOperationLogsDownloadUrl L1-L85 ~±85
+- frontend/src/hooks/useOperationLogsFeed.ts:OperationLogsFilters/buildOperationLogsQuery/useOperationLogsFeed L5-L150 ~±153
+- frontend/src/components/OperationLogsToolbar.tsx:OperationLogsToolbarProps/OperationLogsToolbar L4-L61 ~±63
+- frontend/src/components/OperationLogsList.tsx:getOperationLogLevelColor/formatOperationLogText/OperationLogsList L8-L69 ~±71
+- frontend/src/pages/OperationLogsPage.tsx:OperationLogsPage L11-L79 ~±81
+- frontend/src/i18n.ts:opLogs.newLogsNotice zh/en L375-L396,L905-L912 ~±2
 - docs/current/overview.md:update sections
-- docs/current/plan.md:update sections
-- docs/current/task.md:append log entries
-- docs/current/INTERFACE.md:update signatures
-- docs/current/TREE.md:regenerate timestamp and paths
-- docs/current/优化说明文档.md:update batch status lines
+- docs/current/plan.md:replace latest effective plan
+- docs/current/task.md:append frontend-split intake/implement/verify/docs entries
+- docs/current/INTERFACE.md:update frontend split signatures
+- docs/current/TREE.md:refresh timestamp and frontend paths
+- docs/current/优化说明文档.md:update batchC status lines
 
 ## Constraints
-- no_public_api_break_except_optional-query-params-and-ws-manager-helper-methods: true
+- no_public_api_break: true
 - no_test_files: true
 - function_max_lines_target: <=180
 - file_max_lines_target: <=800
 - cross_layer_dependency_change: 0
 
 ## Commands
-- python-check-ws: python -m py_compile services/ws_manager.py routers/ws_router.py
-- python-check-scheduler: python -m py_compile services/scheduler.py services/database.py routers/scheduler_router.py
-- python-check-config: python -m py_compile services/config.py main.py
-- diagnostics: IDE diagnostics on changed files and batchB files
-- frontend-build: user-confirmed npm run build completed for batchB
+- frontend-build: npm run build
+- diagnostics: IDE diagnostics on frontend/src/App.tsx, frontend/src/pages/OperationLogsPage.tsx, frontend/src/components/OperationLogsToolbar.tsx, frontend/src/components/OperationLogsList.tsx, frontend/src/hooks/useOperationLogsFeed.ts, frontend/src/services/operationLogs.ts, frontend/src/services/api.ts, frontend/src/i18n.ts
+- timestamp: Get-Date -Format o
 
 ## RemainingQueue
 - batchA.backup_router: completed and documented
@@ -55,23 +46,21 @@ Updated: 2026-03-16T04:49:05Z
 - batchA.user_router_audit: completed and documented
 - batchA.node_router_audit: completed and documented
 - batchB.operation_logs_query: completed and documented
-- batchC.ws_manager: completed code changes and verified by py_compile + diagnostics
-- batchC.scheduler: completed code changes and verified by py_compile + diagnostics
-- batchC.config_reload: completed code changes and verified by py_compile + diagnostics
-- batchC.frontend_split: queued frontend/src/services/api.ts and frontend/src/pages/OperationLogs.tsx structural split
+- batchC.ws_manager: completed and documented
+- batchC.scheduler: completed and documented
+- batchC.config_reload: completed and documented
+- batchC.frontend_split: completed via OperationLogs domain split + new page route + docs sync
+- batchD.container_router_split: queued routers/container_router.py capability split
 
 ## Checkpoints
-- cp1: services/operation_logger.py returns logs + pagination + filters structure
-- cp2: routers/operation_logs_router.py exposes page/operator/type/level/start_time/end_time on list and download
-- cp3: frontend log page wires query filters and pagination with export parity
-- cp4: services/ws_manager.py broadcast copies connection snapshot inside lock and sends outside lock
-- cp5: routers/ws_router.py no longer maintains _public_ws_count
-- cp6: routers/ws_router.py public updates compare (sub_page, sub_page_size, tick) instead of hashing payload
-- cp7: services/scheduler.py guards reentry with _running_tasks and records last_result/last_error/run_count
-- cp8: services/scheduler.py wraps task execution in timeout and prunes auto backup count
-- cp9: services/config.py separates load_runtime_once and reload_runtime and makes reload perform actual refresh
-- cp10: services/config.py exposes bootstrap/runtime source matrix metadata
+- cp1: frontend/src/services/api.ts keeps OperationLogs re-export compatibility for external imports
+- cp2: frontend/src/services/operationLogs.ts owns OperationLogs query/response types and request/download helpers
+- cp3: frontend/src/pages/OperationLogsPage.tsx composes hook + toolbar + list and export helper
+- cp4: frontend/src/App.tsx routes admin/operation-logs to OperationLogsPage
+- cp5: frontend/src/i18n.ts contains opLogs.newLogsNotice zh/en
+- cp6: npm run build passes in frontend working directory
+- cp7: diagnostics on changed frontend files returns 0
 
 ## Rollback
-- command: git restore services/operation_logger.py services/database.py routers/operation_logs_router.py frontend/src/services/api.ts frontend/src/pages/OperationLogs.tsx frontend/src/i18n.ts services/ws_manager.py routers/ws_router.py services/scheduler.py routers/scheduler_router.py services/config.py main.py docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md
+- command: git restore frontend/src/App.tsx frontend/src/services/api.ts frontend/src/services/operationLogs.ts frontend/src/hooks/useOperationLogsFeed.ts frontend/src/components/OperationLogsToolbar.tsx frontend/src/components/OperationLogsList.tsx frontend/src/pages/OperationLogsPage.tsx frontend/src/i18n.ts docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md
 

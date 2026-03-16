@@ -1,6 +1,6 @@
 # INTERFACE
 
-Updated: 2026-03-16T04:49:05Z
+Updated: 2026-03-16T10:20:55Z
 
 - services/operation_log_context.py
   - build_operator_payload(request: Request | None, session: dict, extra: dict[str, Any] | None = None) -> dict[str, Any]
@@ -10,9 +10,29 @@ Updated: 2026-03-16T04:49:05Z
   - get_operation_logs(limit: int = 50, page: int = 1, operator: str = "", type: str = "", level: str = "", start_time: Optional[int] = None, end_time: Optional[int] = None, session: dict = Depends(require_admin)) -> dict
   - download_operation_logs(limit: int = 200, page: int = 1, operator: str = "", type: str = "", level: str = "", start_time: Optional[int] = None, end_time: Optional[int] = None, session: dict = Depends(require_admin)) -> StreamingResponse
 - frontend/src/services/api.ts
-  - interface OperationLogsQuery { limit?: number; page?: number; operator?: string; type?: string; level?: string; start_time?: number; end_time?: number }
-  - interface OperationLogsResponse { status: string; logs: OperationLog[]; pagination: { page: number; pages: number; total: number; limit: number }; filters: { operator: string; type: string; level: string; start_time: number | null; end_time: number | null } }
+  - export type { OperationLog, OperationLogsQuery, OperationLogsResponse } from './operationLogs'
+  - export { buildOperationLogsDownloadUrl, operationLogsApi } from './operationLogs'
+  - class AuthError extends Error
+- frontend/src/services/operationLogs.ts
+  - interface OperationLog { id: string; type: string; level: 'info' | 'warning' | 'error'; time: string; timestamp: number; operator?: string; operator_ip?: string; target?: string; [key: string]: unknown }
+  - interface OperationLogsQuery { limit?: number; page?: number; operator?: string; type?: string; level?: 'info' | 'warning' | 'error' | ''; start_time?: number; end_time?: number }
+  - interface OperationLogsResponse { status: string; logs: OperationLog[]; pagination: { page: number; limit: number; total: number; pages: number }; filters: { operator: string; type: string; level: string; start_time: number | null; end_time: number | null } }
   - operationLogsApi.list(query: OperationLogsQuery = {}) => Promise<OperationLogsResponse>
+  - buildOperationLogsDownloadUrl(query: OperationLogsQuery = {}) -> string
+- frontend/src/hooks/useOperationLogsFeed.ts
+  - interface OperationLogsFilters { limit: number; page: number; operator: string; type: string; level: 'info' | 'warning' | 'error' | '' }
+  - interface UseOperationLogsFeedResult { logs: OperationLog[]; loading: boolean; totalPages: number; pendingNewCount: number; highlightedLogIds: string[]; listRef: MutableRefObject<HTMLUListElement | null>; fetchLogs(mode?: 'auto' | 'manual' | 'initial') => Promise<void>; scrollToTop() => void }
+  - buildOperationLogsQuery(filters: OperationLogsFilters) -> OperationLogsQuery
+  - useOperationLogsFeed(filters: OperationLogsFilters, onError: (message: string) => void) -> UseOperationLogsFeedResult
+- frontend/src/components/OperationLogsToolbar.tsx
+  - interface OperationLogsToolbarProps { limit: number; level: 'info' | 'warning' | 'error' | ''; operator: string; type: string; loading: boolean; onLimitChange(value: number): void; onOperatorChange(value: string): void; onTypeChange(value: string): void; onLevelChange(value: 'info' | 'warning' | 'error' | ''): void; onRefresh(): void; onExport(): void; t(key: string): string }
+  - OperationLogsToolbar(props: OperationLogsToolbarProps) -> JSX.Element
+- frontend/src/components/OperationLogsList.tsx
+  - getOperationLogLevelColor(level: string) -> 'info' | 'warning' | 'error' | 'default'
+  - formatOperationLogText(log: OperationLog, t: (key: string) => string) -> string
+  - OperationLogsList(props: { logs: OperationLog[]; loading: boolean; highlightedLogIds: string[]; listRef: MutableRefObject<HTMLUListElement | null>; t: (key: string) => string }) -> JSX.Element
+- frontend/src/pages/OperationLogsPage.tsx
+  - OperationLogsPage() -> JSX.Element
 - services/ws_manager.py
   - connect(ws: WebSocket) -> None
   - can_accept(limit: int) -> bool

@@ -433,3 +433,93 @@ Updated: 2025-02-14T00:00:00Z
       fact: next remaining queued optimization is frontend/src/services/api.ts and frontend/src/pages/OperationLogs.tsx structural split
       impact: subsequent work will primarily be frontend/module organization rather than backend semantics
       next: inspect current OperationLogs.tsx extraction seams and api.ts domain boundaries
+
+- ts: 2026-03-16T10:20:55Z
+  phase: intake
+  changes:
+    - frontend split retrieval confirmed App route, api re-export, domain service, hook, toolbar, list, and page composition
+    - code-examples directory not present; aligned with existing frontend same-layer implementation
+    - legacy frontend/src/pages/OperationLogs.tsx remains in repository but detached from App route
+  evidence:
+    - frontend/src/App.tsx:17 OperationLogs lazy route -> ./pages/OperationLogsPage
+    - frontend/src/services/api.ts:82-86 type re-export
+    - frontend/src/services/api.ts:390-393 helper re-export
+    - frontend/src/pages/OperationLogsPage.tsx:20-73 page composition
+    - frontend/src/hooks/useOperationLogsFeed.ts:24-150 query-build and feed lifecycle
+- ts: 2026-03-16T10:20:55Z
+  phase: implement
+  changes:
+    - frontend/src/App.tsx routes admin operation-logs page to OperationLogsPage
+    - frontend/src/i18n.ts adds opLogs.newLogsNotice in zh/en sections
+    - frontend split files remain active: operationLogs.ts, useOperationLogsFeed.ts, OperationLogsToolbar.tsx, OperationLogsList.tsx, OperationLogsPage.tsx
+    - docs/current overview/plan/interface/tree/优化说明文档 synchronized to frontend split completion state
+  evidence:
+    - frontend/src/App.tsx:17 lazy import OperationLogsPage
+    - frontend/src/pages/OperationLogsPage.tsx:25-33 export download helper usage
+    - frontend/src/components/OperationLogsToolbar.tsx:19-61 toolbar props and controls
+    - frontend/src/components/OperationLogsList.tsx:17-69 list formatting and rendering
+    - frontend/src/services/operationLogs.ts:78-85 list helper and download URL helper
+- ts: 2026-03-16T10:20:55Z
+  phase: verify
+  commands:
+    - npm run build => pass
+    - diagnostics frontend/src/App.tsx frontend/src/pages/OperationLogsPage.tsx frontend/src/components/OperationLogsToolbar.tsx frontend/src/components/OperationLogsList.tsx frontend/src/hooks/useOperationLogsFeed.ts frontend/src/services/operationLogs.ts frontend/src/services/api.ts frontend/src/i18n.ts => pass
+- ts: 2026-03-16T10:20:55Z
+  phase: remeber
+  items:
+    - label: intake.frontend.route
+      fact: App.tsx now lazy-loads ./pages/OperationLogsPage for admin operation-logs route
+      impact: page split is live without changing route path semantics
+      next: keep legacy OperationLogs.tsx only as detached compatibility artifact until separately cleaned
+    - label: intake.frontend.example
+      fact: code-examples directory is absent for frontend split work
+      impact: implementation aligned to existing frontend component/hook/service patterns already in repo
+      next: continue same-layer alignment for container_router split if user proceeds
+    - label: intake.frontend.compat
+      fact: services/api.ts re-exports OperationLog types and operationLogsApi helpers from services/operationLogs.ts
+      impact: external imports can remain stable while domain code moves out of api.ts
+      next: preserve re-export boundary for future domain extractions
+    - label: exec.frontend.domain
+      fact: services/operationLogs.ts now owns query types, request helper, and download URL builder
+      impact: OperationLogs domain logic is isolated from the monolithic api.ts file
+      next: evaluate whether unauthorized branch should share AuthError only when circular dependency risk is eliminated
+    - label: exec.frontend.page
+      fact: OperationLogsPage composes useOperationLogsFeed, OperationLogsToolbar, and OperationLogsList
+      impact: page responsibilities are split into domain hook and presentational components
+      next: collapse legacy OperationLogs.tsx in a dedicated cleanup batch if import graph audit is requested
+    - label: exec.frontend.i18n
+      fact: i18n zh/en sections both include opLogs.newLogsNotice
+      impact: pending new log notice renders without missing translation keys
+      next: keep new split component labels synchronized when toolbar/list copy changes
+    - label: verify.frontend.build
+      fact: npm run build passed and emitted dist/assets/OperationLogsPage-*.js bundle
+      impact: current frontend split is build-safe and route chunk generation is confirmed
+      next: preserve build gate after each remaining structural batch
+    - label: verify.frontend.ide
+      fact: diagnostics returned 0 issues for changed frontend files
+      impact: incremental static validation remained green after route and docs sync
+      next: run same diagnostics scope after any legacy page cleanup
+    - label: docs.frontend.scope
+      fact: overview/plan/task/INTERFACE/TREE/优化说明文档 were updated to reflect batchC.frontend_split completion
+      impact: rolling docs now match actual frontend split state and next queue
+      next: start routers/container_router.py capability split as next optimization batch
+    - label: summary.1
+      fact: batchC.frontend_split is completed in active route path and documented
+      impact: optimization queue now advances beyond operation logs frontend restructuring
+      next: move to container_router capability-domain split
+    - label: summary.2
+      fact: OperationLogs domain now has dedicated service, hook, toolbar, list, and page files
+      impact: future operation logs changes no longer require editing one large page file only
+      next: keep service/page separation for other oversized frontend modules
+    - label: summary.3
+      fact: api.ts remains a compatibility export layer instead of a sole domain owner
+      impact: domain extraction can continue incrementally without breaking imports
+      next: consider next safe extraction candidate only after queue reprioritization
+    - label: summary.4
+      fact: build and diagnostics gates are green for the frontend split batch
+      impact: current code state meets local acceptance gates used in this pass
+      next: reuse same gates on next optimization item
+    - label: summary.5
+      fact: next remaining queued optimization is routers/container_router.py capability split
+      impact: work focus shifts from frontend structure back to backend route modularization
+      next: begin with codebase retrieval on container_router if user continues
