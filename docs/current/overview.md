@@ -1,21 +1,25 @@
 # Overview
 
-Updated: 2025-02-14T00:20:00Z
+Updated: 2026-03-16T04:49:05Z
 
 ## Goal
-- scope: batchA-audit-baseline-from-优化说明文档.md-latest-annotations
-- modules: routers/backup_router.py,services/operation_log_context.py,routers/user_router.py,routers/node_router.py,services/cluster_manager.py
+- scope: batchB-operation-logs-completed-and-batchC-ws-scheduler-increment-from-优化说明文档.md-latest-annotations
+- modules: services/operation_logger.py,services/database.py,routers/operation_logs_router.py,frontend/src/services/api.ts,frontend/src/pages/OperationLogs.tsx,frontend/src/i18n.ts,services/ws_manager.py,routers/ws_router.py,services/scheduler.py,routers/scheduler_router.py
 
 ## KPI
-- backup_zip_entry_validation: enabled
-- backup_chunked_upload: enabled
-- backup_tmp_cleanup: enabled
-- operation_log_context_helper: enabled
-- user_router_missing_audit_endpoints: 0
-- node_router_missing_audit_endpoints: 0
-- node_router_private_proxy_call_sites: 0
+- operation_logs_query_filters: enabled
+- operation_logs_query_pagination: enabled
+- operation_logs_query_indexes: enabled
+- operation_logs_frontend_filters: enabled
+- ws_broadcast_lock_outside_send: enabled
+- ws_public_connection_counter_race: 0
+- ws_public_payload_hash_loop: 0
+- scheduler_running_task_reentry: 0
+- scheduler_result_fields: enabled
+- scheduler_execute_timeout: enabled
+- scheduler_auto_backup_retention: enabled
 
 ## Rollback
-- python: git restore routers/backup_router.py services/operation_log_context.py routers/user_router.py routers/node_router.py services/cluster_manager.py
-- docs: git restore docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md
+- code: git restore services/operation_logger.py services/database.py routers/operation_logs_router.py frontend/src/services/api.ts frontend/src/pages/OperationLogs.tsx frontend/src/i18n.ts services/ws_manager.py routers/ws_router.py services/scheduler.py routers/scheduler_router.py
+- docs: git restore docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md
 

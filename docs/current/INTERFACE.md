@@ -1,9 +1,40 @@
 # INTERFACE
 
-Updated: 2025-02-14T00:20:00Z
+Updated: 2026-03-16T04:49:05Z
 
 - services/operation_log_context.py
   - build_operator_payload(request: Request | None, session: dict, extra: dict[str, Any] | None = None) -> dict[str, Any]
+- services/operation_logger.py
+  - get(limit: int = 50, page: int = 1, operator: str = "", operation_type: str = "", level: str = "", start_time: Optional[int] = None, end_time: Optional[int] = None) -> Dict[str, Any]
+- routers/operation_logs_router.py
+  - get_operation_logs(limit: int = 50, page: int = 1, operator: str = "", type: str = "", level: str = "", start_time: Optional[int] = None, end_time: Optional[int] = None, session: dict = Depends(require_admin)) -> dict
+  - download_operation_logs(limit: int = 200, page: int = 1, operator: str = "", type: str = "", level: str = "", start_time: Optional[int] = None, end_time: Optional[int] = None, session: dict = Depends(require_admin)) -> StreamingResponse
+- frontend/src/services/api.ts
+  - interface OperationLogsQuery { limit?: number; page?: number; operator?: string; type?: string; level?: string; start_time?: number; end_time?: number }
+  - interface OperationLogsResponse { status: string; logs: OperationLog[]; pagination: { page: number; pages: number; total: number; limit: number }; filters: { operator: string; type: string; level: string; start_time: number | null; end_time: number | null } }
+  - operationLogsApi.list(query: OperationLogsQuery = {}) => Promise<OperationLogsResponse>
+- services/ws_manager.py
+  - connect(ws: WebSocket) -> None
+  - can_accept(limit: int) -> bool
+  - connect_if_available(ws: WebSocket, limit: int) -> bool
+  - broadcast(event_type: str, data: dict) -> None
+  - connection_count() -> int
+- routers/ws_router.py
+  - ws_events(ws: WebSocket) -> None
+  - ws_container_logs(ws: WebSocket, name: str, node_id: str = Query(default="local")) -> None
+  - ws_public(ws: WebSocket) -> None
+- services/scheduler.py
+  - list_tasks() -> List[Dict]
+  - create_task(task_id: str, name: str, task_type: str, interval_seconds: int = 3600, config: Dict = None) -> bool
+  - update_task(task_id: str, name: str = None, enabled: bool = None, interval_seconds: int = None, config: Dict = None) -> bool
+  - delete_task(task_id: str) -> bool
+  - _check_and_run() -> None
+  - _execute(task: Dict) -> tuple[str, str]
+- routers/scheduler_router.py
+  - list_tasks(session: dict = Depends(require_admin)) -> dict
+  - create_task(req: TaskRequest, session: dict = Depends(require_admin)) -> dict
+  - update_task(task_id: str, req: TaskUpdate, session: dict = Depends(require_admin)) -> dict
+  - delete_task(task_id: str, session: dict = Depends(require_admin)) -> dict
 - routers/user_router.py
   - api_create_user(req: UserCreateRequest, request: Request, session: dict) -> dict
   - api_edit_user(user_uuid: str, req: UserEditRequest, request: Request, session: dict) -> dict

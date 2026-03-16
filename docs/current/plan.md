@@ -1,53 +1,68 @@
 # Plan
 
-Updated: 2025-02-14T00:20:00Z
+Updated: 2026-03-16T04:49:05Z
 
 ## Intake
-- retrieval.hit.1: docs/current/优化说明文档.md:157 operation-log-context-guidance
-- retrieval.hit.2: routers/user_router.py:106 api_assign_instances
-- retrieval.hit.3: routers/node_router.py:56 save_cluster_config
-- retrieval.hit.4: services/cluster_manager.py:252 _proxy_to_node_async
+- retrieval.hit.1: docs/current/优化说明文档.md:96 ws-manager-lock-and-public-count-guidance
+- retrieval.hit.2: services/ws_manager.py:28 broadcast-holds-lock-during-send
+- retrieval.hit.3: routers/ws_router.py:125 ws_public-public-count-and-payload-hash
+- retrieval.hit.4: services/container_state.py:138 health_info-tick-available
+- retrieval.hit.5: services/instance_subsystem.py:89 query-page-page_size-available
+- retrieval.hit.6: docs/current/优化说明文档.md:376 scheduler-missing-reentry-protection-and-result-recording
+- retrieval.hit.7: services/scheduler.py:103 scheduler-check-and-run-without-running-set
+- retrieval.hit.8: routers/scheduler_router.py:30 scheduler-list-route-returns-task-fields
 - example.status: code-examples/ not found; aligned to existing same-layer implementation
 
 ## AffectedFiles
-- routers/backup_router.py:_validate_zip_members/api_backup_download/api_restore_backup L46-L183 ~±55
-- services/operation_log_context.py:build_operator_payload L10-L22 ~+22
-- routers/user_router.py:api_create_user/api_edit_user/api_delete_user/api_assign_instances/api_regenerate_apikey L47-L156 ~±55
-- routers/node_router.py:save_cluster_config/api_add_node/api_edit_node/api_delete_node/get_node_logs/proxy_node_request L57-L279 ~±70
-- services/cluster_manager.py:proxy_to_node_async L252-L262 ~+11
+- services/operation_logger.py:get/_normalize_limit/_normalize_page/_normalize_time_bound/_query_db/_filter_items L51-L250 ~±120
+- services/database.py:migrations/_SCHEMA operation_logs indexes + scheduled_tasks result fields ~±40
+- routers/operation_logs_router.py:get_operation_logs/download_operation_logs L18-L81 ~±35
+- frontend/src/services/api.ts:OperationLogsQuery/OperationLogsResponse/operationLogsApi.list L94-L440 ~±40
+- frontend/src/pages/OperationLogs.tsx:query-state/fetchLogs/export/pagination L27-L383 ~±95
+- frontend/src/i18n.ts:opLogs.operator/opLogs.type/opLogs.allLevels ~±6
+- services/ws_manager.py:can_accept/connect_if_available/broadcast L24-L56 ~±22
+- routers/ws_router.py:_build_public_version/ws_public L40-L209 ~±20
+- services/scheduler.py:_init_table/_record_result/_check_and_run/_execute/_do_backup/_prune_auto_backups/_parse L20-L210 ~±85
 - docs/current/overview.md:update sections
 - docs/current/plan.md:update sections
 - docs/current/task.md:append log entries
 - docs/current/INTERFACE.md:update signatures
 - docs/current/TREE.md:regenerate timestamp and paths
+- docs/current/优化说明文档.md:update batch status lines
 
 ## Constraints
-- no_public_api_break_except_proxy_method_wrapper_added: true
+- no_public_api_break_except_optional-query-params-and-ws-manager-helper-methods: true
 - no_test_files: true
 - function_max_lines_target: <=180
 - file_max_lines_target: <=800
 - cross_layer_dependency_change: 0
 
 ## Commands
-- python-check: python -m py_compile services/operation_log_context.py routers/user_router.py routers/node_router.py services/cluster_manager.py
-- diagnostics: IDE diagnostics on changed files
+- python-check-ws: python -m py_compile services/ws_manager.py routers/ws_router.py
+- python-check-scheduler: python -m py_compile services/scheduler.py services/database.py routers/scheduler_router.py
+- diagnostics: IDE diagnostics on changed files and batchB files
+- frontend-build: user-confirmed npm run build completed for batchB
 
 ## RemainingQueue
-- batchA.backup_router: completed code changes; pending broader batch verification
-- batchA.operation_log_context: completed helper and router integration
-- batchA.user_router_audit: completed instances/apikey audit
-- batchA.node_router_audit: completed cluster config + node edit audit + private proxy call cleanup
-- batchB.operation_logs_query: services/operation_logger.py + routers/operation_logs_router.py + frontend log page wiring
-- batchC.ws_manager: services/ws_manager.py lock-outside-send + routers/ws_router.py public count/hash optimization
-- batchC.scheduler: services/scheduler.py running_tasks + timeout + result fields + retention
+- batchA.backup_router: completed and documented
+- batchA.operation_log_context: completed and documented
+- batchA.user_router_audit: completed and documented
+- batchA.node_router_audit: completed and documented
+- batchB.operation_logs_query: completed and documented
+- batchC.ws_manager: completed code changes and verified by py_compile + diagnostics
+- batchC.scheduler: completed code changes and verified by py_compile + diagnostics
+- batchC.config_reload: queued services/config.py reload semantics
 
 ## Checkpoints
-- cp1: services/operation_log_context.py provides build_operator_payload(request, session, extra)
-- cp2: routers/user_router.py logs instances/apikey mutations without API key plaintext in payload
-- cp3: routers/node_router.py logs cluster_config_save and node_edit
-- cp4: routers/node_router.py contains no cluster_manager._proxy_to_node_async call site
-- cp5: services/cluster_manager.py exposes proxy_to_node_async wrapper
+- cp1: services/operation_logger.py returns logs + pagination + filters structure
+- cp2: routers/operation_logs_router.py exposes page/operator/type/level/start_time/end_time on list and download
+- cp3: frontend log page wires query filters and pagination with export parity
+- cp4: services/ws_manager.py broadcast copies connection snapshot inside lock and sends outside lock
+- cp5: routers/ws_router.py no longer maintains _public_ws_count
+- cp6: routers/ws_router.py public updates compare (sub_page, sub_page_size, tick) instead of hashing payload
+- cp7: services/scheduler.py guards reentry with _running_tasks and records last_result/last_error/run_count
+- cp8: services/scheduler.py wraps task execution in timeout and prunes auto backup count
 
 ## Rollback
-- command: git restore routers/backup_router.py services/operation_log_context.py routers/user_router.py routers/node_router.py services/cluster_manager.py docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md
+- command: git restore services/operation_logger.py services/database.py routers/operation_logs_router.py frontend/src/services/api.ts frontend/src/pages/OperationLogs.tsx frontend/src/i18n.ts services/ws_manager.py routers/ws_router.py services/scheduler.py routers/scheduler_router.py docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md
 
