@@ -237,7 +237,15 @@ def executemany(sql: str, params_list: list) -> sqlite3.Cursor:
 
 
 def commit():
-    """autocommit 模式下为 no-op，保持调用兼容"""
+    """显式提交 — autocommit (isolation_level=None) 模式下为 no-op。
+
+    当前 SQLite 连接使用 autocommit 模式（每条 DML 自动提交），
+    因此调用 commit() 不产生实际效果。保留此函数是为了：
+    1. 保持调用方代码的语义一致性（若未来切回显式事务模型）
+    2. 避免移除后大量调用点报错
+
+    已知行为：重启后所有 DML 均已自动持久化，无需担心丢失。
+    """
     pass
 
 

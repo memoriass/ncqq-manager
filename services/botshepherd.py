@@ -1,8 +1,8 @@
 """
 BotShepherd 集成管理器 - 已嵌入本项目，负责初始化、进程启停和状态查询
 """
-import os, sys, signal, subprocess, asyncio, json, glob
-from typing import Optional, Dict, Any
+import os, sys, signal, subprocess, asyncio, json, glob, threading, collections
+from typing import Optional, Dict, Any, List
 import aiohttp
 from services.log import logger
 from services.config import BASE_DIR
@@ -95,11 +95,36 @@ class BSApiClient:
 
 
 class BotShepherdManager:
+    _LOG_BUFFER_MAX = 500  # 环形缓冲区最大行数
+
     def __init__(self):
         self._process: Optional[subprocess.Popen] = None
         self._port: int = BOTSHEPHERD_DEFAULT_PORT
         self._auto_start: bool = True
         self.api: BSApiClient = None  # type: ignore  — 延迟初始化
+        self._log_buffer: collections.deque = collections.deque(maxlen=self._LOG_BUFFER_MAX)
+        self._log_thread: Optional[threading.Thread] = None
+
+    # ---- 进程日志捕获 ----
+
+    def _reader_worker(self, stream) -> None:
+        """后台线程：持续从进程 stdout/stderr 读取行并存入环形缓冲区"""
+        try:
+            for raw_line in iter(stream.readline, b""):
+                line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+                self._log_buffer.append(line)
+        except Exception:
+            pass
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
+
+    def read_logs(self, lines: int = 100) -> List[str]:
+        """返回最近 N 行进程控制台输出"""
+        buf = list(self._log_buffer)
+        return buf[-lines:] if lines < len(buf) else buf
 
     def _ensure_api(self) -> BSApiClient:
         if self.api is None:
@@ -166,9 +191,19 @@ class BotShepherdManager:
             if sys.platform == "win32":
                 kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
             env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+            # BS WebServer 需要 BOTSHEPHERD_SECRET_KEY 作为 Flask session secret
+            if "BOTSHEPHERD_SECRET_KEY" not in env:
+                import secrets
+                env["BOTSHEPHERD_SECRET_KEY"] = secrets.token_hex(32)
+            self._log_buffer.clear()
             self._process = subprocess.Popen(
                 [python, "main.py"], cwd=BOTSHEPHERD_DIR,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, **kw)
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, **kw)
+            # 后台线程读取进程输出，避免 PIPE 缓冲区满阻塞
+            self._log_thread = threading.Thread(
+                target=self._reader_worker, args=(self._process.stdout,),
+                daemon=True, name="bs-log-reader")
+            self._log_thread.start()
             logger.info("BotShepherd started, PID=%s", self._process.pid)
             self._ensure_api().invalidate()
             return {"status": "ok", "message": f"PID={self._process.pid}"}
@@ -189,6 +224,9 @@ class BotShepherdManager:
         except Exception as e:
             return {"status": "error", "message": str(e)}
         self._process = None
+        if self._log_thread and self._log_thread.is_alive():
+            self._log_thread.join(timeout=2)
+        self._log_thread = None
         self._ensure_api().invalidate()
         return {"status": "ok", "message": "stopped"}
 

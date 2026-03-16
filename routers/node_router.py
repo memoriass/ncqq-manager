@@ -8,6 +8,7 @@ from fastapi.responses import Response, JSONResponse
 from pydantic import BaseModel
 
 from middleware.auth import get_current_user, require_admin
+from middleware.rate_limiter import speed_limit
 from services.cluster_manager import cluster_manager
 from services.config import app_config, APP_VERSION
 from services.operation_logger import operation_logger
@@ -25,7 +26,7 @@ class NodeRequest(BaseModel):
 
 # ============ 集群配置 ============
 
-@router.get("/cluster/config")
+@router.get("/cluster/config", dependencies=[Depends(speed_limit(2.0))])
 async def get_cluster_config(session: dict = Depends(get_current_user)):
     import sys, psutil
     return {
@@ -54,7 +55,7 @@ async def get_cluster_config(session: dict = Depends(get_current_user)):
     }
 
 
-@router.post("/cluster/config")
+@router.post("/cluster/config", dependencies=[Depends(speed_limit(5.0))])
 async def save_cluster_config(
     request: Request,
     session: dict = Depends(require_admin),
@@ -108,7 +109,7 @@ async def save_cluster_config(
     return {"status": "ok"}
 
 
-@router.get("/cluster/status")
+@router.get("/cluster/status", dependencies=[Depends(speed_limit(2.0))])
 async def cluster_status(session: dict = Depends(get_current_user)):
     """供远程节点健康检查用 (需 x-request-api-key 认证)"""
     import sys
@@ -130,7 +131,7 @@ async def cluster_status(session: dict = Depends(get_current_user)):
 
 # ============ 节点 CRUD ============
 
-@router.get("/nodes")
+@router.get("/nodes", dependencies=[Depends(speed_limit(2.0))])
 async def api_get_nodes(quick: bool = False, session: dict = Depends(get_current_user)):
     if quick:
         nodes = await cluster_manager.get_nodes_quick()
@@ -139,7 +140,7 @@ async def api_get_nodes(quick: bool = False, session: dict = Depends(get_current
     return {"status": "ok", "nodes": nodes}
 
 
-@router.post("/nodes")
+@router.post("/nodes", dependencies=[Depends(speed_limit(5.0))])
 async def api_add_node(
     req: NodeRequest, request: Request,
     session: dict = Depends(require_admin),
@@ -161,7 +162,7 @@ async def api_add_node(
     return {"status": "ok", "node_id": new_id}
 
 
-@router.put("/nodes/{node_id}")
+@router.put("/nodes/{node_id}", dependencies=[Depends(speed_limit(5.0))])
 async def api_edit_node(
     node_id: str, req: NodeRequest, request: Request,
     session: dict = Depends(require_admin),
@@ -185,7 +186,7 @@ async def api_edit_node(
     return {"status": "ok"}
 
 
-@router.delete("/nodes/{node_id}")
+@router.delete("/nodes/{node_id}", dependencies=[Depends(speed_limit(5.0))])
 async def api_delete_node(
     node_id: str, request: Request,
     session: dict = Depends(require_admin),
@@ -209,7 +210,7 @@ async def api_delete_node(
 
 # ============ 节点程序日志 ============
 
-@router.get("/node/logs")
+@router.get("/node/logs", dependencies=[Depends(speed_limit(2.0))])
 async def get_node_logs(
     lines: int = 500,
     node_id: str = "local",
@@ -252,6 +253,7 @@ _PROXY_PATH_WHITELIST = (
 @router.api_route(
     "/nodes/{node_id}/proxy/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE"],
+    dependencies=[Depends(speed_limit(1.0, admin_exempt=False))],
 )
 async def proxy_node_request(
     node_id: str, path: str, request: Request,

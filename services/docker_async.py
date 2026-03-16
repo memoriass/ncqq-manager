@@ -440,6 +440,69 @@ class AsyncDockerManager:
             pass
         return used
 
+    # ---- 8. 镜像管理（替代 docker_manager 同步版） ----
+
+    async def list_images(self) -> List[Dict]:
+        """异步列出本地 Docker 镜像。"""
+        if not self._docker:
+            return []
+        try:
+            images = await self._docker.images.list()
+            result = []
+            for img in images:
+                tags = img.get("RepoTags") or []
+                size_mb = round(img.get("Size", 0) / 1024 / 1024, 1)
+                created = img.get("Created", "")
+                img_id = img.get("Id", "")
+                if img_id.startswith("sha256:"):
+                    img_id = img_id[7:19]
+                else:
+                    img_id = img_id[:12]
+                result.append({
+                    "id": img_id,
+                    "tags": tags,
+                    "size": size_mb,
+                    "created": created,
+                })
+            return result
+        except aiodocker.exceptions.DockerError as e:
+            logger.error("异步列举镜像失败: %s", e)
+            return []
+
+    async def pull_image(self, image_name: str) -> bool:
+        """异步拉取 Docker 镜像。"""
+        if not self._docker:
+            return False
+        try:
+            await self._docker.images.pull(image_name)
+            logger.info("异步镜像拉取成功: %s", image_name)
+            return True
+        except aiodocker.exceptions.DockerError as e:
+            logger.error("异步镜像拉取失败 %s: %s", image_name, e)
+            return False
+
+    async def delete_image(self, image_id: str, force: bool = False) -> bool:
+        """异步删除 Docker 镜像。"""
+        if not self._docker:
+            return False
+        try:
+            await self._docker.images.delete(image_id, force=force)
+            logger.info("异步镜像删除成功: %s", image_id)
+            return True
+        except aiodocker.exceptions.DockerError as e:
+            logger.error("异步镜像删除失败 %s: %s", image_id, e)
+            return False
+
+    @staticmethod
+    def find_available_port(base: int, used_ports: set) -> int:
+        """从 base 开始找到下一个可用端口（纯计算，不涉及 Docker API）。"""
+        port = base
+        while port in used_ports:
+            port += 1
+            if port > 65535:
+                raise ValueError(f"没有可用端口（从 {base} 开始，所有端口均被占用）")
+        return port
+
     # ---- 内部辅助 ----
 
     @staticmethod

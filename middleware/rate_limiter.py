@@ -1,16 +1,26 @@
 """
 速率限制中间件 - 对标 MCSM speedLimit
 基于内存 TTL 缓存的 per-user per-endpoint 限速
+
+已知限制：
+  - 纯内存态，服务重启后所有限流记录清零
+  - 单实例部署场景下风险可接受
+  - 水平扩展场景下各实例限流状态不共享
 """
 import time
 from typing import Dict, Tuple
-from fastapi import Request, HTTPException, Depends
+from fastapi import Request, HTTPException, Depends, WebSocket
 
 from services.log import logger
 
 
 class RateLimiter:
-    """简单的内存速率限制器"""
+    """简单的内存速率限制器。
+
+    注意：所有限流记录存储在进程内存中，服务重启后自动清零。
+    这是有意为之的设计权衡（避免高频 DB 写入），但需知晓：
+    攻击者可通过触发服务重启来短暂绕过限流。
+    """
 
     def __init__(self):
         # key: (user_uuid, path) -> expire_time
@@ -49,18 +59,16 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
-def speed_limit(seconds: float = 3.0):
+def speed_limit(seconds: float = 3.0, admin_exempt: bool = True):
     """
-    速率限制依赖工厂。管理员豁免。
+    速率限制依赖工厂。
     用法: @app.post("/xxx", dependencies=[Depends(speed_limit(3.0))])
-    需要放在 get_current_user 之后使用。
     """
     from middleware.auth import get_current_user
     from services.user_manager import ROLE
 
     async def _limiter(request: Request, session: dict = Depends(get_current_user)):
-        # 管理员豁免
-        if session.get("permission", 0) >= ROLE.ADMIN:
+        if admin_exempt and session.get("permission", 0) >= ROLE.ADMIN:
             return
 
         user_uuid = session.get("uuid", "anonymous")
@@ -74,4 +82,35 @@ def speed_limit(seconds: float = 3.0):
             )
 
     return _limiter
+
+
+def public_speed_limit(seconds: float = 1.0):
+    """公开接口速率限制依赖工厂，按 client ip + path 限速。"""
+
+    async def _limiter(request: Request):
+        client_ip = request.client.host if request.client else "unknown"
+        key = f"ip:{client_ip}"
+        path = request.url.path
+        if not rate_limiter.check(key, path, seconds):
+            remaining = rate_limiter.remaining(key, path)
+            raise HTTPException(
+                status_code=429,
+                detail=f"操作过于频繁，请 {remaining:.0f} 秒后重试",
+            )
+
+    return _limiter
+
+
+def websocket_public_speed_limit(seconds: float = 1.0):
+    """公开 WebSocket 握手前限速，按 client ip + path。"""
+
+    async def _check(ws: WebSocket) -> bool:
+        client_ip = ws.client.host if ws.client else "unknown"
+        key = f"ip:{client_ip}"
+        path = ws.url.path
+        if rate_limiter.check(key, path, seconds):
+            return True
+        return False
+
+    return _check
 

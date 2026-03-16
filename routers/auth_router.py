@@ -20,6 +20,9 @@ router = APIRouter(prefix="/api", tags=["auth"])
 
 # 生产环境建议设置 COOKIE_SECURE=true（需要 HTTPS）
 _COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "").lower() in ("1", "true", "yes")
+# Cookie SameSite 策略：默认 lax，可通过环境变量覆盖（none / lax / strict）
+_COOKIE_SAMESITE_RAW = os.environ.get("COOKIE_SAMESITE", "lax").lower().strip()
+_COOKIE_SAMESITE: str = _COOKIE_SAMESITE_RAW if _COOKIE_SAMESITE_RAW in ("none", "lax", "strict") else "lax"
 
 
 class LoginRequest(BaseModel):
@@ -56,7 +59,7 @@ async def api_login(req: LoginRequest, request: Request):
         })
         response.set_cookie(
             key="auth_token", value=token,
-            max_age=86400 * 7, httponly=True, samesite="lax",
+            max_age=86400 * 7, httponly=True, samesite=_COOKIE_SAMESITE,
             secure=_COOKIE_SECURE,
         )
         return response
@@ -213,7 +216,7 @@ async def api_setup_init(req: SetupRequest, request: Request):
     })
     response.set_cookie(
         key="auth_token", value=token,
-        max_age=86400 * 7, httponly=True, samesite="lax",
+        max_age=86400 * 7, httponly=True, samesite=_COOKIE_SAMESITE,
         secure=_COOKIE_SECURE,
     )
     return response

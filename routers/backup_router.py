@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 from starlette.background import BackgroundTask
 
 from middleware.auth import require_admin
+from middleware.rate_limiter import speed_limit
 from services.config import CONFIG_DIR, DATA_DIR
 from services.operation_logger import operation_logger
 from services.log import logger
@@ -58,7 +59,7 @@ def _validate_zip_members(zipf: zipfile.ZipFile) -> None:
             raise HTTPException(status_code=400, detail="Zip content too large after extraction")
 
 
-@router.get("/backup/download")
+@router.get("/backup/download", dependencies=[Depends(speed_limit(3.0, admin_exempt=False))])
 async def download_backup(request: Request, session: dict = Depends(require_admin)):
     """下载 config 和 data 文件夹备份"""
     if not os.path.exists(CONFIG_DIR):
@@ -105,7 +106,7 @@ async def download_backup(request: Request, session: dict = Depends(require_admi
         raise HTTPException(status_code=500, detail=f"Backup creation failed: {str(e)}")
 
 
-@router.post("/backup/upload")
+@router.post("/backup/upload", dependencies=[Depends(speed_limit(5.0, admin_exempt=False))])
 async def upload_backup(
     request: Request,
     file: UploadFile = File(...),
@@ -184,7 +185,7 @@ async def upload_backup(
             os.remove(tmp_upload)
 
 
-@router.get("/backup/info")
+@router.get("/backup/info", dependencies=[Depends(speed_limit(3.0))])
 async def backup_info(session: dict = Depends(require_admin)):
     """获取当前 config 和 data 文件夹信息"""
     config_size = _get_dir_size(CONFIG_DIR) if os.path.exists(CONFIG_DIR) else 0

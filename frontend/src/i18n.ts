@@ -64,6 +64,16 @@ export const translations = {
             scheduler: '定时任务',
             wsConnected: '已连接',
             wsDisconnected: '未连接',
+            wsRetry: '重连',
+            wsDisconnectReason: {
+                unauthorized: '认证失败',
+                capacity_limited: '连接数超限',
+                heartbeat_timeout: '心跳超时',
+                network_error: '网络错误',
+                server_closed: '服务端关闭',
+                manual_close: '手动关闭',
+                unknown: '未知原因'
+            },
             botshepherd: 'BS 中间件'
         },
         imageManager: {
@@ -378,6 +388,7 @@ export const translations = {
             operator: '操作者',
             type: '类型',
             allLevels: '全部级别',
+            newLogsNotice: '有 {count} 条新日志，点击回到顶部',
             noLogs: '暂无操作日志',
             noLogsHint: '系统操作记录将显示在这里',
             containerStart: '{operator} 启动了容器 {target}',
@@ -528,7 +539,13 @@ export const translations = {
             accountSaveSuccess: '账号配置已保存',
             accountDeleteSuccess: '账号已删除',
             noAccounts: '暂无账号数据',
-            checkOnline: '检测在线'
+            checkOnline: '检测在线',
+            viewLogs: '查看日志',
+            processLogs: '进程日志',
+            autoRefresh: '自动刷新',
+            noLogs: '暂无日志输出…',
+            logLineCount: '行',
+            close: '关闭'
         }
     },
     en: {
@@ -593,6 +610,16 @@ export const translations = {
             scheduler: 'Scheduler',
             wsConnected: 'Connected',
             wsDisconnected: 'Disconnected',
+            wsRetry: 'Retry',
+            wsDisconnectReason: {
+                unauthorized: 'Unauthorized',
+                capacity_limited: 'Capacity limited',
+                heartbeat_timeout: 'Heartbeat timeout',
+                network_error: 'Network error',
+                server_closed: 'Server closed',
+                manual_close: 'Manual close',
+                unknown: 'Unknown reason'
+            },
             botshepherd: 'BS Middleware'
         },
         imageManager: {
@@ -907,6 +934,7 @@ export const translations = {
             operator: 'Operator',
             type: 'Type',
             allLevels: 'All Levels',
+            newLogsNotice: '{count} new logs, click to return to top',
             noLogs: 'No operation logs',
             noLogsHint: 'System operation records will appear here',
             containerStart: '{operator} started container {target}',
@@ -1057,7 +1085,13 @@ export const translations = {
             accountSaveSuccess: 'Account saved',
             accountDeleteSuccess: 'Account deleted',
             noAccounts: 'No account data',
-            checkOnline: 'Check Online'
+            checkOnline: 'Check Online',
+            viewLogs: 'View Logs',
+            processLogs: 'Process Logs',
+            autoRefresh: 'Auto Refresh',
+            noLogs: 'No log output yet…',
+            logLineCount: 'lines',
+            close: 'Close'
         }
     }
 };

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import {
     Box, Typography, Button, Paper, Chip, CircularProgress,
     Alert, useTheme, IconButton, Tooltip, Table, TableBody,
@@ -23,6 +23,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import PersonIcon from '@mui/icons-material/Person';
 import WifiIcon from '@mui/icons-material/Wifi';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
+import TerminalIcon from '@mui/icons-material/Terminal';
 import {
     botshepherdApi, type BotShepherdStatus,
     type BSConnectionsResponse, type BSConnection,
@@ -47,6 +48,32 @@ export default function BotShepherd() {
     // 对话框状态
     const [connDlg, setConnDlg] = useState<{ mode: 'add' | 'edit' | 'copy'; id: string; data: Partial<BSConnection> } | null>(null);
     const [acctDlg, setAcctDlg] = useState<{ id: string; data: Partial<BSAccount> } | null>(null);
+
+    // 日志 Dialog 状态
+    const [logOpen, setLogOpen] = useState(false);
+    const [logLines, setLogLines] = useState<string[]>([]);
+    const [logLoading, setLogLoading] = useState(false);
+    const [logAuto, setLogAuto] = useState(true);
+    const logEndRef = useRef<HTMLDivElement>(null);
+
+    const fetchLogs = useCallback(async () => {
+        setLogLoading(true);
+        try {
+            const res = await botshepherdApi.logs(200);
+            setLogLines(res.logs ?? []);
+            setTimeout(() => logEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 80);
+        } catch { /* ignore */ }
+        finally { setLogLoading(false); }
+    }, []);
+
+    // 日志 Dialog 打开时立即拉取，并按需自动刷新
+    useEffect(() => {
+        if (!logOpen) return;
+        fetchLogs();
+        if (!logAuto) return;
+        const iv = setInterval(fetchLogs, 3000);
+        return () => clearInterval(iv);
+    }, [logOpen, logAuto, fetchLogs]);
 
     const refresh = useCallback(async () => {
         try { setStatus(await botshepherdApi.status()); }
@@ -213,6 +240,10 @@ export default function BotShepherd() {
                                 {t('botshepherd.openWebUI')}
                             </Button>
                         )}
+                        <Button variant="outlined" startIcon={<TerminalIcon />}
+                            onClick={() => setLogOpen(true)}>
+                            {t('botshepherd.viewLogs')}
+                        </Button>
                     </>)}
                 </Box>
             </Paper>
@@ -380,6 +411,46 @@ export default function BotShepherd() {
 
             {/* ---- 账号编辑对话框 ---- */}
             {acctDlg && <AcctDialog dlg={acctDlg} setDlg={setAcctDlg} onSave={handleAcctSave} t={t} />}
+
+            {/* ---- 日志 Dialog ---- */}
+            <Dialog open={logOpen} onClose={() => setLogOpen(false)} maxWidth="md" fullWidth>
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <TerminalIcon fontSize="small" />
+                        {t('botshepherd.processLogs')}
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <FormControlLabel
+                            control={<Switch size="small" checked={logAuto} onChange={e => setLogAuto(e.target.checked)} />}
+                            label={<Typography variant="caption">{t('botshepherd.autoRefresh')}</Typography>}
+                        />
+                        <IconButton size="small" onClick={fetchLogs} disabled={logLoading}>
+                            {logLoading ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+                        </IconButton>
+                    </Box>
+                </DialogTitle>
+                <DialogContent sx={{ p: 0 }}>
+                    <Box sx={{
+                        bgcolor: theme.palette.mode === 'dark' ? '#1a1a2e' : '#0d1117',
+                        color: '#c9d1d9', fontFamily: 'monospace', fontSize: '0.78rem',
+                        p: 2, height: 400, overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+                    }}>
+                        {logLines.length === 0
+                            ? <Typography variant="body2" sx={{ color: '#8b949e', fontStyle: 'italic' }}>
+                                {t('botshepherd.noLogs')}
+                              </Typography>
+                            : logLines.map((line, i) => <div key={i}>{line}</div>)
+                        }
+                        <div ref={logEndRef} />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pl: 2 }}>
+                        {logLines.length} {t('botshepherd.logLineCount')}
+                    </Typography>
+                    <Button onClick={() => setLogOpen(false)}>{t('botshepherd.close')}</Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }

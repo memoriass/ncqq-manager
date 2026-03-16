@@ -19,7 +19,7 @@ import ImageIcon from '@mui/icons-material/Image';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import BackupIcon from '@mui/icons-material/Backup';
 import ScheduleIcon from '@mui/icons-material/Schedule';
-import SmartToyIcon from '@mui/icons-material/SmartToy';
+import PetsIcon from '@mui/icons-material/Pets';
 import { ThemeModeContext, LanguageContext } from '../App';
 import { useTranslate } from '../i18n';
 import { containerApi, authApi, type Container } from '../services/api';
@@ -41,7 +41,12 @@ export default function AdminLayout() {
     const toast = useToast();
 
     // WS 驱动容器列表（替代 HTTP 轮询，后端 3s 推送一次含 uin）
-    const { data: wsData, connected: wsConnected } = useWebSocket<{ type: string; data: Container[] }>({
+    const {
+        data: wsData,
+        connected: wsConnected,
+        reconnectAttempt: wsReconnectAttempt,
+        lastDisconnectReason: wsLastDisconnectReason,
+    } = useWebSocket<{ type: string; data: Container[] }>({
         path: '/ws/events',
     });
 
@@ -137,7 +142,7 @@ export default function AdminLayout() {
                             onClick={() => navigate('/admin/botshepherd')}
                             sx={{ borderRadius: 2, '&.Mui-selected': { bgcolor: 'rgba(59, 130, 246, 0.15)', '&:hover': { bgcolor: 'rgba(59, 130, 246, 0.25)' } } }}
                         >
-                            <ListItemIcon sx={{ minWidth: 40, color: location.pathname === '/admin/botshepherd' ? '#60a5fa' : 'text.secondary' }}><SmartToyIcon /></ListItemIcon>
+                            <ListItemIcon sx={{ minWidth: 40, color: location.pathname === '/admin/botshepherd' ? '#60a5fa' : 'text.secondary' }}><PetsIcon /></ListItemIcon>
                             <ListItemText primary={t('admin.botshepherd')} primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: location.pathname === '/admin/botshepherd' ? 600 : 500, color: location.pathname === '/admin/botshepherd' ? '#60a5fa' : 'text.secondary' }} />
                         </ListItemButton>
                     </ListItem>
@@ -154,6 +159,16 @@ export default function AdminLayout() {
                             <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                                 {wsConnected ? t('admin.wsConnected') : t('admin.wsDisconnected')}
                             </Typography>
+                            {!wsConnected && wsReconnectAttempt > 0 && (
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                    {`(${t('admin.wsRetry')}: ${wsReconnectAttempt})`}
+                                </Typography>
+                            )}
+                            {!wsConnected && wsLastDisconnectReason && (
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                                    {`- ${t(`admin.wsDisconnectReason.${wsLastDisconnectReason}`)}`}
+                                </Typography>
+                            )}
                         </Box>
                         <Box>
                             <IconButton onClick={toggleLanguage} size="small" sx={{ mr: 1 }} aria-label="Toggle language">

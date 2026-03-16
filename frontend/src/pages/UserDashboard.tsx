@@ -39,7 +39,13 @@ export default function UserDashboard() {
     const [qrDialogName, setQrDialogName] = useState<string | null>(null);
 
     // ---- WS 驱动：替代 HTTP 轮询 ----
-    const { containers: wsContainers, qrStates: wsQrStates, connected: wsConnected } = usePublicWebSocket();
+    const {
+        containers: wsContainers,
+        qrStates: wsQrStates,
+        connected: wsConnected,
+        reconnectAttempt: wsReconnectAttempt,
+        lastDisconnectReason: wsLastDisconnectReason,
+    } = usePublicWebSocket();
     const containers = wsContainers;
 
     // WS 首次推送到达后取消 loading
@@ -200,6 +206,21 @@ export default function UserDashboard() {
                         {t('user.title')}
                     </Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                                {wsConnected ? t('admin.wsConnected') : t('admin.wsDisconnected')}
+                            </Typography>
+                            {!wsConnected && wsReconnectAttempt > 0 && (
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                                    {`(${t('admin.wsRetry')}: ${wsReconnectAttempt})`}
+                                </Typography>
+                            )}
+                            {!wsConnected && wsLastDisconnectReason && (
+                                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+                                    {t(`admin.wsDisconnectReason.${wsLastDisconnectReason}`)}
+                                </Typography>
+                            )}
+                        </Box>
                         <TextField
                             size="small"
                             placeholder={t('user.searchPlaceholder')}

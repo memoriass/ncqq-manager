@@ -7,6 +7,7 @@ import asyncio
 from typing import Dict, Set
 from fastapi import WebSocket
 from services.log import logger
+from services.metrics import metrics
 
 
 class WSManager:
@@ -50,7 +51,9 @@ class WSManager:
             except Exception:
                 dead.append(ws)
 
+        metrics.ws_broadcasts.inc()
         if dead:
+            metrics.ws_broadcast_fails.inc(len(dead))
             async with self._lock:
                 for ws in dead:
                     self._connections.discard(ws)

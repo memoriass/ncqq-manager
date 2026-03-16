@@ -19,6 +19,7 @@ from services.instance_subsystem import instance_subsystem
 from services.log import logger
 from services.container_state import state_engine
 from middleware.auth import validate_token_value
+from middleware.rate_limiter import websocket_public_speed_limit
 
 router = APIRouter(tags=["websocket"])
 
@@ -137,6 +138,11 @@ async def ws_public(ws: WebSocket):
       客户端 → 服务端（可选，按需订阅分页）：
         {"type": "subscribe", "page": 1, "pageSize": 20}
     """
+    ws_public_limiter = websocket_public_speed_limit(1.0)
+    if not await ws_public_limiter(ws):
+        await ws.close(code=4429, reason="Rate limited")
+        return
+
     if not await ws_manager.connect_if_available(ws, _MAX_PUBLIC_WS):
         await ws.close(code=4429, reason="Too many connections")
         return

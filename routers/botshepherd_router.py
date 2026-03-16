@@ -1,7 +1,7 @@
 """
 BotShepherd 集成路由 - 初始化/启停/状态/连接管理/账号管理
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from middleware.auth import require_admin
 from services.botshepherd import botshepherd_manager
 
@@ -11,6 +11,12 @@ router = APIRouter(prefix="/api/botshepherd", tags=["botshepherd"])
 @router.get("/status")
 async def get_status(_user=Depends(require_admin)):
     return botshepherd_manager.status()
+
+
+@router.get("/logs")
+async def get_bs_logs(lines: int = Query(100, ge=1, le=500), _user=Depends(require_admin)):
+    """获取 BotShepherd 进程控制台输出（最近 N 行）"""
+    return {"status": "ok", "logs": botshepherd_manager.read_logs(lines)}
 
 
 @router.post("/setup")

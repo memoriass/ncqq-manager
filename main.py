@@ -229,6 +229,7 @@ async def health_check():
     from services.ws_manager import ws_manager
     from services.scheduler import scheduler
     from services.botshepherd import botshepherd_manager
+    from services.metrics import metrics
 
     scheduler_tasks = scheduler.list_tasks()
     scheduler_failed_count = sum(1 for t in scheduler_tasks if t.get("last_result") == "error")
@@ -259,6 +260,9 @@ async def health_check():
         "async_docker": async_docker_manager.connected,
         "ws_public": ws_manager.connection_count,
         "operation_logger_buffer": len(getattr(operation_logger, "_buffer", [])),
+        "operation_logger_flush_fails": operation_logger.flush_fail_count,
+        "operation_logger_last_flush_ms": round(operation_logger.last_flush_duration * 1000, 1),
+        "metrics": metrics.snapshot(),
         "scheduler": {
             "total": len(scheduler_tasks),
             "failed": scheduler_failed_count,

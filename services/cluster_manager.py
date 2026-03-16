@@ -261,7 +261,7 @@ class ClusterManager:
             **kwargs,
         )
 
-    async def _proxy_to_node_async(
+    async def proxy_to_node_async(
         self, node_id: str, method: str, path: str,
         timeout: float = 5.0, **kwargs
     ) -> Tuple[int, Optional[bytes], str]:
@@ -288,14 +288,14 @@ class ClusterManager:
     async def action_container_async(self, node_id: str, name: str, action: str) -> bool:
         if node_id == "local" or not node_id:
             return docker_manager.action_container(name, action)
-        code, _, _ = await self._proxy_to_node_async(
+        code, _, _ = await self.proxy_to_node_async(
             node_id, "POST", f"/api/containers/{name}/action?action={action}")
         return code == 200
 
     async def get_stats_async(self, node_id: str, name: str) -> Dict:
         if node_id == "local" or not node_id:
             return docker_manager.get_stats(name)
-        code, body, _ = await self._proxy_to_node_async(
+        code, body, _ = await self.proxy_to_node_async(
             node_id, "GET", f"/api/containers/{name}/stats")
         if code == 200 and body:
             stats = json.loads(body)
@@ -306,7 +306,7 @@ class ClusterManager:
     async def get_logs_async(self, node_id: str, name: str, lines: int = 100) -> str:
         if node_id == "local" or not node_id:
             return docker_manager.get_logs(name, lines)
-        code, body, _ = await self._proxy_to_node_async(
+        code, body, _ = await self.proxy_to_node_async(
             node_id, "GET", f"/api/containers/{name}/logs?lines={lines}")
         if code == 200 and body:
             return json.loads(body).get("logs", "")
@@ -315,7 +315,7 @@ class ClusterManager:
     async def get_qr_status_async(self, node_id: str, name: str) -> Optional[Dict]:
         if node_id == "local" or not node_id:
             return None
-        code, body, _ = await self._proxy_to_node_async(
+        code, body, _ = await self.proxy_to_node_async(
             node_id, "GET", f"/api/qr/{name}")
         if code == 200 and body:
             return json.loads(body)

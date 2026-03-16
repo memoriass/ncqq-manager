@@ -9,14 +9,17 @@ from typing import List, Dict, Any, Optional
 from collections import deque
 
 from services.log import logger
+from services.metrics import metrics
 import services.database as db
 
 
 class OperationLogger:
     """操作日志记录器 - 缓冲写入 + DB 读取"""
 
-    def __init__(self, buffer_size: int = 20):
+    def __init__(self, buffer_size: int = 10):
         self._buffer: deque = deque(maxlen=buffer_size)
+        self._flush_fail_count: int = 0
+        self._last_flush_duration: float = 0.0
 
     def log(self, operation_type: str, payload: Dict[str, Any],
             level: str = "info") -> str:
@@ -34,6 +37,7 @@ class OperationLogger:
             "payload": payload,
         }
         self._buffer.append(entry)
+        metrics.op_log_writes.inc()
         if len(self._buffer) >= self._buffer.maxlen:
             self.flush()
         return operation_id
@@ -59,25 +63,51 @@ class OperationLogger:
     def _normalize_time_bound(value: Optional[int]) -> Optional[int]:
         return value if isinstance(value, int) and value >= 0 else None
 
+    _FLUSH_MAX_RETRIES = 2
+    _FLUSH_RETRY_DELAY = 0.3  # 秒
+
     def flush(self):
-        """将缓冲区写入 SQLite"""
+        """将缓冲区写入 SQLite，带重试与失败计数。"""
         if not self._buffer:
             return
-        try:
-            while self._buffer:
-                entry = self._buffer.popleft()
-                db.execute(
-                    "INSERT OR IGNORE INTO operation_logs "
-                    "(id,type,level,time,timestamp,operator_name,operator_uuid,operator_ip,payload) "
-                    "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (entry["id"], entry["type"], entry["level"],
-                     entry["time"], entry["timestamp"],
-                     entry.get("operator_name"), entry.get("operator_uuid"), entry.get("operator_ip"),
-                     json.dumps(entry["payload"], ensure_ascii=False)),
-                )
-            db.commit()
-        except Exception as e:
-            logger.error("操作日志写入失败: %s", e)
+        start = time.monotonic()
+        snapshot = list(self._buffer)
+        for attempt in range(1, self._FLUSH_MAX_RETRIES + 1):
+            try:
+                for entry in snapshot:
+                    db.execute(
+                        "INSERT OR IGNORE INTO operation_logs "
+                        "(id,type,level,time,timestamp,operator_name,operator_uuid,operator_ip,payload) "
+                        "VALUES (?,?,?,?,?,?,?,?,?)",
+                        (entry["id"], entry["type"], entry["level"],
+                         entry["time"], entry["timestamp"],
+                         entry.get("operator_name"), entry.get("operator_uuid"), entry.get("operator_ip"),
+                         json.dumps(entry["payload"], ensure_ascii=False)),
+                    )
+                db.commit()
+                # 写入成功，清除已写条目
+                for _ in range(len(snapshot)):
+                    if self._buffer:
+                        self._buffer.popleft()
+                self._last_flush_duration = time.monotonic() - start
+                return
+            except Exception as e:
+                if attempt < self._FLUSH_MAX_RETRIES:
+                    logger.warning("操作日志写入失败(第%d次重试): %s", attempt, e)
+                    time.sleep(self._FLUSH_RETRY_DELAY)
+                else:
+                    self._flush_fail_count += 1
+                    metrics.op_log_flush_fails.inc()
+                    self._last_flush_duration = time.monotonic() - start
+                    logger.error("操作日志写入最终失败(已重试%d次): %s", self._FLUSH_MAX_RETRIES, e)
+
+    @property
+    def flush_fail_count(self) -> int:
+        return self._flush_fail_count
+
+    @property
+    def last_flush_duration(self) -> float:
+        return self._last_flush_duration
 
     def get(
         self,

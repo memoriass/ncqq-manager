@@ -615,6 +615,7 @@ export const botshepherdApi = {
     setup: () => request<{ status: string; message: string }>('/botshepherd/setup', { method: 'POST' }),
     start: () => request<{ status: string; message: string }>('/botshepherd/start', { method: 'POST' }),
     stop: () => request<{ status: string; message: string }>('/botshepherd/stop', { method: 'POST' }),
+    logs: (lines: number = 100) => request<{ status: string; logs: string[] }>(`/botshepherd/logs?lines=${lines}`),
     // 连接管理
     connections: () => request<BSConnectionsResponse>('/botshepherd/connections'),
     updateConnection: (id: string, data: Partial<BSConnection>) =>

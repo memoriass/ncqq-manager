@@ -14,7 +14,7 @@ const UserDashboard = lazy(() => import('./pages/UserDashboard'));
 const ConfigEditor = lazy(() => import('./pages/ConfigEditor'));
 const ClusterSettings = lazy(() => import('./pages/ClusterSettings'));
 const Nodes = lazy(() => import('./pages/Nodes'));
-const OperationLogs = lazy(() => import('./pages/OperationLogs'));
+const OperationLogs = lazy(() => import('./pages/OperationLogsPage'));
 const Users = lazy(() => import('./pages/Users'));
 const ImageManager = lazy(() => import('./pages/ImageManager'));
 const AlertSettings = lazy(() => import('./pages/AlertSettings'));
