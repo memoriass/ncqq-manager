@@ -1,6 +1,6 @@
 # Task Log
 
-Updated: 2025-02-14T00:00:00Z
+Updated: 2026-03-16T22:53:54.6362059+08:00
 
 - ts: 2025-02-14T00:00:00Z
   phase: intake
@@ -594,3 +594,184 @@ Updated: 2025-02-14T00:00:00Z
       fact: next queue after batchD is runtime stability observation plus long-term docker sync/async convergence
       impact: scope stays controlled and avoids mixing structural split with deep service migration
       next: start new batch only after user confirms priority
+
+- ts: 2026-03-16T22:53:54.6362059+08:00
+  phase: intake
+  evidence:
+    - main.py:223-241 health-check ws_public uses routers.ws_router._public_ws_count
+    - services/ws_manager.py:58-60 ws_manager.connection_count available
+    - services/operation_logger.py:18-20 operation_logger._buffer available
+    - services/scheduler.py:48-50 scheduler.list_tasks available with result fields
+    - services/botshepherd.py:137-143 botshepherd_manager.status summary fields available
+    - docs/current/优化说明文档.md:632-643 health extension targets
+    - code-examples: not found; aligned to same-layer implementation
+- ts: 2026-03-16T22:53:54.6362059+08:00
+  phase: implement
+  target: main.py
+  changes:
+    - main.py:223-283 health_check replaces ws source from routers.ws_router._public_ws_count to services.ws_manager.ws_manager.connection_count
+    - main.py:253-283 health_check adds operation_logger_buffer/scheduler/botshepherd summary fields
+    - main.py:241-255 health_check adds degraded_reasons and status=degraded|ok decision
+  evidence:
+    - main.py:229-231 ws_manager/scheduler/botshepherd imports
+    - main.py:233-236 scheduler task summary aggregation
+    - main.py:241-251 degraded reasons enumeration
+    - main.py:260-282 expanded health payload
+- ts: 2026-03-16T22:53:54.6362059+08:00
+  phase: verify
+  commands:
+    - python -m py_compile main.py => pass
+    - diagnostics main.py docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md => pass
+- ts: 2026-03-16T22:53:54.6362059+08:00
+  phase: remeber
+  items:
+    - label: intake.scope
+      fact: queue moved to health endpoint observability extension after batchD router split closure
+      impact: current code change remained single runtime entrypoint in main.py
+      next: keep endpoint contract backward-compatible while adding optional fields
+    - label: intake.example
+      fact: code-examples directory is absent in workspace
+      impact: implementation aligned with existing services imports and response dict style in main.py
+      next: continue same-layer alignment for follow-up stability queue
+    - label: intake.risk
+      fact: health degraded now depends on async_docker/state_engine/scheduler/botshepherd signals
+      impact: status may flip to degraded in environments where optional subsystem is intentionally stopped
+      next: monitor production signal noise and tune degraded rules if needed
+    - label: exec.ws_source
+      fact: ws_public now uses ws_manager.connection_count instead of ws_router module variable
+      impact: health endpoint no longer depends on route-local counter state
+      next: keep ws public health source centralized in service layer
+    - label: exec.scheduler_summary
+      fact: scheduler summary now exposes total/failed/timeout and last_task snapshot
+      impact: operators can inspect scheduler outcome without opening scheduler API separately
+      next: consider adding run_count aggregates only if requested
+    - label: exec.botshepherd_summary
+      fact: botshepherd status fields are included in health payload as compact subset
+      impact: subsystem lifecycle visibility is available from unified health endpoint
+      next: keep field list stable to avoid frontend parser drift
+    - label: verify.syntax
+      fact: py_compile passed for main.py
+      impact: health endpoint changes are syntax-safe
+      next: preserve compile gate for every queue iteration
+    - label: verify.ide
+      fact: diagnostics returned no issues for changed code/docs files
+      impact: incremental static gate remains green
+      next: continue queue with same diagnostics scope discipline
+    - label: docs.scope
+      fact: overview/plan/task/INTERFACE/TREE/优化说明文档 updated in-place for batchE health extension
+      impact: rolling docs remain single-source with no duplicated files
+      next: append only incremental task logs in next queue step
+    - label: summary.1
+      fact: /api/health payload expanded with operation logger, scheduler and botshepherd summaries
+      impact: observability coverage now matches optimization-doc 6.1 target list
+      next: monitor response size and keep fields concise
+    - label: summary.2
+      fact: health status now supports degraded and degraded_reasons
+      impact: infra probes can distinguish partial degradation from full failure
+      next: define alert mapping per degraded reason if user asks
+    - label: summary.3
+      fact: ws_public metric source migrated to service-level connection_count
+      impact: avoids reliance on ws router private module variable
+      next: keep private-router symbol usage out of cross-module health APIs
+    - label: summary.4
+      fact: local gates (py_compile + diagnostics) are green for this batch
+      impact: current queue step is safe to continue without rollback
+      next: proceed to next runtime stability queue item
+    - label: summary.5
+      fact: docs/current/优化说明文档.md 6.1 section now includes completed marker and concrete field list
+      impact: optimization backlog reflects current completion status
+      next: select next non-completed queue item from doc section 6.x
+
+- ts: 2026-03-16T23:45:24.8821881+08:00
+  phase: intake
+  evidence:
+    - frontend/src/hooks/useWebSocket.ts:16-35 disconnect-reason-union-and-classify
+    - frontend/src/hooks/useWebSocket.ts:63-71 exponential-backoff-with-jitter
+    - frontend/src/hooks/usePublicWebSocket.ts:36-53 public-disconnect-reason-union-and-classify
+    - frontend/src/layouts/AdminLayout.tsx:43-51 admin-layout-hook-return-consume
+    - frontend/src/pages/UserDashboard.tsx:42-48 public-dashboard-hook-return-consume
+    - frontend/src/i18n.ts:67-77,607-617 ws-retry-and-disconnect-reason-keys
+    - docs/current/优化说明文档.md:694-703 ws-hook-resilience-target
+    - code-examples: not found; aligned to same-layer implementation
+- ts: 2026-03-16T23:45:24.8821881+08:00
+  phase: implement
+  target: frontend/src/hooks/useWebSocket.ts,frontend/src/hooks/usePublicWebSocket.ts,frontend/src/layouts/AdminLayout.tsx,frontend/src/pages/UserDashboard.tsx,frontend/src/i18n.ts,docs/current/*.md
+  changes:
+    - useWebSocket adds WSDisconnectReason, classifyClose, reconnectAttempt, lastDisconnectReason and exponential backoff+jitter reconnect scheduling
+    - usePublicWebSocket adds PublicWSDisconnectReason, classifyClose, reconnectAttempt, lastDisconnectReason and exponential backoff+jitter reconnect scheduling
+    - AdminLayout consumes wsReconnectAttempt/wsLastDisconnectReason and renders retry count + disconnect reason in sidebar status line
+    - UserDashboard consumes wsReconnectAttempt/wsLastDisconnectReason and renders retry count + disconnect reason in header status line
+    - i18n zh/en adds admin.wsRetry and admin.wsDisconnectReason.{unauthorized|capacity_limited|heartbeat_timeout|network_error|server_closed|manual_close|unknown}
+    - docs/current/优化说明文档.md 6.7 marked completed with concrete file:line evidence and completion timestamp
+    - docs/current/overview.md plan.md INTERFACE.md TREE.md updated to batchF ws-hook-resilience scope
+    - no file under BotShepherd/ was modified in this batch
+  evidence:
+    - frontend/src/hooks/useWebSocket.ts:16-23,63-71,147
+    - frontend/src/hooks/usePublicWebSocket.ts:36-42,81-89,176
+    - frontend/src/layouts/AdminLayout.tsx:44-49,162-170
+    - frontend/src/pages/UserDashboard.tsx:42-48,213-221
+    - docs/current/优化说明文档.md:694-716
+- ts: 2026-03-16T23:45:24.8821881+08:00
+  phase: verify
+  commands:
+    - npm run build (frontend) => pass (vite build complete; built in 31.68s)
+    - diagnostics frontend/src/hooks/useWebSocket.ts frontend/src/hooks/usePublicWebSocket.ts frontend/src/layouts/AdminLayout.tsx frontend/src/pages/UserDashboard.tsx frontend/src/i18n.ts docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md => pass
+- ts: 2026-03-16T23:45:24.8821881+08:00
+  phase: remeber
+  items:
+    - label: intake.scope
+      fact: scope is limited to frontend ws hook resilience and rolling docs sync
+      impact: no backend runtime contract or bs submodule code changed
+      next: continue non-BS queue item only after 6.7 docs closure
+    - label: intake.example
+      fact: code-examples directory is absent in repository
+      impact: implementation aligned against existing frontend hook/layout/dashboard patterns
+      next: keep same-layer alignment for following frontend batches
+    - label: intake.risk
+      fact: ws disconnect reason rendering depends on i18n key completeness
+      impact: missing key would show fallback text and reduce operability
+      next: keep zh/en keys synchronized when reason enum expands
+    - label: exec.hook.contract
+      fact: both hooks now expose reconnectAttempt and lastDisconnectReason while retaining existing fields
+      impact: consumers can adopt incremental UI enhancement without API break
+      next: keep hook return object backward-compatible for existing callers
+    - label: exec.reconnect.policy
+      fact: fixed interval reconnect was replaced by capped exponential backoff plus jitter
+      impact: reduces reconnect storm pressure during service outage windows
+      next: tune max interval/jitter only if production reconnect latency requires adjustment
+    - label: exec.ui.visibility
+      fact: admin and user dashboards now show disconnected retry count and reason
+      impact: front-end observable state improves troubleshooting without opening browser devtools
+      next: if needed, surface last connected timestamp in a later enhancement
+    - label: verify.frontend.build
+      fact: frontend npm run build completed successfully
+      impact: ts/react integration and bundle generation remain valid after hook contract expansion
+      next: preserve build gate for each queued frontend change
+    - label: verify.ide
+      fact: diagnostics returned no issues for all changed frontend and docs files
+      impact: static quality gate is green for this batch
+      next: continue queue with same diagnostics scope discipline
+    - label: docs.optimization67
+      fact: optimization doc section 6.7 now contains completed marker with timestamp and evidence lines
+      impact: backlog status is synchronized with actual implemented code
+      next: mark next completed item only after evidence and gates are recorded
+    - label: summary.1
+      fact: batchF frontend websocket hook resilience target is implemented
+      impact: reconnect behavior and disconnect observability meet optimization-doc 6.7 goals
+      next: proceed to next non-BS optimization candidate
+    - label: summary.2
+      fact: no BotShepherd submodule source file changed in this batch
+      impact: change boundary follows user constraint exactly
+      next: keep explicit no-BS flag in plan for next rounds
+    - label: summary.3
+      fact: i18n ws retry/reason keys were added in both zh and en locales
+      impact: UI reason labels are translatable and avoid hardcoded strings
+      next: maintain key parity when adding new disconnect reasons
+    - label: summary.4
+      fact: local quality gates are green (frontend build + diagnostics)
+      impact: batch can be merged without rollback
+      next: retain rollback command in overview/plan for safety
+    - label: summary.5
+      fact: rolling docs overview/plan/task/interface/tree/optimization are updated in-place
+      impact: single-source documentation remains current without duplicate files
+      next: append incremental task logs only in future iterations

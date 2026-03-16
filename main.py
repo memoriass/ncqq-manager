@@ -21,7 +21,10 @@ import services.database as database
 
 from routers.auth_router import router as auth_router
 from routers.user_router import router as user_router
-from routers.container_router import router as container_router
+from routers.container_public_router import router as container_public_router
+from routers.container_config_router import router as container_config_router
+from routers.container_crud_router import router as container_crud_router
+from routers.container_runtime_router import router as container_runtime_router
 from routers.node_router import router as node_router
 from routers.operation_logs_router import router as operation_logs_router
 from routers.image_router import router as image_router
@@ -184,7 +187,10 @@ app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(auth_router)
 app.include_router(user_router)
-app.include_router(container_router)
+app.include_router(container_public_router)
+app.include_router(container_config_router)
+app.include_router(container_crud_router)
+app.include_router(container_runtime_router)
 app.include_router(node_router)
 app.include_router(operation_logs_router)
 app.include_router(image_router)
@@ -216,22 +222,64 @@ _start_time = _time.time()
 
 @app.get("/api/health")
 async def health_check():
-    """健康检查端点，供负载均衡器/Docker HEALTHCHECK 使用。
-
-    §9: 增加 state_engine / async_docker / ws_public 状态信息。
-    """
+    """健康检查端点，供负载均衡器/Docker HEALTHCHECK 使用。"""
     from services.docker_manager import docker_manager
     from services.container_state import state_engine
     from services.docker_async import async_docker_manager
-    from routers.ws_router import _public_ws_count
+    from services.ws_manager import ws_manager
+    from services.scheduler import scheduler
+    from services.botshepherd import botshepherd_manager
+
+    scheduler_tasks = scheduler.list_tasks()
+    scheduler_failed_count = sum(1 for t in scheduler_tasks if t.get("last_result") == "error")
+    scheduler_timeout_count = sum(1 for t in scheduler_tasks if t.get("last_result") == "timeout")
+    last_task = max(scheduler_tasks, key=lambda x: x.get("last_run", 0), default=None)
+
+    botshepherd_status = botshepherd_manager.status()
+    state_health = state_engine.health_info
+
+    degraded_reasons = []
+    if not async_docker_manager.connected:
+        degraded_reasons.append("async_docker_disconnected")
+    if not state_health.get("running", False):
+        degraded_reasons.append("state_engine_not_running")
+    if scheduler_failed_count > 0:
+        degraded_reasons.append("scheduler_task_failed")
+    if scheduler_timeout_count > 0:
+        degraded_reasons.append("scheduler_task_timeout")
+    if botshepherd_status.get("installed") and botshepherd_status.get("auto_start") and not botshepherd_status.get("running"):
+        degraded_reasons.append("botshepherd_not_running")
 
     return {
-        "status": "ok",
+        "status": "degraded" if degraded_reasons else "ok",
+        "degraded_reasons": degraded_reasons,
         "docker": docker_manager.client is not None,
         "uptime": round(_time.time() - _start_time, 1),
-        "state_engine": state_engine.health_info,
+        "state_engine": state_health,
         "async_docker": async_docker_manager.connected,
-        "ws_public": _public_ws_count,
+        "ws_public": ws_manager.connection_count,
+        "operation_logger_buffer": len(getattr(operation_logger, "_buffer", [])),
+        "scheduler": {
+            "total": len(scheduler_tasks),
+            "failed": scheduler_failed_count,
+            "timeout": scheduler_timeout_count,
+            "last_task": {
+                "id": last_task.get("id"),
+                "name": last_task.get("name"),
+                "last_run": last_task.get("last_run"),
+                "last_result": last_task.get("last_result"),
+                "last_error": last_task.get("last_error"),
+            } if last_task else None,
+        },
+        "botshepherd": {
+            "installed": botshepherd_status.get("installed"),
+            "initialized": botshepherd_status.get("initialized"),
+            "running": botshepherd_status.get("running"),
+            "port": botshepherd_status.get("port"),
+            "pid": botshepherd_status.get("pid"),
+            "auto_start": botshepherd_status.get("auto_start"),
+            "webui_url": botshepherd_status.get("webui_url"),
+        },
     }
 
 

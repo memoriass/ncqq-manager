@@ -1,6 +1,9 @@
 # INTERFACE
 
-Updated: 2026-03-16T22:20:33+08:00
+Updated: 2026-03-16T23:45:24.8821881+08:00
+
+- main.py
+  - health_check() -> dict(status,degraded_reasons,docker,uptime,state_engine,async_docker,ws_public,operation_logger_buffer,scheduler,botshepherd)
 
 - services/operation_log_context.py
   - build_operator_payload(request: Request | None, session: dict, extra: dict[str, Any] | None = None) -> dict[str, Any]
@@ -33,6 +36,16 @@ Updated: 2026-03-16T22:20:33+08:00
   - OperationLogsList(props: { logs: OperationLog[]; loading: boolean; highlightedLogIds: string[]; listRef: MutableRefObject<HTMLUListElement | null>; t: (key: string) => string }) -> JSX.Element
 - frontend/src/pages/OperationLogsPage.tsx
   - OperationLogsPage() -> JSX.Element
+- frontend/src/hooks/useWebSocket.ts
+  - export type WSDisconnectReason = 'unauthorized' | 'capacity_limited' | 'heartbeat_timeout' | 'network_error' | 'server_closed' | 'manual_close' | 'unknown'
+  - useWebSocket<T = unknown>(options: { path: string; reconnectInterval?: number; enabled?: boolean }) -> { data: T | null; connected: boolean; send(msg: unknown): void; reconnectAttempt: number; lastDisconnectReason: WSDisconnectReason | null }
+- frontend/src/hooks/usePublicWebSocket.ts
+  - export type PublicWSDisconnectReason = 'capacity_limited' | 'heartbeat_timeout' | 'network_error' | 'server_closed' | 'manual_close' | 'unknown'
+  - usePublicWebSocket(options?: { enabled?: boolean; reconnectInterval?: number }) -> { containers: Container[]; qrStates: Record<string, { status: string; url?: string; type?: string; uin?: string }>; connected: boolean; send(msg: unknown): void; reconnectAttempt: number; lastDisconnectReason: PublicWSDisconnectReason | null }
+- frontend/src/layouts/AdminLayout.tsx
+  - AdminLayout() -> JSX.Element (consumes useWebSocket reconnectAttempt/lastDisconnectReason)
+- frontend/src/pages/UserDashboard.tsx
+  - UserDashboard() -> JSX.Element (consumes usePublicWebSocket reconnectAttempt/lastDisconnectReason)
 - services/ws_manager.py
   - connect(ws: WebSocket) -> None
   - can_accept(limit: int) -> bool

@@ -1,23 +1,21 @@
 # Overview
 
-Updated: 2026-03-16T22:20:33+08:00
+Updated: 2026-03-17T00:05:39.9388881+08:00
 
 ## Goal
-- scope: batchD-container-router-split-completed-after-batchC-frontend-split
-- modules: main.py,routers/container_public_router.py,routers/container_config_router.py,routers/container_crud_router.py,routers/container_runtime_router.py,docs/current/overview.md,docs/current/plan.md,docs/current/task.md,docs/current/INTERFACE.md,docs/current/TREE.md,docs/current/优化说明文档.md
+- scope: batchG-public-endpoint-rate-protection
+- modules: middleware/rate_limiter.py,routers/container_public_router.py,routers/container_runtime_router.py,routers/backup_router.py,routers/node_router.py,routers/ws_router.py,docs/current/overview.md,docs/current/plan.md,docs/current/task.md,docs/current/INTERFACE.md,docs/current/TREE.md,docs/current/优化说明文档.md
+- constraint.no_bs_submodule_change: true
 
 ## KPI
-- container_router_public_routes_extracted: enabled
-- container_router_config_routes_extracted: enabled
-- container_router_crud_routes_extracted: enabled
-- container_router_runtime_routes_extracted: enabled
-- container_router_legacy_file_removed: enabled
-- container_router_route_registration_split: enabled
-- python_compile_main_container_routes: pass
-- diagnostics_main_container_routes: 0
+- public_http_rate_limit: public-containers,public-qr-batch,public-containers-page,container-qrcode
+- admin_sensitive_rate_limit: backup-download,backup-upload,node-proxy
+- public_ws_handshake_rate_limit: enabled
+- rate_limiter_public_factory: public_speed_limit,websocket_public_speed_limit
+- python_compile_changed_files: pass
+- diagnostics_changed_files: 0
 - docs_current_sync: enabled
 
 ## Rollback
-- code: git restore main.py routers/container_public_router.py routers/container_config_router.py routers/container_crud_router.py routers/container_runtime_router.py routers/container_router.py
+- code: git restore middleware/rate_limiter.py routers/container_public_router.py routers/container_runtime_router.py routers/backup_router.py routers/node_router.py routers/ws_router.py
 - docs: git restore docs/current/overview.md docs/current/plan.md docs/current/task.md docs/current/INTERFACE.md docs/current/TREE.md docs/current/优化说明文档.md
-
