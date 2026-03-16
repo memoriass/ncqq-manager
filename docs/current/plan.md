@@ -39,6 +39,16 @@ Updated: 2025-02-14T00:00:00Z
 - frontend-build: npm run build
 - diagnostics: IDE diagnostics on changed files
 
+
+## RemainingQueue
+- batchA.backup_router: routers/backup_router.py zip-entry whitelist + zip bomb precheck + chunked upload + tmp cleanup
+- batchA.operation_log_context: new helper for operator_name/operator_uuid/operator_ip
+- batchA.user_router_audit: routers/user_router.py instances/apikey audit
+- batchA.node_router_audit: routers/node_router.py cluster config + node edit audit + private proxy call cleanup
+- batchB.operation_logs_query: services/operation_logger.py + routers/operation_logs_router.py + frontend log page wiring
+- batchC.ws_manager: services/ws_manager.py lock-outside-send + routers/ws_router.py public count/hash optimization
+- batchC.scheduler: services/scheduler.py running_tasks + timeout + result fields + retention
+
 ## Checkpoints
 - cp1: main.py has no query_params.get("apikey") in CSRF middleware
 - cp2: middleware/auth.py has no query API key channel and has permission refresh path

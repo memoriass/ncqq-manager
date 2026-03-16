@@ -32,3 +32,28 @@ Updated: 2025-02-14T00:00:00Z
     - cd frontend && npm run build
     - diagnostics changed files
 
+
+- ts: 2025-02-14T00:05:00Z
+  phase: schedule
+  backlog:
+    - batchA.backup_router: in_progress
+    - batchA.operation_log_context: queued
+    - batchA.user_router_audit: queued
+    - batchA.node_router_audit: queued
+    - batchB.operation_logs_query: queued
+    - batchC.ws_manager: queued
+    - batchC.scheduler: queued
+- ts: 2025-02-14T00:06:00Z
+  phase: implement
+  target: routers/backup_router.py
+  changes:
+    - add PurePosixPath + BackgroundTask imports
+    - add _ALLOWED_BACKUP_ROOTS and _CHUNK_SIZE
+    - add _cleanup_file and _validate_zip_members helpers
+    - backup download adds response background cleanup for tmp zip
+    - backup upload switches from whole-file read to chunked temp-file write
+    - backup upload validates zip roots and total uncompressed size before extractall
+  evidence:
+    - routers/backup_router.py:37-59 helper-functions
+    - routers/backup_router.py:95-101 file-response-background-cleanup
+    - routers/backup_router.py:129-169 chunked-upload-and-zip-validation
