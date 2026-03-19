@@ -43,3 +43,10 @@ data/
 # Migration leftovers
 *.migrated
 
+
+# Local runtime / temp
+.venv/
+venv/
+logs/
+*.txt
+~/

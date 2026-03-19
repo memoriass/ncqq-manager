@@ -635,3 +635,46 @@ export const botshepherdApi = {
     accountOnline: (id: string) =>
         request<{ online: boolean }>(`/botshepherd/accounts/${id}/online-status`),
 };
+
+// ============ 网络配置注入 ============
+
+/** 单个网络端点的完整字段（所有字段均可选，后端按需合并） */
+export interface NetworkEndpointConfig {
+    name?: string;
+    enable?: boolean;
+    // HTTP 服务器 / SSE 服务器
+    host?: string;
+    port?: number;
+    // HTTP 客户端 / WS 客户端
+    url?: string;
+    token?: string;
+    // 通用
+    reportSelfMessage?: boolean;
+    messagePostFormat?: 'string' | 'array';
+    debug?: boolean;
+    heartInterval?: number;
+    reconnectInterval?: number;
+    // HTTP 服务器额外字段
+    enableCors?: boolean;
+    enableWebsocket?: boolean;
+}
+
+export interface InjectNetworkConfigRequest {
+    uin?: string;
+    node_id?: string;
+    network: {
+        httpServers?:       NetworkEndpointConfig[];
+        httpClients?:       NetworkEndpointConfig[];
+        httpSseServers?:    NetworkEndpointConfig[];
+        websocketServers?:  NetworkEndpointConfig[];
+        websocketClients?:  NetworkEndpointConfig[];
+    };
+}
+
+export const instanceNetworkApi = {
+    injectNetworkConfig: (containerName: string, req: InjectNetworkConfigRequest) =>
+        request<{ status: string; message: string; keys_updated: string[] }>(
+            `/containers/${containerName}/inject-network-config`,
+            { method: 'POST', body: JSON.stringify(req) },
+        ),
+};

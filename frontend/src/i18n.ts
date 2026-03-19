@@ -115,17 +115,17 @@ export const translations = {
         },
         backup: {
             title: '备份与恢复',
-            subtitle: '导出或恢复系统数据',
-            dbInfo: '备份信息',
+            subtitle: '导出或恢复管理器配置与实例配置',
+            dbInfo: '配置备份信息',
             size: '大小',
             lastModified: '最后修改',
-            download: '下载备份',
-            restore: '恢复备份',
+            download: '下载配置备份',
+            restore: '恢复配置备份',
             uploading: '上传中...',
-            confirmRestore: '恢复操作将覆盖当前 config 和 data 文件夹，确定继续吗？',
+            confirmRestore: '恢复操作将覆盖当前 config/ 与 data/<实例>/config/，确定继续吗？',
             restoreSuccess: '恢复成功，请重启服务生效',
             restoreFailed: '恢复失败',
-            hint: '建议定期备份数据。备份包含 config 和 data 文件夹，可实现一键迁移恢复。'
+            hint: '建议定期备份。备份仅包含管理器 config/ 与各实例 data/<实例>/config/，不包含 qq_data 和其他运行时资源。'
         },
         scheduler: {
             title: '定时任务',
@@ -139,7 +139,7 @@ export const translations = {
             days: '天',
             hours: '小时',
             confirmDelete: '确定要删除这个定时任务吗？',
-            typeBackup: '备份数据库',
+            typeBackup: '备份配置',
             typeRestart: '重启容器',
             typeCleanup: '清理日志'
         },
@@ -661,17 +661,17 @@ export const translations = {
         },
         backup: {
             title: 'Backup & Restore',
-            subtitle: 'Export or restore system data',
-            dbInfo: 'Backup Info',
+            subtitle: 'Export or restore manager config and instance config',
+            dbInfo: 'Config Backup Info',
             size: 'Size',
             lastModified: 'Last Modified',
-            download: 'Download Backup',
-            restore: 'Restore Backup',
+            download: 'Download Config Backup',
+            restore: 'Restore Config Backup',
             uploading: 'Uploading...',
-            confirmRestore: 'This will overwrite the current config and data folders. Continue?',
+            confirmRestore: 'This will overwrite config/ and data/<instance>/config/. Continue?',
             restoreSuccess: 'Restore successful. Please restart to take effect.',
             restoreFailed: 'Restore failed',
-            hint: 'Regular backups are recommended. Backup includes config and data folders for one-click migration.'
+            hint: 'Regular backups are recommended. Backup only includes manager config/ and each instance data/<instance>/config/, excluding qq_data and other runtime assets.'
         },
         scheduler: {
             title: 'Scheduled Tasks',
@@ -685,7 +685,7 @@ export const translations = {
             days: 'days',
             hours: 'hours',
             confirmDelete: 'Are you sure you want to delete this scheduled task?',
-            typeBackup: 'Backup Database',
+            typeBackup: 'Backup Config',
             typeRestart: 'Restart Container',
             typeCleanup: 'Cleanup Logs'
         },

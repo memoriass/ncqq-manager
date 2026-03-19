@@ -62,7 +62,7 @@ def _parse_env_vars(env_vars: list[str]) -> dict[str, str]:
 def _generate_onebot11_config_with_ws_client(config_dir: str, ws_client_url: str, ws_client_token: str = "", uin: str = "default") -> None:
     config_file = os.path.join(config_dir, f"onebot11_{uin}.json")
     ws_client_config = {
-        "name": "BS-Takeover" if uin != "default" else "",
+        "name": "botshepherd",
         "enable": True,
         "url": ws_client_url,
         "reportSelfMessage": False,
@@ -138,4 +138,69 @@ async def api_inject_ws_client(name: str, uin: str = "default", session: dict = 
         raise HTTPException(status_code=400, detail="Injection URL is not configured")
     _generate_onebot11_config_with_ws_client(os.path.join(get_data_dir(), name, "config"), ws_client_url, str(app_config.get("init_ws_client_token", "")), uin)
     return {"status": "ok", "message": f"Injected into onebot11_{uin}.json"}
+
+
+_ALLOWED_NET_KEYS = frozenset({
+    "httpServers",
+    "httpClients",
+    "httpSseServers",
+    "websocketServers",
+    "websocketClients",
+})
+
+
+class InjectNetworkConfigRequest(BaseModel):
+    uin: str = "default"
+    node_id: str = "local"
+    network: dict
+
+
+@router.post("/containers/{name}/inject-network-config")
+async def api_inject_network_config(
+    name: str,
+    req: InjectNetworkConfigRequest,
+    request: Request,
+    session: dict = Depends(require_admin),
+):
+    """覆盖写入 onebot11_{uin}.json 中的指定网络端点键。
+    只允许白名单内的键；其余键保持原值不变。
+    """
+    bad_keys = set(req.network.keys()) - _ALLOWED_NET_KEYS
+    if bad_keys:
+        raise HTTPException(status_code=400, detail=f"不允许的网络配置键: {bad_keys}")
+
+    config_dir = os.path.join(get_data_dir(), name, "config")
+    config_file = os.path.join(config_dir, f"onebot11_{req.uin}.json")
+
+    full_config: dict = {"network": {}}
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, "r", encoding="utf-8") as fh:
+                full_config = json.load(fh)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(f"读取配置失败，将覆盖重建: {exc}")
+
+    network = full_config.get("network", {})
+    for key, value in req.network.items():
+        network[key] = value
+    full_config["network"] = network
+
+    os.makedirs(config_dir, exist_ok=True)
+    with open(config_file, "w", encoding="utf-8") as fh:
+        json.dump(full_config, fh, indent=2, ensure_ascii=False)
+
+    operator_ip = request.client.host if request.client else "unknown"
+    operation_logger.info(
+        "inject_network_config",
+        {
+            "operator_ip": operator_ip,
+            "operator_name": session["userName"],
+            "operator_uuid": session.get("uuid"),
+            "container_name": name,
+            "uin": req.uin,
+            "keys_updated": list(req.network.keys()),
+        },
+    )
+    logger.info(f"[{name}] 注入网络配置 uin={req.uin} keys={list(req.network.keys())}")
+    return {"status": "ok", "message": f"已写入 onebot11_{req.uin}.json", "keys_updated": list(req.network.keys())}
 
