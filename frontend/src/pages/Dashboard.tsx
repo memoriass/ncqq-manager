@@ -205,8 +205,9 @@ export default function Dashboard() {
         e.preventDefault();
         if (!createForm.name) return;
         const body: CreateContainerRequest = { name: createForm.name, node_id: selectedNode === 'all' ? 'local' : selectedNode };
+        // docker_image 在简洁模式下也需要传递（镜像下拉框不属于高级选项）
+        if (createForm.docker_image) body.docker_image = createForm.docker_image;
         if (showAdvanced) {
-            if (createForm.docker_image) body.docker_image = createForm.docker_image;
             if (createForm.webui_port > 0) body.webui_port = createForm.webui_port;
             if (createForm.http_port > 0) body.http_port = createForm.http_port;
             if (createForm.ws_port > 0) body.ws_port = createForm.ws_port;

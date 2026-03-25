@@ -104,7 +104,7 @@ async def api_create_container(req: CreateRequest, request: Request, session: di
         node = next((item for item in cluster_manager.get_nodes() if item["id"] == req.node_id), None)
         if not node:
             raise HTTPException(status_code=400, detail="Invalid node_id")
-        _, body, _ = await cluster_manager.proxy_to_node_async(req.node_id, "POST", "/api/containers", timeout=5.0, json={"name": req.name, "node_id": "local"})
+        _, body, _ = await cluster_manager.proxy_to_node_async(req.node_id, "POST", "/api/containers", timeout=5.0, json={"name": req.name, "node_id": "local", "docker_image": req.docker_image, "webui_port": req.webui_port, "http_port": req.http_port, "ws_port": req.ws_port, "memory_limit": req.memory_limit, "restart_policy": req.restart_policy, "network_mode": req.network_mode, "env_vars": req.env_vars})
         return json.loads(body) if body else {"status": "error", "message": "Remote node unreachable"}
     data_dir = os.path.join(get_data_dir(), req.name)
     volumes = {
