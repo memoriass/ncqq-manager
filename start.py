@@ -77,7 +77,10 @@ def _resolve_botshepherd_dir() -> str:
     return os.path.join(BASE_DIR, "BotShepherd")
 
 # 关键 Python 依赖（安装后验证可导入）
-REQUIRED_MODULES = ["fastapi", "uvicorn", "docker", "aiohttp", "aiodocker", "orjson", "multipart"]
+REQUIRED_MODULES = [
+    "fastapi", "uvicorn", "docker", "aiohttp", "aiodocker", "orjson",
+    "multipart", "websockets", "wsproto", "PIL"
+]
 
 # ─── 终端彩色输出 ───
 def _c(text: str, code: str) -> str:
@@ -146,21 +149,37 @@ def check_pip_deps():
     if missing:
         fail(f"以下模块安装后仍无法导入: {', '.join(missing)}")
         fail("请执行: uv sync")
+        fail("Ubuntu 常见依赖: uvicorn[standard]（websockets/wsproto）、python-multipart、pillow")
+        fail("若 Node.js < 18，请升级后再构建前端（建议 Node.js 20 LTS）")
         sys.exit(1)
     info(f"关键依赖验证通过 ({len(REQUIRED_MODULES)} 个模块)")
 
 
 def check_node():
-    """检查 Node.js / npm"""
+    """检查 Node.js / npm（前端构建要求 Node.js >= 18）"""
     step("检查 Node.js 环境")
     node = shutil.which("node")
     npm = shutil.which("npm")
     if not node or not npm:
         warn("未检测到 Node.js / npm，无法构建前端")
-        warn("请安装 Node.js >= 16: https://nodejs.org/")
+        warn("请安装 Node.js >= 18: https://nodejs.org/")
         return False
+
     v = subprocess.run([node, "--version"], capture_output=True, text=True)
-    info(f"Node.js {v.stdout.strip()}")
+    version_raw = v.stdout.strip()
+    m = re.match(r"v?(\d+)\.(\d+)\.(\d+)", version_raw)
+    if not m:
+        warn(f"无法解析 Node.js 版本: {version_raw}")
+        warn("请使用 Node.js >= 18")
+        return False
+
+    major = int(m.group(1))
+    info(f"Node.js {version_raw}")
+    if major < 18:
+        warn(f"Node.js 版本过低: {version_raw}，前端构建需要 >= 18")
+        warn("请升级后重试（建议 Node.js 20 LTS）")
+        return False
+
     return True
 
 
