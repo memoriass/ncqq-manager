@@ -172,13 +172,13 @@ def build_frontend():
         return
     # npm install
     info("正在安装前端依赖 (npm install)...")
-    r = subprocess.run(["npm", "install"], cwd=FRONTEND_DIR, shell=True)
+    r = subprocess.run(["npm", "install"], cwd=FRONTEND_DIR)
     if r.returncode != 0:
         fail("npm install 失败")
         sys.exit(1)
     # npm run build
     info("正在构建前端 (npm run build)...")
-    r = subprocess.run(["npm", "run", "build"], cwd=FRONTEND_DIR, shell=True)
+    r = subprocess.run(["npm", "run", "build"], cwd=FRONTEND_DIR)
     if r.returncode != 0:
         fail("前端构建失败")
         sys.exit(1)
