@@ -227,6 +227,17 @@ python main.py
 # 方式三：使用 uvicorn
 uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
 
+<h3>6. Ubuntu systemd 自启动（uv）</h3>
+<pre><code># 首次部署建议先手动启动一次，完成依赖安装、前端构建与初始化
+uv run python start.py
+
+# 注册开机自启动（仅注册主项目）
+sudo bash scripts/install_autostart_ubuntu.sh
+
+# 卸载开机自启动
+sudo bash scripts/uninstall_autostart_ubuntu.sh</code></pre>
+<div class="tip">systemd 服务仅注册 NapCat Manager 主进程。BotShepherd 不单独注册，由主项目在启动时自动唤起。</div>
+
 <h3>5. 访问面板</h3>
 <p>浏览器打开 <code>http://localhost:8000</code>，首次访问将引导您设置管理员账号。</p>
 
@@ -727,7 +738,7 @@ python start.py --dev</code></pre>
 <p>BotShepherd 页面底部可查看进程控制台输出（最近 100-500 行），用于排查连接和消息转发问题。</p>
 
 <div class="tip">BotShepherd 默认监听端口 5100，可在其配置文件中修改。启动后的 Web 管理界面可通过 <code>http://localhost:5100</code> 直接访问。</div>
-<div class="warning">BotShepherd 作为子进程随 NapCat Manager 一起启动和停止。如需独立运行，请进入 <code>botshepherd/</code> 目录手动启动。</div>
+<div class="warning">BotShepherd 作为子进程随 NapCat Manager 一起启动和停止，Ubuntu 场景无需单独注册 systemd。只需为主项目注册开机自启动，BotShepherd 会在主项目启动时自动唤起。</div>
 </div>
 
 <!-- ====== API 接口 ====== -->

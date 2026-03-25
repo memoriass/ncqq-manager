@@ -19,6 +19,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 FRONTEND_DIST = os.path.join(FRONTEND_DIR, "dist")
 
+
+def _resolve_botshepherd_dir() -> str:
+    for name in ("BotShepherd", "botshepherd"):
+        path = os.path.join(BASE_DIR, name)
+        if os.path.isdir(path):
+            return path
+    return os.path.join(BASE_DIR, "BotShepherd")
+
 # 关键 Python 依赖（安装后验证可导入）
 REQUIRED_MODULES = ["fastapi", "uvicorn", "docker", "aiohttp", "aiodocker", "orjson"]
 
@@ -146,7 +154,7 @@ def check_docker():
         info("Docker 运行正常")
 
 
-BOTSHEPHERD_DIR = os.path.join(BASE_DIR, "botshepherd")
+BOTSHEPHERD_DIR = _resolve_botshepherd_dir()
 
 
 def check_botshepherd():

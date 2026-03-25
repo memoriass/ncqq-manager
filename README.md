@@ -67,6 +67,25 @@ cd frontend && npm install && npm run build && cd ..
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
+### 方式三：Ubuntu systemd 自启动（uv）
+
+```bash
+git clone https://github.com/your-repo/ncqq-manager.git
+cd ncqq-manager
+
+# 首次启动前建议先手动执行一次，完成依赖安装/前端构建/初始化
+uv run python start.py
+
+# 注册 systemd 开机自启动（仅注册主项目，BotShepherd 由主项目自动唤起）
+sudo bash scripts/install_autostart_ubuntu.sh
+```
+
+卸载自启动：
+
+```bash
+sudo bash scripts/uninstall_autostart_ubuntu.sh
+```
+
 ## 📁 项目结构
 
 ```
