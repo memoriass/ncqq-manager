@@ -393,9 +393,21 @@ class AsyncDockerManager:
             if ports:
                 config["ExposedPorts"] = {p: {} for p in ports}
 
-            container = await self._docker.containers.create_or_replace(
-                name=name, config=config,
-            )
+            try:
+                container = await self._docker.containers.create_or_replace(
+                    name=name, config=config,
+                )
+            except aiodocker.exceptions.DockerError as pull_e:
+                if pull_e.status == 404:
+                    # 镜像本地不存在，自动拉取后重试
+                    logger.info("镜像 %s 本地不存在，自动拉取中（首次部署可能需要数分钟）...", image)
+                    await self._docker.images.pull(image)
+                    logger.info("镜像 %s 拉取完成，重试创建容器...", image)
+                    container = await self._docker.containers.create_or_replace(
+                        name=name, config=config,
+                    )
+                else:
+                    raise
             await container.start()
             info = await container.show()
             short_id = info.get("Id", "")[:12]
