@@ -70,7 +70,19 @@ def ensure_uv_runtime() -> None:
 
 
 def _resolve_botshepherd_dir() -> str:
-    return os.path.join(BASE_DIR, "BotShepherd")
+    """在 BASE_DIR 下查找 BotShepherd 目录，大小写不敏感（兼容 Linux/Windows）。"""
+    for candidate in ("BotShepherd", "botshepherd", "BOTSHEPHERD"):
+        path = os.path.join(BASE_DIR, candidate)
+        if os.path.isdir(path):
+            return path
+    # fallback：扫描目录匹配（适配任意大小写）
+    try:
+        for entry in os.listdir(BASE_DIR):
+            if entry.lower() == "botshepherd" and os.path.isdir(os.path.join(BASE_DIR, entry)):
+                return os.path.join(BASE_DIR, entry)
+    except OSError:
+        pass
+    return os.path.join(BASE_DIR, "BotShepherd")  # 默认回退
 
 # 关键 Python 依赖（安装后验证可导入）
 REQUIRED_MODULES = [
@@ -231,25 +243,101 @@ def check_docker():
 BOTSHEPHERD_DIR = _resolve_botshepherd_dir()
 
 
+def _bs_venv_python() -> str:
+    """返回 BotShepherd 虚拟环境中的 python 路径（优先 .venv，fallback venv）。"""
+    for venv_name in (".venv", "venv"):
+        venv_dir = os.path.join(BOTSHEPHERD_DIR, venv_name)
+        if sys.platform == "win32":
+            p = os.path.join(venv_dir, "Scripts", "python.exe")
+        else:
+            p = os.path.join(venv_dir, "bin", "python")
+        if os.path.isfile(p):
+            return p
+    return sys.executable
+
+
+def _ensure_bs_deps(uv_bin: str) -> bool:
+    """用 uv 维护 BotShepherd/.venv：首次安装或 requirements.txt 有更新时自动重装。"""
+    req_file = os.path.join(BOTSHEPHERD_DIR, "requirements.txt")
+    venv_dir = os.path.join(BOTSHEPHERD_DIR, ".venv")
+    cfg_file = os.path.join(venv_dir, "pyvenv.cfg")
+
+    if not os.path.isfile(req_file):
+        warn("BotShepherd/requirements.txt 不存在，跳过依赖安装")
+        return True
+
+    need_install = not os.path.isfile(cfg_file)
+    if not need_install:
+        # requirements.txt 比 pyvenv.cfg 更新 → 子模块有升级
+        need_install = os.path.getmtime(req_file) > os.path.getmtime(cfg_file)
+
+    if not need_install:
+        info("BotShepherd 依赖已是最新，跳过安装")
+        return True
+
+    # 创建 .venv（仅首次）
+    if not os.path.isfile(cfg_file):
+        info("正在为 BotShepherd 创建 uv 虚拟环境 (.venv)...")
+        r = subprocess.run(
+            [uv_bin, "venv", ".venv", "--seed"],
+            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+        )
+        if r.returncode != 0:
+            warn("BotShepherd uv venv 创建失败:\n" + (r.stderr or r.stdout))
+            return False
+    else:
+        info("检测到 BotShepherd/requirements.txt 有更新，正在同步依赖...")
+
+    # 安装/更新依赖
+    env = {**os.environ, "VIRTUAL_ENV": venv_dir, "PYTHONIOENCODING": "utf-8"}
+    r = subprocess.run(
+        [uv_bin, "pip", "install", "-q", "-r", "requirements.txt"],
+        capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+        env=env, timeout=300,
+    )
+    if r.returncode != 0:
+        warn("BotShepherd 依赖安装失败:\n" + (r.stderr or r.stdout))
+        return False
+    info("BotShepherd 依赖同步完成")
+    return True
+
+
 def check_botshepherd():
-    """检测并初始化已嵌入的 BotShepherd 中间件"""
+    """检测并初始化已嵌入的 BotShepherd 中间件，用 uv 管理依赖。"""
     step("检查 BotShepherd 中间件")
     main_py = os.path.join(BOTSHEPHERD_DIR, "main.py")
     if not os.path.isfile(main_py):
-        warn("botshepherd/ 目录不完整，跳过")
+        warn(f"BotShepherd 子模块未克隆或目录为空（检查路径: {BOTSHEPHERD_DIR}）")
+        warn("请执行以下命令初始化 git 子模块后重新启动：")
+        warn("  git submodule update --init --recursive")
+        warn("如已手动放置 BotShepherd/ 目录，请确认目录名大小写与项目根目录一致")
         return
-    # 检查是否已初始化（config 目录存在）
+
+    # ── 依赖维护（uv 管理）──────────────────────────────────────────────
+    uv_bin = os.environ.get("UV_BIN") or shutil.which("uv")
+    if uv_bin:
+        if not _ensure_bs_deps(uv_bin):
+            warn("BotShepherd 依赖安装失败，可在管理面板中重试")
+            warn("手动修复: cd BotShepherd && uv venv .venv --seed && uv pip install -r requirements.txt")
+    else:
+        warn("未检测到 uv，跳过 BotShepherd 依赖管理（若缺少依赖将在启动时报错）")
+
+    # ── 配置初始化（首次）──────────────────────────────────────────────
     cfg = os.path.join(BOTSHEPHERD_DIR, "config", "global_config.json")
     if os.path.isfile(cfg):
         info("BotShepherd 已初始化")
         return
-    info("首次运行，正在初始化 BotShepherd (安装依赖)...")
+    info("首次运行，正在初始化 BotShepherd 配置...")
+    python = _bs_venv_python()
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    r = subprocess.run([sys.executable, "main.py", "--setup"],
-                       capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
-                       timeout=300, env=env)
+    r = subprocess.run(
+        [python, "main.py", "--setup"],
+        capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+        timeout=300, env=env,
+    )
     if r.returncode != 0:
         warn("BotShepherd 初始化失败，可在管理面板中重试")
+        warn((r.stderr or r.stdout or "")[:400])
     else:
         info("BotShepherd 初始化完成，将随面板自动启动")
 

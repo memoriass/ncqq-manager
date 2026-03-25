@@ -28,6 +28,8 @@ COPY services/ services/
 COPY middleware/ middleware/
 COPY routers/ routers/
 COPY docs/ docs/
+# BotShepherd 中间件（git submodule，构建前需 git submodule update --init）
+COPY BotShepherd/ BotShepherd/
 
 # 从前端构建阶段复制产物
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist

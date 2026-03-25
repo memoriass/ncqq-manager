@@ -1,7 +1,7 @@
 """
 BotShepherd 集成管理器 - 已嵌入本项目，负责初始化、进程启停和状态查询
 """
-import os, sys, signal, subprocess, asyncio, json, glob, threading, collections
+import os, sys, signal, subprocess, asyncio, json, glob, shutil, threading, collections
 from typing import Optional, Dict, Any, List
 import aiohttp
 from services.log import logger
@@ -9,7 +9,19 @@ from services.config import BASE_DIR
 
 
 def _resolve_botshepherd_dir() -> str:
-    return os.path.join(BASE_DIR, "BotShepherd")
+    """在 BASE_DIR 下查找 BotShepherd 目录，大小写不敏感（兼容 Linux/Windows）。"""
+    for candidate in ("BotShepherd", "botshepherd", "BOTSHEPHERD"):
+        path = os.path.join(BASE_DIR, candidate)
+        if os.path.isdir(path):
+            return path
+    # fallback：扫描目录匹配（最健壮，适配任意大小写）
+    try:
+        for entry in os.listdir(BASE_DIR):
+            if entry.lower() == "botshepherd" and os.path.isdir(os.path.join(BASE_DIR, entry)):
+                return os.path.join(BASE_DIR, entry)
+    except OSError:
+        pass
+    return os.path.join(BASE_DIR, "BotShepherd")  # 默认回退
 
 
 BOTSHEPHERD_DIR = _resolve_botshepherd_dir()
@@ -17,14 +29,53 @@ BOTSHEPHERD_DEFAULT_PORT = 5100
 
 
 def _get_venv_python() -> Optional[str]:
-    venv_dir = os.path.join(BOTSHEPHERD_DIR, "venv")
-    if not os.path.isdir(venv_dir):
-        return None
-    if sys.platform == "win32":
-        p = os.path.join(venv_dir, "Scripts", "python.exe")
-    else:
-        p = os.path.join(venv_dir, "bin", "python")
-    return p if os.path.isfile(p) else None
+    """返回 BS venv 中的 python 路径（优先 .venv，fallback 旧 venv/）。"""
+    for venv_name in (".venv", "venv"):
+        venv_dir = os.path.join(BOTSHEPHERD_DIR, venv_name)
+        if sys.platform == "win32":
+            p = os.path.join(venv_dir, "Scripts", "python.exe")
+        else:
+            p = os.path.join(venv_dir, "bin", "python")
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _ensure_bs_deps_async(uv_bin: str) -> bool:
+    """在后台线程中用 uv 维护 BS/.venv：首次或 requirements.txt 更新后自动重装。"""
+    req_file = os.path.join(BOTSHEPHERD_DIR, "requirements.txt")
+    venv_dir = os.path.join(BOTSHEPHERD_DIR, ".venv")
+    cfg_file = os.path.join(venv_dir, "pyvenv.cfg")
+
+    if not os.path.isfile(req_file):
+        return True
+
+    need_install = not os.path.isfile(cfg_file)
+    if not need_install:
+        need_install = os.path.getmtime(req_file) > os.path.getmtime(cfg_file)
+    if not need_install:
+        return True
+
+    if not os.path.isfile(cfg_file):
+        r = subprocess.run(
+            [uv_bin, "venv", ".venv", "--seed"],
+            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+        )
+        if r.returncode != 0:
+            logger.error(f"BS uv venv 创建失败: {r.stderr or r.stdout}")
+            return False
+
+    env = {**os.environ, "VIRTUAL_ENV": venv_dir, "PYTHONIOENCODING": "utf-8"}
+    r = subprocess.run(
+        [uv_bin, "pip", "install", "-q", "-r", "requirements.txt"],
+        capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+        env=env, timeout=300,
+    )
+    if r.returncode != 0:
+        logger.error(f"BS 依赖安装失败: {r.stderr or r.stdout}")
+        return False
+    logger.info("BS 依赖同步完成")
+    return True
 
 
 class BSApiClient:
@@ -174,14 +225,29 @@ class BotShepherdManager:
 
     async def setup(self) -> Dict[str, Any]:
         if not self.installed:
-            return {"status": "error", "message": "botshepherd/ 目录缺失"}
-        logger.info("Setting up BotShepherd...")
+            return {"status": "error", "message": f"botshepherd/ 目录缺失（检查路径: {BOTSHEPHERD_DIR}）"}
+        logger.info("BotShepherd setup 开始...")
+
+        # ── 步骤 1：用 uv 维护 .venv 与依赖 ──────────────────────────
+        uv_bin = os.environ.get("UV_BIN") or shutil.which("uv")
+        if uv_bin:
+            ok = await asyncio.to_thread(_ensure_bs_deps_async, uv_bin)
+            if not ok:
+                return {"status": "error", "message": "BotShepherd 依赖安装失败，请查看服务端日志"}
+        else:
+            logger.warning("未检测到 uv，跳过依赖安装（若缺少依赖将在启动时报错）")
+
+        # ── 步骤 2：用 .venv python 初始化配置目录（--setup）──────────
+        python = _get_venv_python() or sys.executable
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-        proc = await asyncio.to_thread(subprocess.run,
-            [sys.executable, "main.py", "--setup"],
-            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR, timeout=300, env=env)
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            [python, "main.py", "--setup"],
+            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR, timeout=300, env=env,
+        )
         if proc.returncode != 0:
             return {"status": "error", "message": proc.stderr or proc.stdout}
+        logger.info("BotShepherd setup 完成")
         return {"status": "ok", "message": "setup complete"}
 
     def start(self) -> Dict[str, Any]:
