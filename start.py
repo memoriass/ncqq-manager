@@ -43,18 +43,25 @@ def ensure_uv_runtime() -> None:
     if os.environ.get(UV_BOOTSTRAP_MARK) == "1":
         return
 
-    step("检测虚拟环境")
+    step("检测 Python 运行环境")
+    info(f"当前解释器: {sys.executable}")
     if _in_virtualenv():
-        info("已检测到当前虚拟环境，继续使用 uv 管理依赖")
+        info("已处于虚拟环境，继续执行 uv 依赖同步")
         return
 
     uv_bin = _find_uv_bin()
-    info("未检测到虚拟环境，使用 uv 创建 .venv")
-    r = subprocess.run([uv_bin, "venv", PROJECT_VENV_DIR], capture_output=True, text=True, cwd=BASE_DIR)
-    if r.returncode != 0:
-        fail("uv venv 创建失败:\n" + (r.stderr or r.stdout))
-        sys.exit(1)
+    info(f"uv 可执行文件: {uv_bin}")
+    if not os.path.isdir(PROJECT_VENV_DIR):
+        info("未发现项目 .venv，正在使用 uv 创建")
+        r = subprocess.run([uv_bin, "venv", PROJECT_VENV_DIR], capture_output=True, text=True, cwd=BASE_DIR)
+        if r.returncode != 0:
+            fail("uv venv 创建失败:\n" + (r.stderr or r.stdout))
+            sys.exit(1)
+    else:
+        info("检测到项目已有 .venv，跳过创建")
 
+    target_python = os.path.join(PROJECT_VENV_DIR, "Scripts", "python.exe") if sys.platform == "win32" else os.path.join(PROJECT_VENV_DIR, "bin", "python")
+    info(f"目标解释器: {target_python}")
     info("使用 uv 重新拉起 start.py")
     env = {**os.environ, UV_BOOTSTRAP_MARK: "1"}
     cmd = [uv_bin, "run", "python", os.path.join(BASE_DIR, "start.py"), *sys.argv[1:]]
