@@ -125,6 +125,10 @@ async def lifespan(app: FastAPI):
     if botshepherd_manager.installed and botshepherd_manager._auto_start:
         botshepherd_manager.start()
 
+    # 注入主事件循环引用到 docker_manager（供线程池回调中 fire-and-forget BS 注入使用）
+    from services.docker_manager import set_main_event_loop
+    set_main_event_loop(asyncio.get_event_loop())
+
     yield
 
     # 关闭时清理

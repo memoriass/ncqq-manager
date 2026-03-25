@@ -11,6 +11,7 @@ Docker 容器管理器 - 重构版（过渡阶段）
         - invalidate_containers_cache（兼容旧调用，逐步由 state_engine.notify_change 替代）
       新代码应优先使用 async_docker_manager。
 """
+import asyncio
 import os
 import re
 import io
@@ -26,6 +27,15 @@ from typing import List, Dict, Optional, Any
 
 from services.log import logger
 from services.config import get_data_dir
+
+# 主事件循环引用（由 main.py lifespan 在启动时注入，供线程池回调使用）
+_main_event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def set_main_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """由 lifespan 在主协程中调用，将主事件循环注入本模块，供线程内 fire-and-forget 使用。"""
+    global _main_event_loop
+    _main_event_loop = loop
 
 
 # 登录状态缓存：{container_name: {uin, nickname, ts, method}}
@@ -764,7 +774,7 @@ class DockerManager:
 
         if ws_url:
             try:
-                from routers.container_router import _generate_onebot11_config_with_ws_client
+                from routers.container_crud_router import _generate_onebot11_config_with_ws_client
                 _generate_onebot11_config_with_ws_client(config_dir, ws_url, ws_token, uin)
             except Exception as e:
                 logger.error(f"登录后 WS 注入失败 ({name}/{uin}): {e}")
@@ -791,8 +801,8 @@ class DockerManager:
                     "client_endpoint": ws_url,
                     "target_endpoints": targets,
                 }
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
+                loop = _main_event_loop
+                if loop is not None and loop.is_running():
                     from services.botshepherd import botshepherd_manager
                     asyncio.run_coroutine_threadsafe(
                         botshepherd_manager.update_connection(name, conn_config), loop
