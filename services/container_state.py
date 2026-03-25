@@ -265,6 +265,23 @@ class ContainerStateEngine:
                         logged_in=result.get("logged_in", False),
                         uin=result.get("uin", ""),
                     )
+                    # P1修复：异步路径触发 BS 注入（首次登录 / 换号登录时）
+                    new_uin = result.get("uin", "")
+                    if result.get("logged_in") and new_uin:
+                        prev_was_logged, prev_uin, _ = prev_login.get(
+                            name, (False, "", "local")
+                        )
+                        if not prev_was_logged or prev_uin != new_uin:
+                            try:
+                                from services.docker_manager import docker_manager
+                                await asyncio.to_thread(
+                                    docker_manager._on_login_detected,
+                                    name,
+                                    result,
+                                    {"logged_in": prev_was_logged, "uin": prev_uin},
+                                )
+                            except Exception as e:
+                                logger.debug("异步路径 BS 注入异常: %s", e)
 
         # ---- 2.5 掉线扫码通知 — logged_in: true → false 时推送 ----
         for name, (was_logged_in, old_uin, nid) in prev_login.items():

@@ -42,8 +42,18 @@ import asyncio
 from services.daemon_monitor import daemon_monitor
 
 async def background_monitor():
+    _gc_counter = 0
     while True:
         daemon_monitor.record_tick()
+        _gc_counter += 1
+        # 每 120 次 tick（约 1 小时）执行一次 bot_heartbeat GC
+        if _gc_counter >= 120:
+            try:
+                from services.bot_heartbeat import bot_heartbeat
+                bot_heartbeat.gc()
+            except Exception:
+                pass
+            _gc_counter = 0
         await asyncio.sleep(30)
 
 async def background_flush_logs():

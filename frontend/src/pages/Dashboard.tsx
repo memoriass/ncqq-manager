@@ -359,14 +359,29 @@ export default function Dashboard() {
                                         })()}
                                     </Box>
                                     {c.status === 'running' && c.uin ? (
-                                        <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(16,185,129,0.1)', color: '#059669', border: '1px solid rgba(16,185,129,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
-                                            <Box sx={{ width: 6, height: 6, bgcolor: '#10b981', borderRadius: '50%' }} /> {t('admin.online')}
-                                        </Typography>
+                                        // 已登录：根据心跳状态显示 绿/橙/红
+                                        c.bot_online ? (
+                                            <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(16,185,129,0.1)', color: '#059669', border: '1px solid rgba(16,185,129,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
+                                                <Box sx={{ width: 6, height: 6, bgcolor: '#10b981', borderRadius: '50%' }} /> {t('admin.online')}
+                                            </Typography>
+                                        ) : (c.bot_heartbeat_ts ?? 0) > 0 ? (
+                                            // 曾有心跳但已掉线 → 红色
+                                            <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(239,68,68,0.1)', color: '#dc2626', border: '1px solid rgba(239,68,68,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
+                                                <Box sx={{ width: 6, height: 6, bgcolor: '#ef4444', borderRadius: '50%' }} /> {t('admin.heartbeatLost')}
+                                            </Typography>
+                                        ) : (
+                                            // 已登录但从未收到心跳（BS未接入）→ 橙色
+                                            <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(245,158,11,0.1)', color: '#d97706', border: '1px solid rgba(245,158,11,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
+                                                <Box sx={{ width: 6, height: 6, bgcolor: '#f59e0b', borderRadius: '50%' }} /> {t('admin.botOnline')}
+                                            </Typography>
+                                        )
                                     ) : c.status === 'running' ? (
-                                        <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(245,158,11,0.1)', color: '#d97706', border: '1px solid rgba(245,158,11,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
-                                            <Box sx={{ width: 6, height: 6, bgcolor: '#f59e0b', borderRadius: '50%' }} /> {t('admin.notLoggedIn')}
+                                        // 运行中但未登录 → 蓝色
+                                        <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(59,130,246,0.1)', color: '#2563eb', border: '1px solid rgba(59,130,246,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
+                                            <Box sx={{ width: 6, height: 6, bgcolor: '#3b82f6', borderRadius: '50%' }} /> {t('admin.pendingLogin')}
                                         </Typography>
                                     ) : (
+                                        // 容器未运行 → 灰色
                                         <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.25, borderRadius: 8, bgcolor: 'rgba(100,116,139,0.1)', color: theme.palette.text.secondary, border: '1px solid rgba(100,116,139,0.2)', fontWeight: 600, mr: isBatchMode ? 4 : 0 }}>
                                             <Box sx={{ width: 6, height: 6, bgcolor: '#64748b', borderRadius: '50%' }} /> {c.status === 'exited' ? t('admin.offline') : c.status === 'paused' ? t('admin.paused') : c.status === 'created' ? t('admin.created') : c.status.toUpperCase()}
                                         </Typography>

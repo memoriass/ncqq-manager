@@ -24,6 +24,8 @@ async def api_public_containers():
             "status": container["status"],
             "node_id": container.get("node_id", "local"),
             "uin": container.get("uin", ""),
+            "bot_online": container.get("bot_online", False),
+            "bot_heartbeat_ts": container.get("bot_heartbeat_ts", 0),
         })
     return {"status": "ok", "containers": result}
 

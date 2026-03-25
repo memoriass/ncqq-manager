@@ -30,7 +30,8 @@ class AppConfig:
     _RUNTIME_KEYS = {"webui_base_port", "http_base_port", "ws_base_port",
                      "docker_image", "api_key", "data_dir",
                      "init_ws_client_enabled", "init_ws_client_url", "init_ws_client_token",
-                     "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets"}
+                     "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets",
+                     "manager_port"}
 
     _BOOTSTRAP_DEFAULT = {
         "initialized": False,
@@ -51,6 +52,7 @@ class AppConfig:
         "init_bs_enabled": False,
         "init_bs_client_base_port": 6100,
         "init_bs_targets": "[]",  # JSON 字符串，如 '["ws://target1:3001/ws"]'
+        "manager_port": 8000,     # 管理器监听端口，用于 BS 自动注入本地 OneBot WS 端点
     }
 
     def __init__(self):

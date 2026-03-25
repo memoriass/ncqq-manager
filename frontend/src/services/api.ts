@@ -13,6 +13,8 @@ export interface Container {
     created: string;
     node_id: string;
     uin?: string;
+    bot_online?: boolean;
+    bot_heartbeat_ts?: number;
 }
 
 export interface ContainerStats {

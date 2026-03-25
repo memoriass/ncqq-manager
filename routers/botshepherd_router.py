@@ -78,3 +78,24 @@ async def get_account_online(account_id: str, _user=Depends(require_admin)):
     return await botshepherd_manager.get_account_online(account_id)
 
 
+# ---- Bot 掉线检测（管理器内置 OneBot WS 端点采集） ----
+
+@router.get("/bots/heartbeat")
+async def get_bots_heartbeat(_user=Depends(require_admin)):
+    """查询所有已接入管理器 OneBot WS 端点的 Bot 在线状态。
+
+    数据来源：/ws/onebot/v11/ws 端点接收的 meta_event.heartbeat 事件。
+    online=true 表示最近一个心跳周期内有心跳且 NapCat 上报 online=true。
+    """
+    from services.bot_heartbeat import bot_heartbeat
+    return {"status": "ok", "bots": bot_heartbeat.get_all()}
+
+
+@router.get("/bots/heartbeat/{self_id}")
+async def get_bot_heartbeat(self_id: str, _user=Depends(require_admin)):
+    """查询指定 Bot（self_id）的在线状态。"""
+    from services.bot_heartbeat import bot_heartbeat
+    result = bot_heartbeat.get_one(self_id)
+    if result is None:
+        return {"status": "ok", "online": False, "detail": "no heartbeat received"}
+    return {"status": "ok", **result}

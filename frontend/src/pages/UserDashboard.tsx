@@ -307,14 +307,27 @@ export default function UserDashboard() {
                                         {/* 底部：状态 + 刷新按钮，两端对齐 */}
                                         <Box sx={{ mt: 'auto', pt: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                                             {c.status === 'running' && qr.status === 'logged_in' ? (
-                                                <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: '#059669', fontWeight: 600, fontSize: '0.7rem' }}>
-                                                    <Box sx={{ width: 5, height: 5, bgcolor: '#10b981', borderRadius: '50%' }} /> {t('admin.online')}
-                                                </Typography>
+                                                // 已登录：根据心跳状态显示 绿/橙/红
+                                                c.bot_online ? (
+                                                    <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: '#059669', fontWeight: 600, fontSize: '0.7rem' }}>
+                                                        <Box sx={{ width: 5, height: 5, bgcolor: '#10b981', borderRadius: '50%' }} /> {t('admin.online')}
+                                                    </Typography>
+                                                ) : (c.bot_heartbeat_ts ?? 0) > 0 ? (
+                                                    <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: '#dc2626', fontWeight: 600, fontSize: '0.7rem' }}>
+                                                        <Box sx={{ width: 5, height: 5, bgcolor: '#ef4444', borderRadius: '50%' }} /> {t('admin.heartbeatLost')}
+                                                    </Typography>
+                                                ) : (
+                                                    <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: '#d97706', fontWeight: 600, fontSize: '0.7rem' }}>
+                                                        <Box sx={{ width: 5, height: 5, bgcolor: '#f59e0b', borderRadius: '50%' }} /> {t('admin.botOnline')}
+                                                    </Typography>
+                                                )
                                             ) : c.status === 'running' ? (
-                                                <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: '#d97706', fontWeight: 600, fontSize: '0.7rem' }}>
-                                                    <Box sx={{ width: 5, height: 5, bgcolor: '#f59e0b', borderRadius: '50%' }} /> {t('user.notLoggedIn')}
+                                                // 运行中但未登录 → 蓝色
+                                                <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: '#2563eb', fontWeight: 600, fontSize: '0.7rem' }}>
+                                                    <Box sx={{ width: 5, height: 5, bgcolor: '#3b82f6', borderRadius: '50%' }} /> {t('admin.pendingLogin')}
                                                 </Typography>
                                             ) : (
+                                                // 容器未运行 → 灰色
                                                 <Typography variant="caption" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, color: 'text.secondary', fontWeight: 600, fontSize: '0.7rem' }}>
                                                     <Box sx={{ width: 5, height: 5, bgcolor: '#94a3b8', borderRadius: '50%' }} /> {t('admin.offline')}
                                                 </Typography>

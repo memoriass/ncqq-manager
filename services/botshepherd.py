@@ -9,10 +9,6 @@ from services.config import BASE_DIR
 
 
 def _resolve_botshepherd_dir() -> str:
-    for name in ("BotShepherd", "botshepherd"):
-        path = os.path.join(BASE_DIR, name)
-        if os.path.isdir(path):
-            return path
     return os.path.join(BASE_DIR, "BotShepherd")
 
 

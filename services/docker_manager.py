@@ -775,23 +775,31 @@ class DockerManager:
                 import asyncio
                 raw = app_config.get("init_bs_targets", "[]")
                 targets = json.loads(raw) if isinstance(raw, str) else raw
-                if isinstance(targets, list) and targets:
-                    conn_config = {
-                        "name": nickname or name,
-                        "description": f"Auto [{uin}]",
-                        "enabled": True,
-                        "client_endpoint": ws_url,
-                        "target_endpoints": targets,
-                    }
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        from services.botshepherd import botshepherd_manager
-                        asyncio.run_coroutine_threadsafe(
-                            botshepherd_manager.update_connection(name, conn_config), loop
-                        )
-                        logger.info(f"已调度 BS 连接同步: {name} → {ws_url}")
-                    else:
-                        logger.warning("事件循环未运行，跳过 BS 连接同步")
+                if not isinstance(targets, list):
+                    targets = []
+                # 始终确保管理器本地 OneBot WS 端点在 targets 中（用于 Bot 掉线检测）
+                # 无论用户是否配置了其他目标，管理器端点都应作为接收者存在
+                manager_port = int(app_config.get("manager_port", 8000))
+                local_endpoint = f"ws://127.0.0.1:{manager_port}/ws/onebot/v11/ws"
+                if local_endpoint not in targets:
+                    targets = [local_endpoint] + targets
+                    logger.info(f"BS 自动注入管理器本地端点: {local_endpoint}")
+                conn_config = {
+                    "name": nickname or name,
+                    "description": f"Auto [{uin}]",
+                    "enabled": True,
+                    "client_endpoint": ws_url,
+                    "target_endpoints": targets,
+                }
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    from services.botshepherd import botshepherd_manager
+                    asyncio.run_coroutine_threadsafe(
+                        botshepherd_manager.update_connection(name, conn_config), loop
+                    )
+                    logger.info(f"已调度 BS 连接同步: {name} → {ws_url}")
+                else:
+                    logger.warning("事件循环未运行，跳过 BS 连接同步")
             except Exception as e:
                 logger.error(f"登录后 BS 注入失败 ({name}): {e}")
 

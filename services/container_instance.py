@@ -39,6 +39,10 @@ class ContainerInstance:
     qr_data: Optional[str] = None  # base64 data URL 或 None
     qr_ts: float = 0.0            # 上次 QR 更新时间戳
 
+    # ---- Bot 心跳状态（来自 OneBot WS 端点 meta_event.heartbeat） ----
+    bot_online: bool = False       # 最近一次心跳判定是否在线
+    bot_heartbeat_ts: float = 0.0  # 最近一次心跳时间戳（0 = 未收到过）
+
     # ---- 资源统计（来自 docker stats API） ----
     cpu_percent: float = 0.0
     mem_usage: float = 0.0        # MB — 字段名与 get_basic_stats() 保持一致
@@ -48,7 +52,8 @@ class ContainerInstance:
     def to_public_dict(self) -> Dict:
         """容器列表 API 返回格式 — 兼容 state_engine.get_containers()。
 
-        返回字段: id, name, status, image, created, node_id, uin(可选)
+        返回字段: id, name, status, image, created, node_id, uin(可选),
+                  bot_online, bot_heartbeat_ts
         """
         d: Dict = {
             "id": self.container_id,
@@ -57,6 +62,8 @@ class ContainerInstance:
             "image": self.image,
             "created": self.created,
             "node_id": self.node_id,
+            "bot_online": self.bot_online,
+            "bot_heartbeat_ts": self.bot_heartbeat_ts,  # 0 = 从未收到心跳
         }
         if self.logged_in and self.uin:
             d["uin"] = self.uin
@@ -101,6 +108,11 @@ class ContainerInstance:
         self.qr_data = qr_data
         self.qr_ts = time.time()
 
+    def update_bot_heartbeat(self, online: bool) -> None:
+        """更新 Bot 心跳在线状态（由 bot_heartbeat 服务调用）。"""
+        self.bot_online = online
+        self.bot_heartbeat_ts = time.time()
+
     def clear_runtime(self) -> None:
         """容器停止时清理运行时数据。"""
         self.cpu_percent = 0.0
@@ -109,4 +121,6 @@ class ContainerInstance:
         self.stats_ts = 0.0
         self.qr_data = None
         self.qr_ts = 0.0
+        self.bot_online = False
+        self.bot_heartbeat_ts = 0.0
 

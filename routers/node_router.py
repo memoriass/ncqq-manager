@@ -28,7 +28,8 @@ class NodeRequest(BaseModel):
 
 @router.get("/cluster/config", dependencies=[Depends(speed_limit(2.0))])
 async def get_cluster_config(session: dict = Depends(get_current_user)):
-    import sys, psutil
+    import sys
+    from services.daemon_monitor import daemon_monitor
     return {
         "status": "ok",
         "config": {
@@ -46,8 +47,8 @@ async def get_cluster_config(session: dict = Depends(get_current_user)):
             "init_bs_targets": app_config.get("init_bs_targets", "[]"),
         },
         "system": {
-            "cpu_percent": psutil.cpu_percent(interval=None) or 0.1,
-            "mem_percent": psutil.virtual_memory().percent,
+            "cpu_percent": daemon_monitor.current_cpu,
+            "mem_percent": daemon_monitor.current_mem,
             "platform": sys.platform,
             "python_version": sys.version.split()[0],
             "app_version": APP_VERSION,

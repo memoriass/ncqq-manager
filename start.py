@@ -70,16 +70,12 @@ def ensure_uv_runtime() -> None:
 
 
 def _resolve_botshepherd_dir() -> str:
-    for name in ("BotShepherd", "botshepherd"):
-        path = os.path.join(BASE_DIR, name)
-        if os.path.isdir(path):
-            return path
     return os.path.join(BASE_DIR, "BotShepherd")
 
 # 关键 Python 依赖（安装后验证可导入）
 REQUIRED_MODULES = [
     "fastapi", "uvicorn", "docker", "aiohttp", "aiodocker", "orjson",
-    "multipart", "websockets", "wsproto", "PIL"
+    "multipart", "PIL", "websockets", "wsproto"
 ]
 
 # ─── 终端彩色输出 ───
@@ -149,9 +145,10 @@ def check_pip_deps():
     if missing:
         fail(f"以下模块安装后仍无法导入: {', '.join(missing)}")
         fail("请执行: uv sync")
-        fail("Ubuntu 常见依赖: uvicorn[standard]（websockets/wsproto）、python-multipart、pillow")
+        fail("Ubuntu 常见依赖: uvicorn[standard]（websockets/wsproto）、python-multipart、pillow、wsproto")
         fail("若 Node.js < 18，请升级后再构建前端（建议 Node.js 20 LTS）")
         sys.exit(1)
+
     info(f"关键依赖验证通过 ({len(REQUIRED_MODULES)} 个模块)")
 
 

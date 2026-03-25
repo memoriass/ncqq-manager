@@ -176,6 +176,9 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         ? `https://q1.qlogo.cn/g?b=qq&nk=${qqNumber}&s=640`
         : "https://napneko.github.io/assets/newnewlogo.png";
 
+    // 3色状态灯：灰=停止，蓝=运行待登录，绿=运行已登录
+    const dotColor = !isRunning ? '#94a3b8' : isLoggedIn ? '#10b981' : '#3b82f6';
+
     return (
         <Box>
             {/* 头部状态与操作栏 */}
@@ -192,7 +195,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                         <Box component="img" src={avatarUrl} sx={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', bgcolor: '#fff', filter: isRunning ? 'none' : 'grayscale(100%)', opacity: isRunning ? 1 : 0.6 }} />
                         <Box sx={{
                             position: 'absolute', bottom: 0, right: 0, width: 12, height: 12,
-                            borderRadius: '50%', bgcolor: isRunning ? '#10b981' : '#94a3b8',
+                            borderRadius: '50%', bgcolor: dotColor,
                             border: `2px solid ${theme.palette.background.paper}`
                         }} />
                     </Box>
