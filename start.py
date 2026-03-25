@@ -18,6 +18,48 @@ import re
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 FRONTEND_DIST = os.path.join(FRONTEND_DIR, "dist")
+PROJECT_VENV_DIR = os.path.join(BASE_DIR, ".venv")
+UV_BOOTSTRAP_MARK = "NCQQ_UV_BOOTSTRAPPED"
+
+
+def _find_uv_bin() -> str:
+    uv_bin = os.environ.get("UV_BIN") or shutil.which("uv")
+    if not uv_bin:
+        fail("未检测到 uv，请先安装：https://docs.astral.sh/uv/")
+        sys.exit(1)
+    return uv_bin
+
+
+def _in_virtualenv() -> bool:
+    return (
+        hasattr(sys, "real_prefix")
+        or sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+        or bool(os.environ.get("VIRTUAL_ENV"))
+    )
+
+
+def ensure_uv_runtime() -> None:
+    """默认使用 uv 管理运行环境；未检测到虚拟环境时自动创建并重启。"""
+    if os.environ.get(UV_BOOTSTRAP_MARK) == "1":
+        return
+
+    step("检测虚拟环境")
+    if _in_virtualenv():
+        info("已检测到当前虚拟环境，继续使用 uv 管理依赖")
+        return
+
+    uv_bin = _find_uv_bin()
+    info("未检测到虚拟环境，使用 uv 创建 .venv")
+    r = subprocess.run([uv_bin, "venv", PROJECT_VENV_DIR], capture_output=True, text=True, cwd=BASE_DIR)
+    if r.returncode != 0:
+        fail("uv venv 创建失败:\n" + (r.stderr or r.stdout))
+        sys.exit(1)
+
+    info("使用 uv 重新拉起 start.py")
+    env = {**os.environ, UV_BOOTSTRAP_MARK: "1"}
+    cmd = [uv_bin, "run", "python", os.path.join(BASE_DIR, "start.py"), *sys.argv[1:]]
+    rr = subprocess.run(cmd, cwd=BASE_DIR, env=env)
+    sys.exit(rr.returncode)
 
 
 def _resolve_botshepherd_dir() -> str:
@@ -63,20 +105,29 @@ def check_python():
 
 
 def check_pip_deps():
-    """安装 Python 依赖并验证关键模块"""
-    step("安装 Python 依赖")
+    """使用 uv 同步 Python 依赖并验证关键模块"""
+    step("同步 Python 依赖")
     req = os.path.join(BASE_DIR, "requirements.txt")
-    if not os.path.exists(req):
-        fail("requirements.txt 未找到")
+    pyproject = os.path.join(BASE_DIR, "pyproject.toml")
+    uv_bin = _find_uv_bin()
+
+    if os.path.exists(pyproject):
+        r = subprocess.run([uv_bin, "sync", "--frozen"], capture_output=True, text=True, cwd=BASE_DIR)
+        if r.returncode != 0:
+            r = subprocess.run([uv_bin, "sync"], capture_output=True, text=True, cwd=BASE_DIR)
+            if r.returncode != 0:
+                fail("uv sync 失败:\n" + (r.stderr or r.stdout))
+                sys.exit(1)
+        info("uv sync 完成")
+    elif os.path.exists(req):
+        r = subprocess.run([uv_bin, "pip", "install", "-q", "-r", req], capture_output=True, text=True, cwd=BASE_DIR)
+        if r.returncode != 0:
+            fail("uv pip install 失败:\n" + (r.stderr or r.stdout))
+            sys.exit(1)
+        info("Python 依赖已通过 uv 安装")
+    else:
+        fail("未找到 pyproject.toml 或 requirements.txt")
         sys.exit(1)
-    r = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-q", "-r", req],
-        capture_output=True, text=True,
-    )
-    if r.returncode != 0:
-        fail("pip install 失败:\n" + r.stderr)
-        sys.exit(1)
-    info("Python 依赖已安装")
 
     # 验证关键模块可导入
     missing = []
@@ -87,7 +138,7 @@ def check_pip_deps():
             missing.append(mod)
     if missing:
         fail(f"以下模块安装后仍无法导入: {', '.join(missing)}")
-        fail("请检查 pip 环境或手动安装: pip install " + " ".join(missing))
+        fail("请执行: uv sync")
         sys.exit(1)
     info(f"关键依赖验证通过 ({len(REQUIRED_MODULES)} 个模块)")
 
@@ -236,6 +287,7 @@ def main():
 
     os.chdir(BASE_DIR)
 
+    ensure_uv_runtime()
     check_python()
     check_pip_deps()
     check_docker()
