@@ -77,7 +77,7 @@ def _resolve_botshepherd_dir() -> str:
     return os.path.join(BASE_DIR, "BotShepherd")
 
 # 关键 Python 依赖（安装后验证可导入）
-REQUIRED_MODULES = ["fastapi", "uvicorn", "docker", "aiohttp", "aiodocker", "orjson"]
+REQUIRED_MODULES = ["fastapi", "uvicorn", "docker", "aiohttp", "aiodocker", "orjson", "multipart"]
 
 # ─── 终端彩色输出 ───
 def _c(text: str, code: str) -> str:
