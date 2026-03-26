@@ -235,7 +235,8 @@ async def ws_onebot_receiver(ws: WebSocket):
     await ws.accept()
     # 头部 self_id 仅作初始提示；实际 key 统一从事件体提取（见 _sid 规范化）
     header_sid = ws.headers.get("x-self-id") or ws.headers.get("X-Self-Id")
-    logger.debug("OneBot WS 端点：新连接 header_self_id=%s", header_sid)
+    logger.info("OneBot WS 端点：新连接 header_self_id=%s client=%s",
+                header_sid, ws.client)
 
     # 记录本次连接曾见过的所有 sid（用于连接断开时批量置离线）
     seen_sids: set = set()
@@ -285,10 +286,10 @@ async def ws_onebot_receiver(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        logger.debug("OneBot WS 端点异常: %s", e)
+        logger.warning("OneBot WS 端点异常: %s", e)
     finally:
         # WS 链路断开 ≠ Bot 掉线（BS 会在约 3s 内重连）
         # 仅标记断开时间，掉线判定依赖心跳超时而非连接事件
         for sid in seen_sids:
             bot_heartbeat.on_ws_lost(sid)
-        logger.debug("OneBot WS 端点：连接关闭 seen_sids=%s", seen_sids)
+        logger.info("OneBot WS 端点：连接关闭 seen_sids=%s", seen_sids)

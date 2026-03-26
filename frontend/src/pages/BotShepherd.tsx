@@ -234,9 +234,12 @@ export default function BotShepherd() {
                                 {t('botshepherd.start')}
                             </Button>
                         )}
-                        {isRunning && s?.webui_url && (
+                        {isRunning && s?.webui_port && (
                             <Button variant="outlined" startIcon={<OpenInNewIcon />}
-                                onClick={() => window.open(s.webui_url!, '_blank')}>
+                                onClick={() => {
+                                    const host = window.location.hostname;
+                                    window.open(`http://${host}:${s.webui_port}`, '_blank');
+                                }}>
                                 {t('botshepherd.openWebUI')}
                             </Button>
                         )}
@@ -577,10 +580,33 @@ function ConnDialog({ dlg, setDlg, onSave, t }: {
                     <TextField label={t('botshepherd.clientEndpoint')} size="small" fullWidth
                         value={form.client_endpoint ?? ''} onChange={e => setField('client_endpoint', e.target.value)}
                         placeholder="ws://127.0.0.1:PORT/PATH" />
-                    <TextField label={t('botshepherd.targetEndpoints')} size="small" fullWidth multiline rows={2}
-                        value={(form.target_endpoints ?? []).join('\n')}
-                        onChange={e => setField('target_endpoints', e.target.value.split('\n').filter((s: string) => s.trim()))}
-                        helperText="每行一个端点" placeholder="ws://127.0.0.1:PORT/PATH" />
+                    {/* 目标端点 —— Tag 列表，每行一个输入框 + 增删按钮 */}
+                    <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                            {t('botshepherd.targetEndpoints')}
+                        </Typography>
+                        {(form.target_endpoints ?? []).map((ep: string, i: number) => (
+                            <Box key={i} sx={{ display: 'flex', gap: 1, mb: 0.8 }}>
+                                <TextField size="small" fullWidth
+                                    value={ep}
+                                    placeholder="ws://127.0.0.1:PORT/PATH"
+                                    onChange={e => {
+                                        const arr = [...(form.target_endpoints ?? [])];
+                                        arr[i] = e.target.value;
+                                        setField('target_endpoints', arr);
+                                    }} />
+                                <IconButton size="small" color="error" onClick={() => {
+                                    const arr = (form.target_endpoints ?? []).filter((_: string, j: number) => j !== i);
+                                    setField('target_endpoints', arr);
+                                }}><DeleteIcon fontSize="small" /></IconButton>
+                            </Box>
+                        ))}
+                        <Button size="small" startIcon={<AddIcon />} onClick={() =>
+                            setField('target_endpoints', [...(form.target_endpoints ?? []), ''])
+                        }>
+                            {t('botshepherd.addEndpoint')}
+                        </Button>
+                    </Box>
                     <FormControlLabel control={
                         <Switch checked={form.enabled !== false} onChange={e => setField('enabled', e.target.checked)} />
                     } label={t('botshepherd.connEnabled')} />

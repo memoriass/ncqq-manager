@@ -736,26 +736,55 @@ class DockerManager:
                 "ts": time.time(),
             }
 
+    @staticmethod
+    def _bs_inject_marker_path(data_dir_base: str, name: str, uin: str) -> str:
+        """返回 BS 注入完成的持久化标记文件路径。"""
+        return os.path.join(data_dir_base, name, ".bs_injected", f"{uin}.done")
+
+    @staticmethod
+    def _bs_inject_done(data_dir_base: str, name: str, uin: str) -> bool:
+        """检查该实例+uin 是否已完成过 BS 注入（标记文件存在）。"""
+        return os.path.isfile(
+            DockerManager._bs_inject_marker_path(data_dir_base, name, uin)
+        )
+
+    @staticmethod
+    def _mark_bs_inject(data_dir_base: str, name: str, uin: str) -> None:
+        """写入 BS 注入完成标记文件（幂等）。"""
+        marker = DockerManager._bs_inject_marker_path(data_dir_base, name, uin)
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        with open(marker, "w") as f:
+            f.write(uin)
+
     def _on_login_detected(self, name: str, current: Dict, prev: Dict) -> None:
         """登录完成后统一触发：WS 客户端注入 + BS 中间件接管。
 
-        仅在首次登录（或换号登录）时触发，已登录且 UIN 相同则跳过。
+        防重复机制（双层）：
+          1. 内存层：prev.logged_in + uin 相同则跳过（进程生命周期内有效）
+          2. 持久层：data/{name}/.bs_injected/{uin}.done 存在则跳过（重启也有效）
+        只有扫码登录（首次出现新 uin）时才真正执行注入。
         """
         uin = str(current.get("uin", ""))
         nickname = current.get("nickname", "")
         if not uin:
             return
 
-        # 跳过重复：上次已登录且 UIN 相同
+        # 层1 - 内存层：本次进程内已检测到相同登录，跳过
         if prev.get("logged_in") and str(prev.get("uin", "")) == uin:
             return
 
         from services.config import app_config, get_data_dir
-        config_dir = os.path.join(get_data_dir(), name, "config")
+        data_dir_base = get_data_dir()
+        config_dir = os.path.join(data_dir_base, name, "config")
         ws_enabled = app_config.get("init_ws_client_enabled", False)
         bs_enabled = app_config.get("init_bs_enabled", False)
 
         if not ws_enabled and not bs_enabled:
+            return
+
+        # 层2 - 持久层：该 uin 已注入过（重启后仍有效），跳过避免重复分配端口/覆盖配置
+        if self._bs_inject_done(data_dir_base, name, uin):
+            logger.debug("BS 注入已跳过（持久标记存在）: %s uin=%s", name, uin)
             return
 
         # ---- ① WS 客户端注入到 onebot11_{uin}.json ----
@@ -764,10 +793,14 @@ class DockerManager:
 
         if bs_enabled:
             # BS 模式：分配递增端口作为 client_endpoint
+            bs_host = str(app_config.get("init_bs_napcat_host", "172.17.0.1"))
             bs_base_port = int(app_config.get("init_bs_client_base_port", 6100))
             used = self.get_used_ports()
             bs_port = self.find_available_port(bs_base_port, used)
-            ws_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
+            # bs_bind_url：BS 服务端绑定监听地址（0.0.0.0 监听所有网卡，正确）
+            bs_bind_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
+            # ws_url：NapCat 容器内连接 BS 用的地址（必须用宿主机 IP，不能是 0.0.0.0）
+            ws_url = f"ws://{bs_host}:{bs_port}/onebot/v11/ws"
         elif ws_enabled:
             # 纯 WS 模式：使用固定 URL
             ws_url = str(app_config.get("init_ws_client_url", ""))
@@ -776,6 +809,9 @@ class DockerManager:
             try:
                 from routers.container_crud_router import _generate_onebot11_config_with_ws_client
                 _generate_onebot11_config_with_ws_client(config_dir, ws_url, ws_token, uin)
+                # 写入持久化标记：下次重启跳过，避免重复分配端口
+                self._mark_bs_inject(data_dir_base, name, uin)
+                logger.info("BS/WS 注入完成并写入持久标记: %s uin=%s", name, uin)
             except Exception as e:
                 logger.error(f"登录后 WS 注入失败 ({name}/{uin}): {e}")
 
@@ -798,16 +834,28 @@ class DockerManager:
                     "name": nickname or name,
                     "description": f"Auto [{uin}]",
                     "enabled": True,
-                    "client_endpoint": ws_url,
+                    "client_endpoint": bs_bind_url,   # BS 服务端监听地址（0.0.0.0）
                     "target_endpoints": targets,
                 }
                 loop = _main_event_loop
                 if loop is not None and loop.is_running():
                     from services.botshepherd import botshepherd_manager
-                    asyncio.run_coroutine_threadsafe(
+
+                    def _on_bs_inject_done(fut: asyncio.Future, _name: str = name):
+                        try:
+                            r = fut.result()
+                            if isinstance(r, dict) and not r.get("success", True):
+                                logger.warning("BS 连接同步结果: %s → %s", _name, r.get("error", r))
+                            else:
+                                logger.info("BS 连接同步完成: %s → %s", _name, r)
+                        except Exception as exc:
+                            logger.error("BS 连接同步异常: %s → %s", _name, exc)
+
+                    future = asyncio.run_coroutine_threadsafe(
                         botshepherd_manager.update_connection(name, conn_config), loop
                     )
-                    logger.info(f"已调度 BS 连接同步: {name} → {ws_url}")
+                    future.add_done_callback(_on_bs_inject_done)
+                    logger.info(f"已调度 BS 连接同步: {name} bind={bs_bind_url} napcat_connect={ws_url} targets={targets}")
                 else:
                     logger.warning("事件循环未运行，跳过 BS 连接同步")
             except Exception as e:

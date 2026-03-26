@@ -220,7 +220,7 @@ class BotShepherdManager:
             "installed": self.installed, "initialized": self.initialized,
             "running": self.running, "port": self.port, "pid": self.pid,
             "auto_start": self._auto_start, "dir": BOTSHEPHERD_DIR,
-            "webui_url": f"http://localhost:{self.port}" if self.running else None,
+            "webui_port": self.port if self.running else None,
         }
 
     async def setup(self) -> Dict[str, Any]:

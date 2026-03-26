@@ -23,6 +23,7 @@ interface ClusterConfig {
     init_ws_client_token: string;
     init_bs_enabled: boolean;
     init_bs_client_base_port: number;
+    init_bs_napcat_host: string;
     init_bs_targets: string;
 }
 
@@ -35,6 +36,7 @@ const DEFAULT_CONFIG: ClusterConfig = {
     init_ws_client_token: "",
     init_bs_enabled: false,
     init_bs_client_base_port: 6100,
+    init_bs_napcat_host: "172.17.0.1",
     init_bs_targets: "[]",
 };
 
@@ -331,6 +333,17 @@ export default function ClusterSettings() {
                                     onChange={handleChange}
                                     helperText={t('clusterConfig.bsClientBasePortHelp')}
                                     size="small"
+                                />
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <TextField
+                                    fullWidth name="init_bs_napcat_host"
+                                    label={t('clusterConfig.bsNapcatHost')}
+                                    value={config.init_bs_napcat_host}
+                                    onChange={handleChange}
+                                    helperText={t('clusterConfig.bsNapcatHostHelp')}
+                                    size="small"
+                                    placeholder="172.17.0.1"
                                 />
                             </Grid>
                             <Grid item xs={12}>

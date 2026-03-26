@@ -44,12 +44,26 @@ async def api_container_action(name: str, action: ContainerAction, request: Requ
     if not success:
         raise HTTPException(status_code=500, detail="Action failed")
     state_engine.notify_change()
-    if action_value == "delete" and delete_data and node_id == "local":
-        import shutil
-        data_dir = os.path.join(get_data_dir(), name)
-        if os.path.exists(data_dir):
-            shutil.rmtree(data_dir, ignore_errors=True)
-            logger.info("已删除本地数据目录: %s", data_dir)
+    if action_value == "delete" and node_id == "local":
+        # 删除数据目录（仅勾选 delete_data 时）
+        if delete_data:
+            import shutil
+            data_dir = os.path.join(get_data_dir(), name)
+            if os.path.exists(data_dir):
+                shutil.rmtree(data_dir, ignore_errors=True)
+                logger.info("已删除本地数据目录: %s", data_dir)
+        # 删除 BS 连接配置（BS 已启用时），避免僵尸连接堆积
+        from services.config import app_config as _cfg
+        if _cfg.get("init_bs_enabled", False):
+            try:
+                from services.botshepherd import botshepherd_manager
+                r = await botshepherd_manager.delete_connection(name)
+                if isinstance(r, dict) and r.get("success", True) is not False:
+                    logger.info("已删除 BS 连接配置: %s", name)
+                else:
+                    logger.debug("BS 连接配置删除结果: %s → %s", name, r)
+            except Exception as _e:
+                logger.debug("删除 BS 连接配置失败（可忽略）: %s → %s", name, _e)
     operation_logger.info("container_action", {"operator_ip": request.client.host if request.client else "unknown", "operator_name": session["userName"], "operator_uuid": session.get("uuid"), "container_name": name, "action": action_value, "node_id": node_id, "delete_data": delete_data})
     return {"status": "ok"}
 

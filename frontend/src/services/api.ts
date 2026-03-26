@@ -570,7 +570,7 @@ export interface BotShepherdStatus {
     pid: number | null;
     auto_start: boolean;
     dir: string;
-    webui_url: string | null;
+    webui_port: number | null;
 }
 
 export interface BSConnectionStatus {

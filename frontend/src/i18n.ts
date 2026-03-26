@@ -465,6 +465,8 @@ export const translations = {
             bsInitNote: '请确保 BS 中间件已初始化并运行。创建实例时将自动：① 分配递增端口并注入 WS 客户端 ② 在 BS 中创建对应连接并转发至下方目标端点。',
             bsClientBasePort: 'BS 客户端起始端口',
             bsClientBasePortHelp: '每个新实例自动递增分配端口，作为 BS 的 client_endpoint 监听地址。',
+            bsNapcatHost: 'NapCat 连接 BS 宿主机 IP',
+            bsNapcatHostHelp: 'Docker 容器内的 NapCat 连接 BS 时使用的宿主机 IP。Linux Docker 默认网桥为 172.17.0.1，自定义网络请填写实际网关 IP。',
             bsTargets: '目标端点列表',
             bsTargetsHelp: 'BS 将消息转发到这些后端地址。支持多个目标，每个输入框填写一个 WebSocket 地址。',
             bsTargetAdd: '添加目标端点',
@@ -548,7 +550,8 @@ export const translations = {
             autoRefresh: '自动刷新',
             noLogs: '暂无日志输出…',
             logLineCount: '行',
-            close: '关闭'
+            close: '关闭',
+            addEndpoint: '添加目标端点'
         }
     },
     en: {
@@ -1014,6 +1017,8 @@ export const translations = {
             bsInitNote: 'Ensure BS middleware is initialized and running. On instance creation: ① An incremental port is assigned and WS client injected ② A BS connection is created to forward to the target endpoints below.',
             bsClientBasePort: 'BS Client Base Port',
             bsClientBasePortHelp: 'Each new instance auto-increments from this port as BS client_endpoint listen address.',
+            bsNapcatHost: 'NapCat → BS Host IP',
+            bsNapcatHostHelp: 'Host IP used by NapCat (inside Docker) to connect to BS. Linux Docker default bridge is 172.17.0.1; use actual gateway IP for custom networks.',
             bsTargets: 'Target Endpoints',
             bsTargetsHelp: 'BS forwards messages to these backend addresses. Supports multiple targets, one WebSocket URL per input.',
             bsTargetAdd: 'Add Target Endpoint',
@@ -1097,7 +1102,8 @@ export const translations = {
             autoRefresh: 'Auto Refresh',
             noLogs: 'No log output yet…',
             logLineCount: 'lines',
-            close: 'Close'
+            close: 'Close',
+            addEndpoint: 'Add Target Endpoint'
         }
     }
 };
