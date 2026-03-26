@@ -44,6 +44,7 @@ async def get_cluster_config(session: dict = Depends(get_current_user)):
             "init_ws_client_token": app_config.get("init_ws_client_token", ""),
             "init_bs_enabled": app_config.get("init_bs_enabled", False),
             "init_bs_client_base_port": app_config.get("init_bs_client_base_port", 6100),
+            "init_bs_napcat_host": app_config.get("init_bs_napcat_host", "172.17.0.1"),
             "init_bs_targets": app_config.get("init_bs_targets", "[]"),
         },
         "system": {
@@ -64,7 +65,7 @@ async def save_cluster_config(
     body = await request.json()
     allowed_keys = {"webui_base_port", "http_base_port", "ws_base_port", "docker_image", "api_key", "data_dir",
                      "init_ws_client_enabled", "init_ws_client_url", "init_ws_client_token",
-                     "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets"}
+                     "init_bs_enabled", "init_bs_client_base_port", "init_bs_napcat_host", "init_bs_targets"}
     updates = {k: v for k, v in body.items() if k in allowed_keys}
 
     # 端口范围校验

@@ -220,7 +220,7 @@ class BotShepherdManager:
             "installed": self.installed, "initialized": self.initialized,
             "running": self.running, "port": self.port, "pid": self.pid,
             "auto_start": self._auto_start, "dir": BOTSHEPHERD_DIR,
-            "webui_url": f"http://localhost:{self.port}" if self.running else None,
+            "webui_port": self.port if self.running else None,
         }
 
     async def setup(self) -> Dict[str, Any]:
@@ -390,6 +390,148 @@ class BotShepherdManager:
         if r is None:
             return {"online": False, "error": "BS 未运行或无法连接"}
         return r
+
+    # ---- Bot 框架端点探测 ----
+
+    async def probe_target_endpoint(self, url: str, token: str = "") -> Dict[str, Any]:
+        """探测 Bot 框架 WS 端点（AstrBot/NoneBot 等）是否可连。
+
+        携带 OneBot v11 标准头部发起握手（X-Self-ID / X-Client-Role / User-Agent），
+        与 BotShepherd 连接时行为一致，避免框架因缺少必要头部而返回 403/400 导致误判。
+
+        返回字段：
+          online     — True=在线（握手成功）/ True+note=在线（握手被拒/需认证）/ False=不可达
+          latency_ms — 握手耗时（ms），离线时为 None
+          note       — 可选补充信息（"handshake_rejected"）
+        """
+        import time
+        t0 = time.time()
+        # OneBot v11 标准探测头，与 BotShepherd proxy_connection 保持一致
+        headers = {
+            "User-Agent": "NapCatManager/1.0 OneBot/11",
+            "X-Self-ID": "0",
+            "X-Client-Role": "Universal",
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        try:
+            timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0)
+            async with aiohttp.ClientSession() as session:
+                ws = await session.ws_connect(url, timeout=timeout, heartbeat=None, headers=headers)
+                await ws.close()
+            latency_ms = round((time.time() - t0) * 1000)
+            return {"online": True, "latency_ms": latency_ms}
+        except aiohttp.WSServerHandshakeError as e:
+            # 服务器返回了 HTTP 响应（4xx）→ 端口可达，服务在线，但握手被拒（认证失败等）
+            latency_ms = round((time.time() - t0) * 1000)
+            if e.status and 400 <= e.status < 500:
+                return {"online": True, "latency_ms": latency_ms, "note": "handshake_rejected", "status_code": e.status}
+            return {"online": False, "latency_ms": None}
+        except Exception:
+            return {"online": False, "latency_ms": None}
+
+    # ---- Bot 雷达端点库（持久化） ----
+
+    _RADAR_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "config", "bot_radar_endpoints.json")
+
+    def get_radar_endpoints(self) -> List[Dict[str, Any]]:
+        """读取 Bot 雷达端点库（config/bot_radar_endpoints.json）。"""
+        try:
+            if os.path.isfile(self._RADAR_FILE):
+                with open(self._RADAR_FILE, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+        except Exception:
+            pass
+        return []
+
+    def save_radar_endpoints(self, endpoints: List[Dict[str, Any]]) -> None:
+        """覆盖写入 Bot 雷达端点库。字段：alias/url/token。"""
+        os.makedirs(os.path.dirname(self._RADAR_FILE), exist_ok=True)
+        with open(self._RADAR_FILE, "w", encoding="utf-8") as f:
+            json.dump(endpoints, f, indent=2, ensure_ascii=False)
+
+    async def inject_by_alias(
+        self,
+        alias: str,
+        target: str,
+        conn_id: str = "",
+        container_name: str = "",
+        uin: str = "default",
+    ) -> Dict[str, Any]:
+        """按端点别名执行注入。
+
+        target="bs"  → 将该端点 url 追加到指定 BS 连接的 target_endpoints（热重载生效）
+        target="nc"  → 将该端点 url 追加到指定容器 onebot11_{uin}.json 的 websocketClients
+        """
+        endpoints = self.get_radar_endpoints()
+        ep = next((e for e in endpoints if e.get("alias") == alias), None)
+        if ep is None:
+            return {"success": False, "error": f"别名 '{alias}' 不存在"}
+
+        url = ep.get("url", "")
+        token = ep.get("token", "")
+
+        if target == "bs":
+            if not conn_id:
+                return {"success": False, "error": "注入 BS 需要 conn_id"}
+            res = await self.get_connections()
+            conn = (res.get("connections") or {}).get(conn_id)
+            if not conn:
+                return {"success": False, "error": f"BS 连接 '{conn_id}' 不存在"}
+            targets: List[str] = list(conn.get("target_endpoints") or [])
+            if url in targets:
+                return {"success": False, "error": "端点已在 BS 目标列表中"}
+            targets.append(url)
+            await self.update_connection(conn_id, {**conn, "target_endpoints": targets})
+            return {"success": True, "message": f"已注入 '{alias}' → BS 连接 '{conn_id}'"}
+
+        if target == "nc":
+            if not container_name:
+                return {"success": False, "error": "注入 NC 需要 container_name"}
+            from services.config import get_data_dir
+            import json as _json
+            cfg_path = os.path.join(get_data_dir(), container_name, "config", f"onebot11_{uin}.json")
+            existing_clients: List[Dict[str, Any]] = []
+            if os.path.isfile(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        parsed = _json.load(f)
+                    wsc = parsed.get("network", {}).get("websocketClients", [])
+                    if isinstance(wsc, list):
+                        existing_clients = wsc
+                except Exception:
+                    pass
+            if any(c.get("url") == url for c in existing_clients):
+                return {"success": False, "error": "端点已在 WS 客户端列表中"}
+            new_client = {
+                "name": alias or "bot-radar", "enable": True, "url": url,
+                "reportSelfMessage": False, "messagePostFormat": "array",
+                "token": token or "", "debug": False,
+                "heartInterval": 30000, "reconnectInterval": 30000,
+            }
+            # 调用现有 inject-network-config 内部逻辑（复用文件写入）
+            from routers.container_crud_router import _ALLOWED_NET_KEYS  # noqa
+            import json as _json2
+            cfg_dir = os.path.join(get_data_dir(), container_name, "config")
+            os.makedirs(cfg_dir, exist_ok=True)
+            full_cfg: Dict[str, Any] = {}
+            if os.path.isfile(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        full_cfg = _json2.load(f)
+                except Exception:
+                    pass
+            network = full_cfg.get("network") or {}
+            network["websocketClients"] = existing_clients + [new_client]
+            full_cfg["network"] = network
+            with open(cfg_path, "w", encoding="utf-8") as f:
+                _json2.dump(full_cfg, f, indent=2, ensure_ascii=False)
+            return {"success": True, "message": f"已注入 '{alias}' → 容器 '{container_name}' (uin={uin})"}
+
+        return {"success": False, "error": f"未知 target: {target}"}
 
 
 botshepherd_manager = BotShepherdManager()

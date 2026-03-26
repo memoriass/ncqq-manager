@@ -20,6 +20,7 @@ import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import BackupIcon from '@mui/icons-material/Backup';
 import ScheduleIcon from '@mui/icons-material/Schedule';
 import PetsIcon from '@mui/icons-material/Pets';
+import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { ThemeModeContext, LanguageContext } from '../App';
 import { useTranslate } from '../i18n';
 import { containerApi, authApi, type Container } from '../services/api';
@@ -105,7 +106,7 @@ export default function AdminLayout() {
                         <Typography variant="caption" color="text.secondary">{t('admin.subtitle')}</Typography>
                     </Box>
                 </Box>
-                <Box sx={{ flex: 1, overflowY: 'auto' }}>
+                <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                     <List component="nav" sx={{ px: 2, py: 2 }}>
                         {([
                             { path: '/admin', icon: <DashboardIcon />, label: t('admin.managedInstances') },
@@ -117,6 +118,8 @@ export default function AdminLayout() {
                             { path: '/admin/alerts', icon: <NotificationsActiveIcon />, label: t('admin.alerts') },
                             { path: '/admin/backup', icon: <BackupIcon />, label: t('admin.backup') },
                             { path: '/admin/scheduler', icon: <ScheduleIcon />, label: t('admin.scheduler') },
+                            { path: '/admin/botshepherd', icon: <PetsIcon />, label: t('admin.botshepherd') },
+                            { path: '/admin/bot-radar', icon: <TrackChangesIcon />, label: t('admin.botRadar') },
                         ] as { path: string; icon: React.ReactNode; label: string }[]).map(item => {
                             const isActive = location.pathname === item.path;
                             return (
@@ -135,17 +138,7 @@ export default function AdminLayout() {
 
                     </List>
                 </Box>
-                <Box sx={{ position: 'absolute', bottom: 0, width: '100%', p: 2 }}>
-                    <ListItem disablePadding sx={{ mb: 1 }}>
-                        <ListItemButton
-                            selected={location.pathname === '/admin/botshepherd'}
-                            onClick={() => navigate('/admin/botshepherd')}
-                            sx={{ borderRadius: 2, '&.Mui-selected': { bgcolor: 'rgba(59, 130, 246, 0.15)', '&:hover': { bgcolor: 'rgba(59, 130, 246, 0.25)' } } }}
-                        >
-                            <ListItemIcon sx={{ minWidth: 40, color: location.pathname === '/admin/botshepherd' ? '#60a5fa' : 'text.secondary' }}><PetsIcon /></ListItemIcon>
-                            <ListItemText primary={t('admin.botshepherd')} primaryTypographyProps={{ fontSize: '0.875rem', fontWeight: location.pathname === '/admin/botshepherd' ? 600 : 500, color: location.pathname === '/admin/botshepherd' ? '#60a5fa' : 'text.secondary' }} />
-                        </ListItemButton>
-                    </ListItem>
+                <Box sx={{ flexShrink: 0, borderTop: 1, borderColor: 'divider', p: 2 }}>
                     <ListItem disablePadding sx={{ mb: 1 }}>
                         <ListItemButton onClick={() => navigate('/')} sx={{ borderRadius: 2 }}>
                             <ListItemIcon sx={{ minWidth: 40 }}><PublicIcon sx={{ color: 'text.secondary' }} /></ListItemIcon>

@@ -92,9 +92,11 @@ async def lifespan(app: FastAPI):
     logger.info("前端路径: %s", FRONTEND_DIST)
 
     # 将 uvicorn 日志也接入内存缓冲区（Web 控制台可查看）
-    from services.log import attach_memory_handler_to
+    from services.log import attach_memory_handler_to, suppress_bs_polling_logs
     for uvi_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         attach_memory_handler_to(uvi_name)
+    # 过滤 BS 页面高频轮询日志（status/connections/accounts），防止刷屏
+    suppress_bs_polling_logs()
 
     # 启动 Daemon 监控任务 (CPU/MEM 10分钟平均使用率)
     monitor_task = asyncio.create_task(background_monitor())

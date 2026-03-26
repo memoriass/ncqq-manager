@@ -2,6 +2,7 @@
 BotShepherd 集成路由 - 初始化/启停/状态/连接管理/账号管理
 """
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from middleware.auth import require_admin
 from services.botshepherd import botshepherd_manager
 
@@ -99,3 +100,67 @@ async def get_bot_heartbeat(self_id: str, _user=Depends(require_admin)):
     if result is None:
         return {"status": "ok", "online": False, "detail": "no heartbeat received"}
     return {"status": "ok", **result}
+
+
+# ---- Bot 框架端点探测 ----
+
+class ProbeTargetRequest(BaseModel):
+    url: str
+    token: str = ""
+
+
+@router.post("/probe-target")
+async def probe_target(body: ProbeTargetRequest, _user=Depends(require_admin)):
+    """探测对端 Bot 框架 WS 端点（AstrBot/NoneBot 等）是否可连。
+
+    携带 OneBot v11 标准头部发起 WS 握手，通过 WSServerHandshakeError 状态码区分
+    「端口可达但握手被拒（在线）」与「端口不通（离线）」两种场景。
+    """
+    return await botshepherd_manager.probe_target_endpoint(body.url, body.token)
+
+
+# ---- Bot 雷达端点库 ----
+
+@router.get("/radar/endpoints")
+async def get_radar_endpoints(_user=Depends(require_admin)):
+    """读取 Bot 雷达端点库（config/bot_radar_endpoints.json）。"""
+    return {"status": "ok", "endpoints": botshepherd_manager.get_radar_endpoints()}
+
+
+@router.post("/radar/endpoints")
+async def save_radar_endpoints(body: dict, _user=Depends(require_admin)):
+    """全量覆盖写入 Bot 雷达端点库。body: {endpoints: [{alias, url, token}]}"""
+    endpoints = body.get("endpoints", [])
+    if not isinstance(endpoints, list):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="endpoints 必须为数组")
+    botshepherd_manager.save_radar_endpoints(endpoints)
+    return {"status": "ok", "count": len(endpoints)}
+
+
+class InjectByAliasRequest(BaseModel):
+    alias: str
+    target: str                  # "bs" | "nc"
+    conn_id: str = ""            # target=bs 时必填
+    container_name: str = ""     # target=nc 时必填
+    uin: str = "default"         # target=nc 时使用
+
+
+@router.post("/radar/inject-by-alias")
+async def inject_by_alias(body: InjectByAliasRequest, _user=Depends(require_admin)):
+    """按端点别名执行注入（供外部插件/自动化调用）。
+
+    - target='bs'：将别名对应端点 url 追加到指定 BS 连接的 target_endpoints（热重载立即生效）
+    - target='nc'：将别名对应端点 url 追加到指定容器的 websocketClients（需重载 NapCat 配置生效）
+
+    示例（管理插件触发：实例 miya 注入 gscore 到 BS 连接）：
+      POST /api/botshepherd/radar/inject-by-alias
+      {"alias": "gscore", "target": "bs", "conn_id": "conn_miya"}
+    """
+    return await botshepherd_manager.inject_by_alias(
+        alias=body.alias,
+        target=body.target,
+        conn_id=body.conn_id,
+        container_name=body.container_name,
+        uin=body.uin,
+    )

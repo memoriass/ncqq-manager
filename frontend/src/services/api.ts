@@ -570,7 +570,7 @@ export interface BotShepherdStatus {
     pid: number | null;
     auto_start: boolean;
     dir: string;
-    webui_url: string | null;
+    webui_port: number | null;
 }
 
 export interface BSConnectionStatus {
@@ -612,6 +612,13 @@ export interface BSAccountsResponse {
     accounts: Record<string, BSAccount>;
 }
 
+/** Bot 雷达端点库条目 */
+export interface RadarEndpoint {
+    alias: string;       // 别名（唯一标识，用于 inject-by-alias 调用）
+    url: string;         // ws:// 地址
+    token: string;       // 可选 Bearer token
+}
+
 export const botshepherdApi = {
     status: () => request<BotShepherdStatus>('/botshepherd/status'),
     setup: () => request<{ status: string; message: string }>('/botshepherd/setup', { method: 'POST' }),
@@ -636,6 +643,27 @@ export const botshepherdApi = {
         request<{ success: boolean }>(`/botshepherd/accounts/${id}`, { method: 'DELETE' }),
     accountOnline: (id: string) =>
         request<{ online: boolean }>(`/botshepherd/accounts/${id}/online-status`),
+    // Bot 框架端点探测
+    botsHeartbeat: () =>
+        request<{ status: string; bots: Record<string, unknown> }>('/botshepherd/bots/heartbeat'),
+    probeTarget: (url: string, token?: string) =>
+        request<{ online: boolean; latency_ms: number | null; note?: string; status_code?: number }>(
+            '/botshepherd/probe-target',
+            { method: 'POST', body: JSON.stringify({ url, token: token ?? '' }) },
+        ),
+    // Bot 雷达端点库（持久化）
+    radarEndpoints: () =>
+        request<{ status: string; endpoints: RadarEndpoint[] }>('/botshepherd/radar/endpoints'),
+    saveRadarEndpoints: (endpoints: RadarEndpoint[]) =>
+        request<{ status: string; count: number }>(
+            '/botshepherd/radar/endpoints',
+            { method: 'POST', body: JSON.stringify({ endpoints }) },
+        ),
+    injectByAlias: (params: { alias: string; target: 'bs' | 'nc'; conn_id?: string; container_name?: string; uin?: string }) =>
+        request<{ success: boolean; message?: string; error?: string }>(
+            '/botshepherd/radar/inject-by-alias',
+            { method: 'POST', body: JSON.stringify(params) },
+        ),
 };
 
 // ============ 网络配置注入 ============
