@@ -42,12 +42,17 @@ const getDesignTokens = (mode: 'light' | 'dark') => ({
         text: { primary: '#e5e7eb', secondary: '#9ca3af' },
       }),
   },
-  typography: { fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif' },
+  typography: {
+    fontFamily: '"Outfit", "Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+    // caption / overline 用 Space Grotesk，适合 QQ号、状态数值、标签
+    caption: { fontFamily: '"Space Grotesk", "Outfit", sans-serif' },
+    overline: { fontFamily: '"Space Grotesk", "Outfit", sans-serif' },
+    subtitle2: { fontFamily: '"Space Grotesk", "Outfit", sans-serif', fontWeight: 600 },
+  },
   components: {
-    MuiPaper: { styleOverrides: { root: { backgroundImage: 'none' } } },
-    MuiDrawer: { styleOverrides: { paper: { borderRight: 'none' } } },
-    MuiButton: { styleOverrides: { root: { textTransform: 'none', borderRadius: '8px' } } },
-    MuiTab: { styleOverrides: { root: { textTransform: 'none', fontWeight: 600 } } }
+
+    MuiTab: { styleOverrides: { root: { textTransform: 'none', fontWeight: 600 } } },
+    MuiChip: { styleOverrides: { root: { fontFamily: '"Space Grotesk", "Outfit", sans-serif', fontWeight: 500 } } },
   },
 });
 

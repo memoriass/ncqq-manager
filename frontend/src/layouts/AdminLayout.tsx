@@ -40,6 +40,7 @@ export default function AdminLayout() {
     const [containers, setContainers] = useState<Container[]>([]);
     const [openInstances, setOpenInstances] = useState(true);
     const toast = useToast();
+    const [bgUrl, setBgUrl] = useState('');
 
     // WS 驱动容器列表（替代 HTTP 轮询，后端 3s 推送一次含 uin）
     const {
@@ -76,24 +77,66 @@ export default function AdminLayout() {
         return () => clearInterval(fallback);
     }, [wsConnected, refreshContainers]);
 
+    // 加载管理员后台背景壁纸
+    useEffect(() => {
+        let cancelled = false;
+        let picked: { landscape: string; portrait: string } | null = null;
+        const pick = (list: string[]) => list.length ? list[Math.floor(Math.random() * list.length)] : '';
+        const applyOrientation = () => {
+            if (!picked) return;
+            const isLandscape = window.innerWidth >= window.innerHeight;
+            const url = isLandscape ? (picked.landscape || picked.portrait) : (picked.portrait || picked.landscape);
+            if (url) setBgUrl(url);
+        };
+        (async () => {
+            try {
+                const res = await fetch('/api/resource/wallpapers?category=admin');
+                const json = await res.json();
+                if (cancelled || json.status !== 'ok') return;
+                picked = { landscape: pick(json.landscape || []), portrait: pick(json.portrait || []) };
+                applyOrientation();
+            } catch { /* ignore */ }
+        })();
+        const onResize = () => applyOrientation();
+        window.addEventListener('resize', onResize);
+        return () => { cancelled = true; window.removeEventListener('resize', onResize); };
+    }, []);
+
     const handleLogout = async () => {
         try { await authApi.logout(); } catch { /* ignore */ }
         navigate('/login');
     };
 
     return (
-        <Box sx={{ display: 'flex', minHeight: '100vh' }}>
+        <Box sx={{ display: 'flex', minHeight: '100vh', position: 'relative' }}>
+            {/* 管理员后台背景壁纸：zIndex:-1 确保穿透所有 fixed stacking context（包括 Drawer paper） */}
+            {bgUrl && (
+                <Box aria-hidden="true" sx={{
+                    position: 'fixed', inset: 0, zIndex: -1,
+                    backgroundImage: `url(${bgUrl})`,
+                    backgroundSize: 'cover', backgroundPosition: 'center',
+                    opacity: theme.palette.mode === 'dark' ? 0.18 : 0.25,
+                    pointerEvents: 'none',
+                }} />
+            )}
             {/* Sidebar */}
             <Drawer
                 variant="permanent"
                 sx={{
                     width: drawerWidth,
                     flexShrink: 0,
+                    position: 'relative', zIndex: 1,
                     '& .MuiDrawer-paper': {
                         width: drawerWidth,
                         boxSizing: 'border-box',
-                        backgroundColor: theme.palette.background.paper,
-                        borderRight: `1px solid ${theme.palette.divider}`
+                        // 不再在 paper 上重复绘制壁纸；通过半透明背景 + backdropFilter 复用根层全屏壁纸
+                        backgroundImage: 'none',
+                        backgroundColor: theme.palette.mode === 'dark'
+                            ? 'rgba(30,30,32,0.35)'
+                            : 'rgba(255,255,255,0.25)',
+                        backdropFilter: 'blur(16px) saturate(1.2)',
+                        WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                        borderRight: 'none',
                     },
                 }}
             >
@@ -138,7 +181,7 @@ export default function AdminLayout() {
 
                     </List>
                 </Box>
-                <Box sx={{ flexShrink: 0, borderTop: 1, borderColor: 'divider', p: 2 }}>
+                <Box sx={{ flexShrink: 0, p: 2 }}>
                     <ListItem disablePadding sx={{ mb: 1 }}>
                         <ListItemButton onClick={() => navigate('/')} sx={{ borderRadius: 2 }}>
                             <ListItemIcon sx={{ minWidth: 40 }}><PublicIcon sx={{ color: 'text.secondary' }} /></ListItemIcon>
@@ -179,7 +222,7 @@ export default function AdminLayout() {
             </Drawer>
 
             {/* Main content Area */}
-            <Box component="main" sx={{ flexGrow: 1, p: 0, bgcolor: theme.palette.background.default, minHeight: '100vh', overflow: 'auto' }}>
+            <Box component="main" sx={{ flexGrow: 1, p: 0, bgcolor: 'transparent', minHeight: '100vh', overflow: 'auto', position: 'relative', zIndex: 1 }}>
                 <Outlet context={{ containers, refreshContainers }} />
             </Box>
         </Box>

@@ -274,6 +274,7 @@ export default function UserDashboard() {
                             const qr = qrCodes[c.name] || { status: 'loading' as const };
                             const isRefreshing = refreshingCards[c.name] || false;
                             const uinDigits = qr.uin ? String(qr.uin).replace(/\D/g, '') : '';
+                            const avatarSrc = uinDigits ? `/api/resource/avatar/${uinDigits}` : '';
                             return (
                                 <Box key={c.id} sx={{
                                     background: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.65)',
@@ -281,10 +282,32 @@ export default function UserDashboard() {
                                     borderRadius: 3, border: `1px solid ${theme.palette.divider}`,
                                     p: 2, display: 'flex', flexDirection: 'row', alignItems: 'stretch',
                                     transition: 'all 0.2s', gap: 1.5,
+                                    position: 'relative', overflow: 'hidden',
                                     '&:hover': { borderColor: theme.palette.primary.main, boxShadow: `0 0 0 1px ${theme.palette.primary.main}22` }
                                 }}>
+                                    {/* 头像虚化叠底 — 最底层，覆盖卡片左侧大部分 */}
+                                    {qr.status === 'logged_in' && avatarSrc && (
+                                        <Box
+                                            component="img"
+                                            src={avatarSrc}
+                                            aria-hidden="true"
+                                            sx={{
+                                                position: 'absolute',
+                                                left: '-8%', top: '-15%',
+                                                width: '68%', height: '130%',
+                                                objectFit: 'cover',
+                                                filter: 'blur(4px) saturate(1.8)',
+                                                opacity: theme.palette.mode === 'dark' ? 0.55 : 0.62,
+                                                zIndex: 0,
+                                                pointerEvents: 'none',
+                                                borderRadius: 0,
+                                                maskImage: 'linear-gradient(to right, black 55%, transparent 100%)',
+                                                WebkitMaskImage: 'linear-gradient(to right, black 55%, transparent 100%)',
+                                            }}
+                                        />
+                                    )}
                                     {/* 左侧 - 信息区 */}
-                                    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                                    <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative', zIndex: 1 }}>
                                         {/* 容器名（居中，最多两行自动换行） */}
                                         <Typography variant="subtitle2" sx={{
                                             fontWeight: 700, textAlign: 'center', fontSize: '0.88rem',
@@ -296,7 +319,7 @@ export default function UserDashboard() {
                                         {qr.status === 'logged_in' && uinDigits && (
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 1, gap: 0.5 }}>
                                                 <Box component="img"
-                                                    src={`https://q1.qlogo.cn/g?b=qq&nk=${uinDigits}&s=640`}
+                                                    src={avatarSrc}
                                                     sx={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }}
                                                 />
                                                 <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>

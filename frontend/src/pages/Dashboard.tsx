@@ -339,19 +339,45 @@ export default function Dashboard() {
                             } else {
                                 navigate(`/admin/config/${c.node_id}/${c.name}`);
                             }
-                        }} sx={{ position: 'relative', cursor: 'pointer', borderRadius: 3, background: theme.palette.mode === 'dark' ? 'rgba(45, 45, 50, 0.4)' : '#fff', border: `1px solid ${selectedContainers.includes(c.name) ? '#3b82f6' : theme.palette.divider}`, overflow: 'hidden', transition: 'all 0.3s', '&:hover': { border: '1px solid rgba(59,130,246,0.5)', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' } }}>
+                        }} sx={{ position: 'relative', cursor: 'pointer', borderRadius: 3, background: theme.palette.mode === 'dark' ? 'rgba(37,37,40,0.55)' : 'rgba(255,255,255,0.45)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: selectedContainers.includes(c.name) ? '1px solid #3b82f6' : '1px solid transparent', overflow: 'hidden', transition: 'all 0.3s', boxShadow: theme.palette.mode === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)', '&:hover': { border: '1px solid rgba(59,130,246,0.5)', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' } }}>
+                            {/* 头像虚化叠底 — 最底层，覆盖卡片左侧大部分 */}
+                            {(() => {
+                                const uin = c.uin;
+                                const uinStr = uin && uin !== '未登录 / Not Logged In' ? String(uin).replace(/\D/g, '') : '';
+                                return uinStr ? (
+                                    <Box
+                                        component="img"
+                                        src={`/api/resource/avatar/${uinStr}`}
+                                        aria-hidden="true"
+                                        sx={{
+                                            position: 'absolute',
+                                            left: '0%', top: '-10%',
+                                            width: '110%', height: '120%',
+                                            objectFit: 'cover',
+                                            objectPosition: 'center top',
+                                            filter: 'blur(4px) saturate(1.8)',
+                                            opacity: theme.palette.mode === 'dark' ? 0.55 : 0.62,
+                                            zIndex: 0,
+                                            pointerEvents: 'none',
+                                            maskImage: 'linear-gradient(to right, black 25%, rgba(0,0,0,0.12) 70%, transparent 100%)',
+                                            WebkitMaskImage: 'linear-gradient(to right, black 25%, rgba(0,0,0,0.12) 70%, transparent 100%)',
+                                        }}
+                                    />
+                                ) : null;
+                            })()}
                             {isBatchMode && (
                                 <Box sx={{ position: 'absolute', top: 16, right: 16, zIndex: 10 }}>
                                     <Checkbox checked={selectedContainers.includes(c.name)} onChange={() => handleBatchSelect(c.name)} onClick={e => e.stopPropagation()} />
                                 </Box>
                             )}
-                            <Box sx={{ p: 3 }}>
+                            <Box sx={{ p: 3, position: 'relative', zIndex: 1 }}>
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
                                         {(() => {
                                             const uin = c.uin;
-                                            return uin && uin !== '未登录 / Not Logged In' ? (
-                                                <Box component="img" src={`https://q1.qlogo.cn/g?b=qq&nk=${String(uin).replace(/\D/g, '')}&s=640`} sx={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
+                                            const uinStr = uin && uin !== '未登录 / Not Logged In' ? String(uin).replace(/\D/g, '') : '';
+                                            return uinStr ? (
+                                                <Box component="img" src={`/api/resource/avatar/${uinStr}`} sx={{ width: 36, height: 36, borderRadius: '50%', objectFit: 'cover' }} />
                                             ) : (
                                                 <Box sx={{ width: 36, height: 36, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
                                                     <NapCatIcon sx={{ fontSize: 36 }} />
@@ -397,12 +423,12 @@ export default function Dashboard() {
                                 const loadingAction = actionLoading.split(':')[1];
                                 const btn = (action: string, icon: React.ReactNode, color: string) => (
                                     <IconButton size="small" disabled={isLoading} onClick={(e) => handleAction(e, c.name, action, c.node_id)}
-                                        sx={{ color, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : '#fff', border: `1px solid ${theme.palette.divider}` }}>
+                                        sx={{ color, bgcolor: 'transparent', border: 'none', borderRadius: 1.5, '&:hover': { bgcolor: `${color}18` }, '&:disabled': { opacity: 0.4 } }}>
                                         {isLoading && loadingAction === action ? <CircularProgress size={16} /> : icon}
                                     </IconButton>
                                 );
                                 return (
-                                <Box sx={{ bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.3)' : '#f8fafc', borderTop: `1px solid ${theme.palette.divider}`, p: 2, display: 'flex', justifyContent: 'space-between' }}>
+                                <Box sx={{ p: 2, pt: 0, display: 'flex', justifyContent: 'space-between' }}>
                                     <Box sx={{ display: 'flex', gap: 1 }}>
                                         {c.status === 'running' && (
                                             <>

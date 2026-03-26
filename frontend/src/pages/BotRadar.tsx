@@ -335,7 +335,6 @@ function EndpointCard({
     const StatusIcon = (entry.online && !isHandshakeRejected) ? WifiTetheringIcon : WifiTetheringOffIcon;
 
     const cardBg = theme.palette.mode === 'dark' ? 'rgba(45,45,50,0.4)' : '#fff';
-    const footerBg = theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.25)' : '#f8fafc';
 
     return (
         <>
@@ -394,8 +393,7 @@ function EndpointCard({
 
                 {/* 卡片底部 footer */}
                 <Box sx={{
-                    display: 'flex', gap: 1, px: 2, py: 1.2,
-                    bgcolor: footerBg, borderTop: '1px solid', borderColor: 'divider',
+                    display: 'flex', gap: 1, px: 2, pb: 2, pt: 0,
                 }}>
                     <Button size="small" variant="contained" sx={{ flex: 1, fontSize: '0.75rem' }}
                         onClick={() => setBsOpen(true)}>
