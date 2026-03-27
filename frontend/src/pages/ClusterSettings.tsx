@@ -123,10 +123,11 @@ export default function ClusterSettings() {
 
             <Card variant="outlined" sx={{
                 borderRadius: 4,
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.8)',
-                backdropFilter: 'blur(20px)',
-                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 10px 40px -10px rgba(0,0,0,0.1)'
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)'
             }}>
                 <CardContent sx={{ p: { xs: 3, md: 5 } }}>
                     <Grid container spacing={4}>
@@ -215,10 +216,11 @@ export default function ClusterSettings() {
             {/* WS 客户端注入卡片 */}
             <Card variant="outlined" sx={{
                 borderRadius: 4, mt: 3,
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.8)',
-                backdropFilter: 'blur(20px)',
-                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 10px 40px -10px rgba(0,0,0,0.1)'
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)'
             }}>
                 <CardContent sx={{ p: { xs: 3, md: 5 } }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
@@ -288,10 +290,11 @@ export default function ClusterSettings() {
             {/* BotShepherd 接管设置卡片 */}
             <Card variant="outlined" sx={{
                 borderRadius: 4, mt: 3,
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.4)' : 'rgba(255,255,255,0.8)',
-                backdropFilter: 'blur(20px)',
-                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
-                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 10px 40px -10px rgba(0,0,0,0.1)'
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)'
             }}>
                 <CardContent sx={{ p: { xs: 3, md: 5 } }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>

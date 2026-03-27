@@ -133,10 +133,9 @@ function App() {
                 <Route path="/setup" element={initialized ? <Navigate to="/login" replace /> : <ErrorBoundary><SetupPage /></ErrorBoundary>} />
                 <Route path="/" element={initialized ? <ErrorBoundary><UserDashboard /></ErrorBoundary> : <Navigate to="/setup" replace />} />
                 <Route path="/login" element={initialized ? <ErrorBoundary><LoginPage /></ErrorBoundary> : <Navigate to="/setup" replace />} />
-                {/* ConfigEditor 独立全屏路由，不带 AdminLayout 侧边栏 */}
-                <Route path="/admin/config/:node_id/:name" element={initialized ? <ErrorBoundary><ConfigEditor /></ErrorBoundary> : <Navigate to="/setup" replace />} />
                 <Route path="/admin" element={initialized ? <AdminLayout /> : <Navigate to="/setup" replace />}>
                   <Route index element={<ErrorBoundary><Dashboard /></ErrorBoundary>} />
+                  <Route path="config/:node_id/:name" element={<ErrorBoundary><ConfigEditor /></ErrorBoundary>} />
                   <Route path="cluster-settings" element={<ErrorBoundary><ClusterSettings /></ErrorBoundary>} />
                   <Route path="nodes" element={<ErrorBoundary><Nodes /></ErrorBoundary>} />
                   <Route path="users" element={<ErrorBoundary><Users /></ErrorBoundary>} />

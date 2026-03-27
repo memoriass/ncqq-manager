@@ -35,8 +35,10 @@ export default function MiniChart({ data, label, color, unit = '%', height = 80 
     return (
         <Box sx={{
             p: 2, borderRadius: 3, flex: 1, minWidth: 200,
-            border: `1px solid ${theme.palette.divider}`,
-            bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : '#fff',
+            bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+            backdropFilter: 'blur(16px) saturate(1.2)',
+            WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+            border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
         }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', mb: 1 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>{label}</Typography>

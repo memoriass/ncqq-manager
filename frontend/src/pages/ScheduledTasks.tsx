@@ -85,14 +85,22 @@ export default function ScheduledTasks() {
             </Box>
 
             {tasks.length === 0 ? (
-                <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3 }}>
+                <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3,
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                    backdropFilter: 'blur(16px) saturate(1.2)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                    border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
                     <Typography color="text.secondary">{t('scheduler.noTasks')}</Typography>
                 </Paper>
             ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                     {tasks.map(task => (
                         <Paper key={task.id} elevation={0}
-                            sx={{ p: 2, borderRadius: 3, border: `1px solid ${theme.palette.divider}`,
+                            sx={{ p: 2, borderRadius: 3,
+                                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                                backdropFilter: 'blur(16px) saturate(1.2)',
+                                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Box>
                                 <Typography variant="body1" sx={{ fontWeight: 600 }}>{task.name}</Typography>

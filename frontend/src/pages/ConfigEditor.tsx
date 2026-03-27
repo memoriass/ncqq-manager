@@ -22,17 +22,17 @@ export default function ConfigEditor() {
     const theme = useTheme();
 
     return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: theme.palette.mode === 'dark' ? '#121212' : '#f8fafc' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100%' }}>
             {/* 顶部悬浮导航栏 */}
             <Box sx={{
                 width: '100%',
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,30,0.8)' : 'rgba(255,255,255,0.8)',
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,30,0.85)' : 'rgba(255,255,255,0.85)',
                 backdropFilter: 'blur(10px)',
                 borderBottom: 1,
                 borderColor: 'divider',
                 position: 'sticky',
                 top: 0,
-                zIndex: 1100,
+                zIndex: 100,
                 px: { xs: 2, md: 4 },
                 display: 'flex',
                 alignItems: 'center',

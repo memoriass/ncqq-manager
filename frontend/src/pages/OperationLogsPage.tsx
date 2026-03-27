@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Button, Paper, Typography } from '@mui/material';
+import { Box, Button, Paper, Typography, useTheme } from '@mui/material';
 
 import { OperationLogsList } from '../components/OperationLogsList';
 import { OperationLogsToolbar } from '../components/OperationLogsToolbar';
@@ -14,6 +14,7 @@ const OperationLogsPage: React.FC = () => {
     const [operator, setOperator] = useState('');
     const [type, setType] = useState('');
     const [level, setLevel] = useState<'info' | 'warning' | 'error' | ''>('');
+    const theme = useTheme();
     const toast = useToast();
     const t = useTranslate();
 
@@ -34,7 +35,12 @@ const OperationLogsPage: React.FC = () => {
 
     return (
         <Box sx={{ p: 3 }}>
-            <Paper sx={{ p: 3 }}>
+            <Paper sx={{ p: 3,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                boxShadow: 'none', borderRadius: 3 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, gap: 2, flexWrap: 'wrap' }}>
                     <Typography variant="h5">{t('opLogs.title')}</Typography>
                     <OperationLogsToolbar

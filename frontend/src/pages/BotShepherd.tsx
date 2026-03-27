@@ -198,7 +198,11 @@ export default function BotShepherd() {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>{t('botshepherd.subtitle')}</Typography>
 
             {/* ---- 服务状态面板 ---- */}
-            <Paper sx={{ p: 3, mb: 3, borderRadius: 3, border: `1px solid ${theme.palette.divider}` }} elevation={0}>
+            <Paper sx={{ p: 3, mb: 3, borderRadius: 3,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }} elevation={0}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Typography variant="h6" sx={{ fontWeight: 600 }}>
@@ -253,7 +257,11 @@ export default function BotShepherd() {
 
             {/* ---- 连接管理面板 ---- */}
             {isInitialized && (
-                <Paper sx={{ p: 3, mb: 3, borderRadius: 3, border: `1px solid ${theme.palette.divider}` }} elevation={0}>
+                <Paper sx={{ p: 3, mb: 3, borderRadius: 3,
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                    backdropFilter: 'blur(16px) saturate(1.2)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                    border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }} elevation={0}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                         <Typography variant="h6" sx={{ fontWeight: 600 }}>{t('botshepherd.connTitle')}</Typography>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -321,7 +329,11 @@ export default function BotShepherd() {
 
             {/* ---- 账号管理面板 ---- */}
             {isInitialized && (
-                <Paper sx={{ p: 3, mb: 3, borderRadius: 3, border: `1px solid ${theme.palette.divider}` }} elevation={0}>
+                <Paper sx={{ p: 3, mb: 3, borderRadius: 3,
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                    backdropFilter: 'blur(16px) saturate(1.2)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                    border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }} elevation={0}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <PersonIcon color="primary" />
@@ -470,8 +482,14 @@ function InfoItem({ label, value, mono }: { label: string; value: string; mono?:
 }
 
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
+    const theme = useTheme();
     return (
-        <Box sx={{ p: 1.5, borderRadius: 2, border: '1px solid', borderColor: 'divider', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ p: 1.5, borderRadius: 2,
+            bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+            backdropFilter: 'blur(16px) saturate(1.2)',
+            WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+            border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+            display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Box sx={{ color, display: 'flex' }}>{icon}</Box>
             <Box>
                 <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{value}</Typography>

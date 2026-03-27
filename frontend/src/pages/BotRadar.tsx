@@ -334,13 +334,16 @@ function EndpointCard({
         : t('botRadar.offline');
     const StatusIcon = (entry.online && !isHandshakeRejected) ? WifiTetheringIcon : WifiTetheringOffIcon;
 
-    const cardBg = theme.palette.mode === 'dark' ? 'rgba(45,45,50,0.4)' : '#fff';
+    const cardBg = theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)';
+    const cardBorder = theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
 
     return (
         <>
-            <Paper elevation={2} sx={{
-                borderRadius: 3, border: '1px solid', overflow: 'hidden',
-                borderColor: 'divider', background: cardBg,
+            <Paper elevation={0} sx={{
+                borderRadius: 3, border: `1px solid ${cardBorder}`, overflow: 'hidden',
+                background: cardBg,
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
                 display: 'flex', flexDirection: 'column',
             }}>
                 {/* 卡片主体 */}
@@ -425,6 +428,7 @@ function EndpointCard({
 export default function BotBackend() {
     const t = useTranslate();
     const toast = useToast();
+    const theme = useTheme();
 
     const [endpoints, setEndpoints] = useState<EndpointEntry[]>([]);
     const [newUrl, setNewUrl] = useState('');
@@ -592,7 +596,11 @@ export default function BotBackend() {
             </Box>
 
             {/* 工具栏 */}
-            <Paper elevation={1} sx={{ p: 2, mb: 3, borderRadius: 3 }}>
+            <Paper elevation={1} sx={{ p: 2, mb: 3, borderRadius: 3,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                     <TextField
                         size="small" label={t('botRadar.endpointUrl')}

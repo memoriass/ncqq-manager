@@ -59,7 +59,11 @@ export default function BackupRestore() {
             </Box>
 
             {/* 备份信息 */}
-            <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: `1px solid ${theme.palette.divider}`, mb: 3 }}>
+            <Paper elevation={0} sx={{ p: 3, borderRadius: 3, mb: 3,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                     <StorageIcon color="action" />
                     <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{t('backup.dbInfo')}</Typography>

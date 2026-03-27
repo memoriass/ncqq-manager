@@ -94,7 +94,11 @@ export default function AlertSettings() {
             </Box>
 
             {/* 允许所有 IP 访问开关 */}
-            <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 3, border: `1px solid ${theme.palette.divider}`,
+            <Paper elevation={0} sx={{ p: 2, mb: 3, borderRadius: 3,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
                     <Typography variant="body1" sx={{ fontWeight: 600 }}>{t('alerts.allowAllIp')}</Typography>
@@ -106,14 +110,22 @@ export default function AlertSettings() {
             {/* 规则列表 */}
             <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>{t('alerts.rules')}</Typography>
             {rules.length === 0 ? (
-                <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3 }}>
+                <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3,
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                    backdropFilter: 'blur(16px) saturate(1.2)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                    border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
                     <Typography color="text.secondary">{t('alerts.noRules')}</Typography>
                 </Paper>
             ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mb: 3 }}>
                     {rules.map(rule => (
                         <Paper key={rule.id} elevation={0}
-                            sx={{ p: 2, borderRadius: 3, border: `1px solid ${theme.palette.divider}`,
+                            sx={{ p: 2, borderRadius: 3,
+                                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                                backdropFilter: 'blur(16px) saturate(1.2)',
+                                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <Box>
                                 <Typography variant="body1" sx={{ fontWeight: 600 }}>{rule.name}</Typography>
@@ -136,11 +148,19 @@ export default function AlertSettings() {
             {/* 告警历史 */}
             <Typography variant="subtitle2" sx={{ mb: 1, mt: 3, fontWeight: 600 }}>{t('alerts.history')}</Typography>
             {history.length === 0 ? (
-                <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3 }}>
+                <Paper sx={{ p: 4, textAlign: 'center', borderRadius: 3,
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                    backdropFilter: 'blur(16px) saturate(1.2)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                    border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
                     <Typography color="text.secondary">{t('alerts.noHistory')}</Typography>
                 </Paper>
             ) : (
-                <Paper elevation={0} sx={{ borderRadius: 3, border: `1px solid ${theme.palette.divider}` }}>
+                <Paper elevation={0} sx={{ borderRadius: 3,
+                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                    backdropFilter: 'blur(16px) saturate(1.2)',
+                    WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                    border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
                     <List dense>
                         {history.map(h => (
                             <ListItem key={h.id} sx={{ borderBottom: `1px solid ${theme.palette.divider}` }}>

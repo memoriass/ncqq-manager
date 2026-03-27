@@ -115,7 +115,7 @@ export default function AdminLayout() {
                     position: 'fixed', inset: 0, zIndex: -1,
                     backgroundImage: `url(${bgUrl})`,
                     backgroundSize: 'cover', backgroundPosition: 'center',
-                    opacity: theme.palette.mode === 'dark' ? 0.18 : 0.25,
+                    opacity: theme.palette.mode === 'dark' ? 0.12 : 0.18,
                     pointerEvents: 'none',
                 }} />
             )}

@@ -180,7 +180,7 @@ export default function Users() {
                     </Box>
                 ) : (
                     users.map(u => (
-                        <Box key={u.uuid} sx={{ p: 3, borderRadius: 3, background: theme.palette.mode === 'dark' ? '#1e293b' : '#fff', border: `1px solid ${theme.palette.divider}`, boxShadow: '0 4px 20px rgba(0,0,0,0.03)', position: 'relative' }}>
+                        <Box key={u.uuid} sx={{ p: 3, borderRadius: 3, background: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)', backdropFilter: 'blur(16px) saturate(1.2)', WebkitBackdropFilter: 'blur(16px) saturate(1.2)', border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`, boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)', position: 'relative' }}>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
                                 <Typography variant="h6" sx={{ fontWeight: 600 }}>{u.userName}</Typography>
                                 <Typography variant="caption" sx={{ px: 1.5, py: 0.5, borderRadius: 8, bgcolor: u.permission >= 10 ? 'rgba(59,130,246,0.1)' : 'rgba(16,185,129,0.1)', color: u.permission >= 10 ? '#3b82f6' : '#10b981', fontWeight: 600 }}>

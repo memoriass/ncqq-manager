@@ -339,7 +339,7 @@ export default function Dashboard() {
                             } else {
                                 navigate(`/admin/config/${c.node_id}/${c.name}`);
                             }
-                        }} sx={{ position: 'relative', cursor: 'pointer', borderRadius: 3, background: theme.palette.mode === 'dark' ? 'rgba(37,37,40,0.55)' : 'rgba(255,255,255,0.45)', backdropFilter: 'blur(14px)', WebkitBackdropFilter: 'blur(14px)', border: selectedContainers.includes(c.name) ? '1px solid #3b82f6' : '1px solid transparent', overflow: 'hidden', transition: 'all 0.3s', boxShadow: theme.palette.mode === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)', '&:hover': { border: '1px solid rgba(59,130,246,0.5)', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' } }}>
+                        }} sx={{ position: 'relative', cursor: 'pointer', borderRadius: 3, background: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)', backdropFilter: 'blur(16px) saturate(1.2)', WebkitBackdropFilter: 'blur(16px) saturate(1.2)', border: selectedContainers.includes(c.name) ? '1px solid #3b82f6' : `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`, overflow: 'hidden', transition: 'all 0.3s', boxShadow: theme.palette.mode === 'dark' ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)', '&:hover': { border: '1px solid rgba(59,130,246,0.5)', boxShadow: '0 8px 24px rgba(0,0,0,0.1)' } }}>
                             {/* 头像虚化叠底 — 最底层，覆盖卡片左侧大部分 */}
                             {(() => {
                                 const uin = c.uin;
