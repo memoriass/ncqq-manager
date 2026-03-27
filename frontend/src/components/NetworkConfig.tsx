@@ -318,9 +318,11 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
             <Box sx={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3,
                 p: 2.5, borderRadius: 3,
-                background: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : '#fff',
-                border: `1px solid ${theme.palette.divider}`,
-                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 4px 20px rgba(0,0,0,0.03)'
+                background: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)'
             }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(59,130,246,0.1)', display: 'flex' }}>
@@ -364,13 +366,14 @@ export const NetworkConfig = ({ name, node_id }: NetworkConfigProps) => {
                     <Grid item xs={12} md={6} lg={4} key={i}>
                         <Card sx={{
                             borderRadius: 3,
-                            border: `1px solid ${theme.palette.divider}`,
-                            background: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff',
-                            boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 4px 15px rgba(0,0,0,0.02)',
-                            transition: 'all 0.2s',
+                            background: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                            backdropFilter: 'blur(16px) saturate(1.2)',
+                            WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                            border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                            boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)',
+                            transition: 'box-shadow 0.2s',
                             '&:hover': {
-                                boxShadow: theme.palette.mode === 'dark' ? '0 0 0 1px rgba(255,255,255,0.1)' : '0 8px 25px rgba(0,0,0,0.05)',
-                                transform: 'translateY(-2px)'
+                                boxShadow: theme.palette.mode === 'dark' ? '0 8px 32px rgba(0,0,0,0.2)' : '0 12px 32px rgba(0,0,0,0.06)',
                             }
                         }}>
                             <CardContent sx={{ p: 2.5, '&:last-child': { pb: 2.5 } }}>

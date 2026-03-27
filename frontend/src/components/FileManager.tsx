@@ -170,8 +170,10 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
             <Box sx={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2,
                 px: 2, py: 1.5, borderRadius: 2,
-                bgcolor: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
-                border: `1px solid ${theme.palette.divider}`,
+                background: isDark ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
             }}>
                 {/* 面包屑导航 */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, overflow: 'hidden' }}>

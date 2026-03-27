@@ -70,9 +70,11 @@ export const NapcatLogs = ({ name, node_id }: NapcatLogsProps) => {
             <Box sx={{
                 display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3,
                 p: 2.5, borderRadius: 3, flexWrap: 'wrap', gap: 2,
-                background: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : '#fff',
-                border: `1px solid ${theme.palette.divider}`,
-                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 4px 20px rgba(0,0,0,0.03)'
+                background: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)'
             }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(236,72,153,0.1)', display: 'flex' }}>

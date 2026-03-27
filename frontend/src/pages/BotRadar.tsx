@@ -565,8 +565,10 @@ export default function BotBackend() {
                     }
                 } catch { /* 从空开始 */ }
                 if (existingClients.some(c => (c as { url?: string }).url === url)) { ok++; continue; }
+                const alias = endpoints[index].alias;
+                const clientName = alias ? alias : url;
                 const newClient = {
-                    name: 'bot-backend', enable: true, url,
+                    name: clientName, enable: true, url,
                     reportSelfMessage: false, messagePostFormat: 'array',
                     token: token || '', debug: false,
                     heartInterval: 30000, reconnectInterval: 30000,

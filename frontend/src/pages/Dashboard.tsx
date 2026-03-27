@@ -428,7 +428,10 @@ export default function Dashboard() {
                                     </IconButton>
                                 );
                                 return (
-                                <Box sx={{ p: 2, pt: 0, display: 'flex', justifyContent: 'space-between' }}>
+                                <Box sx={{ p: 2, pt: 1.5, display: 'flex', justifyContent: 'space-between',
+                                    borderTop: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+                                    bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.03)',
+                                }}>
                                     <Box sx={{ display: 'flex', gap: 1 }}>
                                         {c.status === 'running' && (
                                             <>
