@@ -1,11 +1,6 @@
 """
-速率限制中间件 - 对标 MCSM speedLimit
-基于内存 TTL 缓存的 per-user per-endpoint 限速
-
-已知限制：
-  - 纯内存态，服务重启后所有限流记录清零
-  - 单实例部署场景下风险可接受
-  - 水平扩展场景下各实例限流状态不共享
+速率限制中间件 — per-user per-endpoint 限速，内存 TTL，管理员豁免。
+纯内存态，重启清零；单实例部署下风险可接受。
 """
 import time
 from typing import Dict, Tuple
@@ -15,12 +10,7 @@ from services.log import logger
 
 
 class RateLimiter:
-    """简单的内存速率限制器。
-
-    注意：所有限流记录存储在进程内存中，服务重启后自动清零。
-    这是有意为之的设计权衡（避免高频 DB 写入），但需知晓：
-    攻击者可通过触发服务重启来短暂绕过限流。
-    """
+    """内存速率限制器，重启清零。"""
 
     def __init__(self):
         # key: (user_uuid, path) -> expire_time

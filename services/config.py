@@ -1,6 +1,5 @@
 """
-配置管理单例 - 启动时加载，修改时热更新
-对标 MCSM SystemConfig 模式，替代每次请求 load_config()
+配置管理单例 — 双源架构：JSON（启动引导字段）+ SQLite settings 表（运行时字段），支持热更新。
 """
 import os
 import json

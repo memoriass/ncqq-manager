@@ -1,8 +1,5 @@
 """
-集群/节点管理器 - SQLite 持久化
-
-Phase 5: 全异步通信 — get_nodes_with_status / proxy / action 等均使用 aiohttp，
-         消除 requests 同步调用 + ThreadPoolExecutor。
+集群/节点管理器 — SQLite 持久化，aiohttp 全异步通信（节点状态/代理/操作）。
 """
 import json
 import os

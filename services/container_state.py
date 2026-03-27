@@ -1,19 +1,9 @@
 """
 容器状态引擎 — 后台异步刷新，API/WS 零阻塞读内存
 
-架构（v5 — 全异步，零线程池）：
-  后台引擎 ─── 定时循环 ──→ aiodocker (list/inspect: 纯异步) ⭐ Phase 1
-                            ──→ aiohttp  (login check: 纯异步)
-                            ──→ aiohttp  (remote nodes: 纯异步)     ⭐ Phase 4
-                            ──→ 写入 InstanceSubsystem
-  API 请求 → 读 InstanceSubsystem → 立即返回 (<1ms)
-
-关键设计（v5 变更）：
-  1. 容器列表：本地 aiodocker + 远程 aiohttp 均为纯异步（零线程）
-  2. 端口解析：aiodocker container.show() 纯异步
-  3. 登录检测：纯 aiohttp 异步
-  4. QR 码：只处理未登录 & running 的容器，读本地 qrcode.png
-  5. Stats：按需采集，实例详情页面访问时通过单独API获取
+架构：后台循环 → aiodocker(本地列表/端口) + aiohttp(登录检测/远程节点)
+     → 写入 InstanceSubsystem；API 读内存快照，响应 <1ms。
+自适应刷新：事件活跃时 3s，长时间无变化逐步降频至 30s。
 """
 import asyncio
 import base64

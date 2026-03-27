@@ -1,15 +1,7 @@
 """
-Docker Events 监听器 — 事件驱动替代定时轮询
-
-核心优化：
-  轮询模式: 每 3s 调用 Docker API（无论有无变化）
-  事件模式: Docker daemon 主动推送事件，状态变化时才刷新
-
-设计：
-  - 后台线程运行 docker-py 的 events() 阻塞迭代器
-  - 收到容器事件 → 通过 asyncio.Event 通知 StateEngine 立即刷新
-  - 连接断开自动重连（5s 间隔）
-  - start()/stop() 管理生命周期（在 FastAPI lifespan 中调用）
+Docker Events 监听器 — 后台线程订阅 Docker daemon 容器生命周期事件，
+收到事件后通知 StateEngine 立即刷新（替代纯定时轮询）。
+断线自动重连，5s 间隔。
 """
 import threading
 import time

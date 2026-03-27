@@ -1,13 +1,7 @@
 """
-容器实例对象 — 借鉴 MCSM 的 Instance 模式
+容器实例数据对象 — 单容器内存镜像
 
-每个容器 = 一个 ContainerInstance 对象，状态/stats/QR/login 全部缓存在对象内。
-查询时直接读对象属性，零 Docker API 调用。
-
-设计：
-  - to_public_dict()  → 替代 state_engine.get_containers() 中的 dict 拼装
-  - to_stats_dict()   → 替代 state_engine.get_all_stats() 中的 raw dict
-  - to_qr_dict()      → 替代 state_engine.get_qr_states() 中的 per-name dict
+缓存容器状态、登录信息、QR码、心跳、资源统计；查询零 Docker API 调用。
 """
 import time
 from dataclasses import dataclass, field

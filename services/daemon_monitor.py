@@ -1,3 +1,4 @@
+"""宿主机资源监控 — 定时采样 CPU/内存，维护历史数据供节点状态面板使用。"""
 import psutil
 from collections import deque
 from typing import Dict, List

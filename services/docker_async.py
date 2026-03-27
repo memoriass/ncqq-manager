@@ -1,14 +1,8 @@
 """
 异步 Docker 管理 + 登录检测器
 
-Phase 1 核心模块：
-  1. AsyncLoginChecker  — aiohttp 异步登录探测（Phase 1-部分，已完成）
-  2. AsyncDockerManager — aiodocker 异步 Docker API（Phase 1-完整版）
-     替代 docker-py 热路径（list / inspect / stats），消除 run_in_executor
-
-优化对比：
-  同步: run_in_executor → docker-py(阻塞) → 占线程池 32 workers
-  异步: aiodocker(非阻塞 aiohttp) → 零线程，事件循环原生协程
+AsyncLoginChecker  — aiohttp 并发登录探测（OneBot HTTP / WebUI 双路）
+AsyncDockerManager — aiodocker 替代 docker-py 热路径，零线程池开销
 """
 import asyncio
 import json

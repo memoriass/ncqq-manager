@@ -1,15 +1,9 @@
 """
-Docker 容器管理器 - 重构版（过渡阶段）
+Docker 容器管理器（过渡保留层）
 
-注意：热路径方法（list_containers, action_container, create_container, get_logs,
-      get_stats, list_images, pull_image, delete_image, find_available_port）
-      已有 async 版本在 docker_async.py (AsyncDockerManager) 中实现。
-      本模块仅保留：
-        - read_login_cache / check_login_status / batch_check_login（登录检测链路）
-        - get_container_file_binary（docker cp tar 读取）
-        - update_login_cache（事件缓存更新）
-        - invalidate_containers_cache（兼容旧调用，逐步由 state_engine.notify_change 替代）
-      新代码应优先使用 async_docker_manager。
+热路径已迁移至 docker_async.py(AsyncDockerManager)；
+本模块仅保留：登录检测(A/B级联)、docker cp 文件读取、事件缓存更新。
+新代码优先使用 async_docker_manager。
 """
 import asyncio
 import os
