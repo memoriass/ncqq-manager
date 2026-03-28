@@ -295,6 +295,13 @@ export const containerApi = {
         request<{ status: string; files: FileItem[]; folders: FolderItem[]; current_path: string }>(
             `/containers/${name}/files?path=${encodeURIComponent(path)}&node_id=${nodeId}`
         ),
+
+    // 删除文件或文件夹
+    deleteFile: (name: string, path: string, nodeId: string = 'local') =>
+        request<{ status: string }>(
+            `/containers/${name}/files?path=${encodeURIComponent(path)}&node_id=${nodeId}`,
+            { method: 'DELETE' }
+        ),
 };
 
 // ============ 节点相关 API ============

@@ -17,6 +17,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import FolderIcon from '@mui/icons-material/Folder';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
 import DataObjectIcon from '@mui/icons-material/DataObject';
 import DescriptionIcon from '@mui/icons-material/Description';
 import SettingsIcon from '@mui/icons-material/Settings';
@@ -80,6 +81,10 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
     const [editingFile, setEditingFile] = useState<string | null>(null);
     const [editContent, setEditContent] = useState('');
     const [savingFile, setSavingFile] = useState(false);
+    const [deleteConfirm, setDeleteConfirm] = useState<{ open: boolean; path: string; displayName: string; isDir: boolean }>({
+        open: false, path: '', displayName: '', isDir: false,
+    });
+    const [deleting, setDeleting] = useState(false);
     const t = useTranslate();
     const theme = useTheme();
     const toast = useToast();
@@ -138,6 +143,25 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
         const parts = currentPath.split('/');
         parts.pop();
         loadFiles(parts.join('/'));
+    };
+
+    const openDeleteConfirm = (itemName: string, isDir: boolean) => {
+        const fullPath = currentPath ? `${currentPath}/${itemName}` : itemName;
+        setDeleteConfirm({ open: true, path: fullPath, displayName: itemName, isDir });
+    };
+
+    const handleConfirmDelete = async () => {
+        setDeleting(true);
+        try {
+            await containerApi.deleteFile(name, deleteConfirm.path, node_id);
+            toast.success(t('config.deleteSuccess'));
+            setDeleteConfirm({ open: false, path: '', displayName: '', isDir: false });
+            loadFiles(currentPath);
+        } catch {
+            toast.error(t('config.deleteFailed'));
+        } finally {
+            setDeleting(false);
+        }
     };
 
     useEffect(() => {
@@ -264,21 +288,32 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
                             {sortedFolders.map(f => (
                                 <Box
                                     key={`d-${f.name}`}
-                                    onClick={() => handleFolderClick(f.name)}
                                     sx={{
                                         display: 'grid', gridTemplateColumns: GRID_COLS, alignItems: 'center',
-                                        px: 2, py: 1.2, cursor: 'pointer', transition: 'background 0.15s',
+                                        px: 2, py: 1.2, transition: 'background 0.15s',
                                         borderBottom: `1px solid ${theme.palette.divider}`,
                                         '&:hover': { bgcolor: hoverBg },
                                     }}
                                 >
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                                    <Box
+                                        onClick={() => handleFolderClick(f.name)}
+                                        sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, cursor: 'pointer' }}
+                                    >
                                         <FolderIcon fontSize="small" sx={{ color: '#f59e0b', flexShrink: 0 }} />
                                         <Typography variant="body2" fontWeight={600} noWrap>{f.name}</Typography>
                                     </Box>
                                     <Typography variant="caption" color="text.disabled">—</Typography>
                                     <Typography variant="caption" color="text.disabled">—</Typography>
-                                    <Box />
+                                    <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => openDeleteConfirm(f.name, true)}
+                                            sx={{ color: 'text.disabled', '&:hover': { color: '#ef4444' } }}
+                                            title={t('config.deleteFile')}
+                                        >
+                                            <DeleteIcon fontSize="small" />
+                                        </IconButton>
+                                    </Box>
                                 </Box>
                             ))}
 
@@ -311,8 +346,17 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
                                                 size="small"
                                                 onClick={() => handleEdit(f.name)}
                                                 sx={{ color: 'text.secondary', '&:hover': { color: '#3b82f6' } }}
+                                                title={t('config.edit')}
                                             >
                                                 <EditIcon fontSize="small" />
+                                            </IconButton>
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => openDeleteConfirm(f.name, false)}
+                                                sx={{ color: 'text.disabled', '&:hover': { color: '#ef4444' } }}
+                                                title={t('config.deleteFile')}
+                                            >
+                                                <DeleteIcon fontSize="small" />
                                             </IconButton>
                                         </Box>
                                     </Box>
@@ -374,6 +418,54 @@ const FileManager: React.FC<FileManagerProps> = ({ name, node_id }) => {
                         sx={{ px: 4, borderRadius: 2, fontWeight: 600, background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)', boxShadow: '0 4px 14px rgba(59,130,246,0.3)', textTransform: 'none' }}
                     >
                         {savingFile ? t('config.saving') : t('config.saveChanges')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* 删除确认对话框 */}
+            <Dialog
+                open={deleteConfirm.open}
+                onClose={() => !deleting && setDeleteConfirm(prev => ({ ...prev, open: false }))}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{
+                    sx: {
+                        borderRadius: 3,
+                        border: `1px solid ${theme.palette.divider}`,
+                    }
+                }}
+            >
+                <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    <Box sx={{ p: 0.5, borderRadius: 1.5, bgcolor: 'rgba(239,68,68,0.1)', display: 'flex' }}>
+                        <DeleteIcon fontSize="small" sx={{ color: '#ef4444' }} />
+                    </Box>
+                    {t('config.deleteConfirmTitle')}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary">
+                        {t('config.deleteConfirmMsg').replace('{name}', deleteConfirm.displayName)}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2 }}>
+                    <Button
+                        onClick={() => setDeleteConfirm(prev => ({ ...prev, open: false }))}
+                        disabled={deleting}
+                        color="inherit"
+                        sx={{ borderRadius: 2, fontWeight: 600 }}
+                    >
+                        {t('config.cancel')}
+                    </Button>
+                    <Button
+                        onClick={handleConfirmDelete}
+                        disabled={deleting}
+                        variant="contained"
+                        sx={{
+                            px: 3, borderRadius: 2, fontWeight: 600,
+                            bgcolor: '#ef4444', '&:hover': { bgcolor: '#dc2626' },
+                            textTransform: 'none',
+                        }}
+                    >
+                        {deleting ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : t('config.deleteFile')}
                     </Button>
                 </DialogActions>
             </Dialog>
