@@ -446,12 +446,13 @@ python start.py --dev</code></pre>
 
 <h2>功能</h2>
 <ul>
-<li><strong>目录浏览</strong> — 树形展示容器的 <code>config/</code> 目录结构</li>
-<li><strong>文件编辑</strong> — 在线编辑 JSON/YAML/文本配置文件，带语法高亮</li>
+<li><strong>目录浏览</strong> — 面包屑导航，支持多层目录的文件夹与文件展示</li>
+<li><strong>文件编辑</strong> — 在线编辑 JSON/YAML/文本配置文件，带等宽字体代码框</li>
 <li><strong>保存修改</strong> — 编辑后直接保存到容器挂载的数据目录</li>
+<li><strong>文件删除</strong> — 文件与文件夹均可删除，操作前弹出确认对话框，删除文件夹时递归移除所有子内容，<strong>不可撤销</strong></li>
 </ul>
 
-<div class="tip">所有文件操作通过已鉴权的 API 端点 <code>/api/containers/{name}/files</code> 进行，确保安全性。</div>
+<div class="tip">所有文件操作通过已鉴权的 API 端点 <code>/api/containers/{name}/files</code> 进行，确保安全性。根目录禁止删除，所有路径经过服务端安全校验防止目录穿越，危险操作记录于操作审计日志。</div>
 
 <h3>常用配置文件</h3>
 <table>
@@ -763,7 +764,9 @@ curl http://localhost:8000/api/containers?apikey=YOUR_API_KEY</code></pre>
 <tr><td><code>POST</code></td><td><code>/api/containers</code></td><td>创建容器</td><td>管理员</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/containers/{name}/action</code></td><td>容器操作（start/stop/restart/delete）</td><td>登录</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/containers/{name}/stats</code></td><td>容器统计信息</td><td>登录</td></tr>
-<tr><td><code>GET</code></td><td><code>/api/containers/{name}/files</code></td><td>文件列表</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers/{name}/files</code></td><td>文件/目录列表（<code>?path=</code> 指定子目录）</td><td>登录</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/containers/{name}/config/{filename}</code></td><td>保存文件内容</td><td>登录</td></tr>
+<tr><td><code>DELETE</code></td><td><code>/api/containers/{name}/files</code></td><td>删除文件或目录（<code>?path=</code> 必填，禁止删根目录）</td><td>登录</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/containers/{name}/logs</code></td><td>容器日志</td><td>登录</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/nodes</code></td><td>节点列表</td><td>管理员</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/users</code></td><td>用户列表（分页）</td><td>管理员</td></tr>

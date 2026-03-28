@@ -129,7 +129,7 @@ ncqq-manager/
 
 ## 📄 License
 
-MIT
+GPLv3
 
 ---
 
