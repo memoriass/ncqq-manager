@@ -100,6 +100,9 @@ class LifecycleMixin:
                 _generate_onebot11_config_with_ws_client(config_dir, ws_url, ws_token, uin)
                 self._mark_bs_inject(data_dir_base, name, uin)
                 logger.info("BS/WS 注入完成并写入持久标记: %s uin=%s", name, uin)
+                # NapCat 不会热重载配置文件，注入后必须重启容器才能生效。
+                # 通过 fire-and-forget 异步调度重启，避免阻塞当前线程。
+                self._schedule_container_restart(name)
             except Exception as e:
                 logger.error("登录后 WS 注入失败 (%s/%s): %s", name, uin, e)
 
@@ -180,10 +183,35 @@ class LifecycleMixin:
                         logger.debug("自动加群通知发送失败: name=%s group=%s: %s", _name, gid, exc)
 
             loop = _main_event_loop
-            if loop is not None and loop.is_running():
+            if loop is not None and loop.is_running():#
                 asyncio.run_coroutine_threadsafe(
                     _auto_notify_groups(name, uin, auto_groups), loop
                 )
                 logger.info("已调度自动加群通知: name=%s groups=%s", name, auto_groups)
             else:
                 logger.debug("事件循环未运行，跳过自动加群通知")
+
+    def _schedule_container_restart(self, name: str) -> None:
+        """注入 WS 配置后异步重启容器，使 NapCat 加载新配置。
+
+        NapCat 不热重载 onebot11_{uin}.json，必须重启才能建立 WS 客户端连接。
+        使用 fire-and-forget：5s 延迟后重启，给 BS 注入时间完成，避免竞态。
+        """
+        from services.docker_manager import _main_event_loop
+
+        async def _do_restart(_name: str) -> None:
+            import asyncio as _asyncio
+            await _asyncio.sleep(5)  # 等待 BS 注入异步任务完成
+            try:
+                from services.docker_async import async_docker_manager
+                await async_docker_manager.restart_container(_name)
+                logger.info("注入后容器重启完成: %s（NapCat 将加载新 WS 配置）", _name)
+            except Exception as exc:
+                logger.warning("注入后容器重启失败 %s: %s（手动重启可恢复）", _name, exc)
+
+        loop = _main_event_loop
+        if loop is not None and loop.is_running():
+            asyncio.run_coroutine_threadsafe(_do_restart(name), loop)
+            logger.info("已调度注入后容器重启: %s（5s 后执行）", name)
+        else:
+            logger.warning("事件循环未运行，跳过注入后重启: %s", name)

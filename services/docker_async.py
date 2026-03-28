@@ -71,11 +71,74 @@ class AsyncLoginChecker:
             pass
         return {"logged_in": False, "stage": "waiting"}
 
+    async def _check_login_via_filesystem(self, name: str, webui_port: int) -> Dict:
+        """文件系统兜底检测（第4级）：打破"循环依赖"鸡蛋问题。
+
+        不依赖 WS/BS/HTTP 连接，仅通过：
+          1. NapCat WebUI 根路径可达 → 确认进程在线
+          2. napcat_{uin}.json / onebot11_{uin}.json 文件名 → 发现 uin
+          3. qrcode.png mtime > 60s 或不存在 → 确认不在等待扫码
+
+        适用场景：首次启动、容器重建后 WS 未建立时，
+        能检测到登录状态并触发 _on_login_detected → 注入 + 重启。
+        """
+        from services.config import get_data_dir
+        if not webui_port or not self._session:
+            return {"logged_in": False, "stage": "waiting"}
+        try:
+            # 1. 确认 NapCat WebUI 进程在线（用根页面或 /auth/check，不需认证）
+            manager_host = "127.0.0.1"
+            try:
+                from services.config import app_config
+                manager_host = str(app_config.get("manager_host", "127.0.0.1"))
+            except Exception:
+                pass
+            webui_alive = False
+            try:
+                async with self._session.get(
+                    f"http://127.0.0.1:{webui_port}/webui/",
+                    timeout=_INFO_TIMEOUT,
+                    allow_redirects=False,
+                ) as resp:
+                    # 200 或 3xx 都说明 WebUI 进程在线
+                    webui_alive = resp.status < 500
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                pass
+
+            if not webui_alive:
+                return {"logged_in": False, "stage": "waiting"}
+
+            # 2. 从文件名发现 uin（不读取文件内容）
+            uin = self._get_uin_from_config(name)
+            if not uin:
+                return {"logged_in": False, "stage": "waiting"}
+
+            # 3. qrcode.png 是否停止刷新（> 60s 或不存在 → 已登录）
+            qr_stale = True
+            try:
+                qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
+                if os.path.exists(qr_path):
+                    qr_stale = (time.time() - os.path.getmtime(qr_path)) > 60
+            except OSError:
+                pass
+
+            if webui_alive and qr_stale and uin:
+                return {
+                    "logged_in": True,
+                    "uin": uin,
+                    "nickname": "",
+                    "method": "filesystem",
+                    "stage": "logged_in",
+                    "reason": "webui_alive_qr_stale_uin_in_config",
+                }
+        except Exception:
+            pass
+        return {"logged_in": False, "stage": "waiting"}
 
     # DEPRECATED: check_login_webui 已不再被 check_login_status 调用。
     # 原逻辑依赖 NapCat WebUI 路径（/api/qrcode、/plugin/.../api/public/info）
     # 和本地日志文件特征关键词，NapCat 版本升级后极易失效。
-    # 新架构已改为 WS直连 → BS账号API → OneBot HTTP 三级检测，此函数保留供参考，
+    # 新架构已改为 WS直连 → BS账号API → OneBot HTTP → 文件系统 四级检测，此函数保留供参考，
     # 生产路径不再调用。
     async def check_login_webui(self, name: str, webui_port: int) -> Dict:
         """[DEPRECATED] 方案 B：NapCat WebUI + 本地文件 + 日志特征综合检测。"""
@@ -158,13 +221,14 @@ class AsyncLoginChecker:
 
     async def check_login_status(self, name: str,
                                   http_port: int, webui_port: int) -> Dict:
-        """三级级联检测：SDK WS → BS API → HTTP 兜底。
+        """四级级联检测：SDK WS → BS API → HTTP 兜底 → 文件系统兜底。
 
         优先级：
           1. napcat_ws_service（零网络开销，WS 已连接时直接返回）
           2. BS 账号 API（BS 运行时辅助检测，10s TTL 缓存）
           3. OneBot HTTP /get_login_info（兜底，仅 WS/BS 均无结果时请求）
-        WebUI/日志检测已弱化为不再调用（路径已失效）。
+          4. 文件系统检测（打破鸡蛋问题：通过 napcat_{uin}.json 文件名发现 uin，
+             结合 NapCat WebUI 可达性确认进程在线，qrcode.png 老旧确认已登录）
         """
         from services.napcat_ws_service import napcat_ws_service
 
@@ -186,6 +250,15 @@ class AsyncLoginChecker:
             if r3["logged_in"]:
                 logger.debug("登录检测[%s] HTTP兜底命中 uin=%s", name, r3.get("uin"))
                 return r3
+
+        # 4. 文件系统兜底（打破鸡蛋问题）
+        # 通过 napcat_{uin}.json / onebot11_{uin}.json 文件名发现 uin，
+        # 结合 WebUI 可达性 + qrcode.png 停止刷新，判定已登录。
+        if webui_port:
+            r4 = await self._check_login_via_filesystem(name, webui_port)
+            if r4["logged_in"]:
+                logger.info("登录检测[%s] 文件系统兜底命中 uin=%s", name, r4.get("uin"))
+                return r4
 
         # 均无信号：保留最佳 stage（优先取有 uin 的结果）
         stage = r1.get("stage") or r2.get("stage") or "waiting"
@@ -429,6 +502,16 @@ class AsyncDockerManager:
         except aiodocker.exceptions.DockerError as e:
             logger.error("容器 %s 异步执行 [%s] 失败: %s", name, action, e)
             return False
+
+    async def restart_container(self, name: str, timeout: int = 30) -> None:
+        """异步重启容器（注入后刷新 NapCat 配置使用）。
+        timeout: 等待容器停止的秒数，超时后强制 kill。
+        """
+        if not self._docker:
+            raise RuntimeError("AsyncDockerManager 未连接 Docker daemon")
+        container = await self._docker.containers.get(name)
+        await container.restart(timeout=timeout)
+        logger.info("容器 %s 重启完成（timeout=%ds）", name, timeout)
 
     # ---- 5. 容器创建（CRUD 异步化 — 替代 docker_manager.create_container） ----
 
