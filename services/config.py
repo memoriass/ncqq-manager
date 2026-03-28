@@ -31,7 +31,7 @@ class AppConfig:
                      "init_ws_client_enabled", "init_ws_client_url", "init_ws_client_token",
                      "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets",
                      "init_bs_napcat_host",
-                     "manager_port",
+                     "manager_host", "manager_port",
                      "init_auto_join_groups_enabled", "init_auto_join_groups"}
 
     _BOOTSTRAP_DEFAULT = {
@@ -54,6 +54,7 @@ class AppConfig:
         "init_bs_client_base_port": 6100,
         "init_bs_targets": "[]",  # JSON 字符串，如 '["ws://target1:3001/ws"]'
         "init_bs_napcat_host": "172.17.0.1",  # NapCat 容器内访问宿主机 BS 的 IP（Linux Docker 默认网桥）
+        "manager_host": "127.0.0.1",  # BS 连接管理器 WS 端点时使用的地址（跨网络/容器部署时需改为实际 IP）
         "manager_port": 8000,     # 管理器监听端口，用于 BS 自动注入本地 OneBot WS 端点
         "init_auto_join_groups_enabled": False,  # 登录后自动发群通知开关
         "init_auto_join_groups": "[]",  # 登录后自动发通知的群号列表 JSON（如 ["123456"]）

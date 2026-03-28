@@ -64,9 +64,20 @@ class LifecycleMixin:
             return
 
         # 层2 - 持久层：该 uin 已注入过（重启后仍有效），跳过避免重复分配端口
+        # ★ 但先验证配置文件是否实际存在：容器重建后 config 目录可能被清空，
+        #   此时标记已过期，需清除标记并重新注入
+        config_file_exists = os.path.isfile(os.path.join(config_dir, f"onebot11_{uin}.json"))
         if self._bs_inject_done(data_dir_base, name, uin):
-            logger.debug("BS 注入已跳过（持久标记存在）: %s uin=%s", name, uin)
-            return
+            if config_file_exists:
+                logger.debug("BS 注入已跳过（持久标记存在）: %s uin=%s", name, uin)
+                return
+            # 配置文件丢失（容器重建），清除过期标记并重新注入
+            logger.info("BS 持久标记存在但 onebot11_%s.json 丢失，清除标记重新注入: %s", uin, name)
+            marker = self._bs_inject_marker_path(data_dir_base, name, uin)
+            try:
+                os.remove(marker)
+            except OSError:
+                pass
 
         # ---- ① WS 客户端注入到 onebot11_{uin}.json ----
         ws_url = ""
@@ -102,9 +113,10 @@ class LifecycleMixin:
                 targets = json.loads(raw) if isinstance(raw, str) else raw
                 if not isinstance(targets, list):
                     targets = []
+                manager_host = str(app_config.get("manager_host", "127.0.0.1"))
                 manager_port = int(app_config.get("manager_port", 8000))
-                named_endpoint = f"ws://127.0.0.1:{manager_port}/ws/napcat/{name}"
-                compat_endpoint = f"ws://127.0.0.1:{manager_port}/ws/onebot/v11/ws"
+                named_endpoint = f"ws://{manager_host}:{manager_port}/ws/napcat/{name}"
+                compat_endpoint = f"ws://{manager_host}:{manager_port}/ws/onebot/v11/ws"
                 targets = [t for t in targets if t not in (named_endpoint, compat_endpoint)]
                 targets = [named_endpoint] + targets
                 logger.info("BS 自动注入管理器端点: %s", named_endpoint)

@@ -25,6 +25,7 @@ interface ClusterConfig {
     init_bs_client_base_port: number;
     init_bs_napcat_host: string;
     init_bs_targets: string;
+    manager_host: string;
     init_auto_join_groups_enabled: boolean;
     init_auto_join_groups: string;
 }
@@ -40,6 +41,7 @@ const DEFAULT_CONFIG: ClusterConfig = {
     init_bs_client_base_port: 6100,
     init_bs_napcat_host: "172.17.0.1",
     init_bs_targets: "[]",
+    manager_host: "127.0.0.1",
     init_auto_join_groups_enabled: false,
     init_auto_join_groups: "[]",
 };
@@ -362,6 +364,17 @@ export default function ClusterSettings() {
                                     helperText={t('clusterConfig.bsNapcatHostHelp')}
                                     size="small"
                                     placeholder="172.17.0.1"
+                                />
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <TextField
+                                    fullWidth name="manager_host"
+                                    label={t('clusterConfig.managerHost')}
+                                    value={config.manager_host}
+                                    onChange={handleChange}
+                                    helperText={t('clusterConfig.managerHostHelp')}
+                                    size="small"
+                                    placeholder="127.0.0.1"
                                 />
                             </Grid>
                             <Grid item xs={12}>

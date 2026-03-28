@@ -66,6 +66,7 @@ init_ws_client_token               str     WS 鉴权 token
 init_auto_join_groups_enabled      bool    登录后自动发群通知开关（默认 False）
 init_auto_join_groups              str     登录后自动发通知的群号列表 JSON（如 ["123456"]）
 manager_port                       int     管理器监听端口（默认 8000）
+manager_host                       str     BS 连接管理器 WS 端点的 IP（默认 127.0.0.1）
 webhook_base_url                   str     Webhook 基础 URL（用于生成 QR 扫码链接）
 ```
 
