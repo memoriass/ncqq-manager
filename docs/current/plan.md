@@ -1,19 +1,16 @@
 # plan
 - retrieval:
-  - services/napcat_ws_service.py:1-165 NapCatWsService（新建）
-  - routers/ws_router.py:219-346 _handle_ob11_event/_ob11_recv_loop/ws_napcat_named/ws_onebot_receiver
-  - services/docker_async.py:153-186 AsyncLoginChecker.check_login_status（三级级联）
-  - services/container_state.py:14-32 _trigger_bs_inject（新增辅助函数）
-  - services/container_state.py:247-300 ContainerStateEngine._tick_once（WS快速路径）
-  - services/docker_manager.py:820-828 _on_login_detected（BS端点更新为/ws/napcat/{name}）
+  - services/container_state.py:19-39 _trigger_bs_inject(name, result, prev)
+  - services/container_state.py:247-311 ContainerStateEngine._tick_once 登录判定与注入触发点
+  - services/napcat_ws_service.py:267-350 _resolve_known_uin + check_via_bs
+  - services/docker_lifecycle.py:40-70 _on_login_detected 幂等注入门控
+  - services/docker_login.py:24-33 read_login_cache 只读缓存入口
 - changes:
-  - services/napcat_ws_service.py: 新建 NapCatWsService 注册表，_ConnEntry，check_via_bs(BS辅助+TTL缓存)
-  - routers/ws_router.py: 新增 /ws/napcat/{name} 主端点；抽取 _handle_ob11_event/_ob11_recv_loop；兼容旧 /ws/onebot/v11/ws
-  - services/docker_async.py: check_login_status 改为三级 WS→BS→HTTP，弱化 WebUI/日志检测
-  - services/container_state.py: 新增 _trigger_bs_inject 辅助；_tick_once 优先走 WS 快速路径，跳过 TTL 检查
-  - services/docker_manager.py: _on_login_detected BS target_endpoints 更新为 /ws/napcat/{name} 主路径
+  - services/container_state.py: _trigger_bs_inject 改为“仅依赖登录判定结果(result.logged_in+uin)”触发；调用点传入检测前 prev_login_state，避免读取已更新 inst 导致 prev 失真
+  - services/napcat_ws_service.py: 新增 _resolve_known_uin(name)；BS 辅助检测在 WS 无 uin 时，回退 instance_subsystem.uin 与 login_cache.uin
+  - services/napcat_ws_service.py: uin 未解析时返回 method=bs_api, reason=uin_unknown，便于生产定位
 - verify:
-  - python -m py_compile services/napcat_ws_service.py routers/ws_router.py services/docker_async.py services/container_state.py services/docker_manager.py → ALL_OK
+  - python -m py_compile services/container_state.py services/napcat_ws_service.py services/docker_lifecycle.py services/docker_async.py → OK
 - rollback:
-  - git restore services/napcat_ws_service.py routers/ws_router.py services/docker_async.py services/container_state.py services/docker_manager.py docs/current/plan.md docs/current/task.md
+  - git restore services/container_state.py services/napcat_ws_service.py docs/current/plan.md docs/current/task.md docs/current/overview.md INTERFACE.md
 

@@ -1,5 +1,5 @@
 # INTERFACE.md
-Updated: 2026-03-28T18:00:00Z
+Updated: 2026-03-28T10:06:07Z
 
 ## Bot API 对外代理接口（routers/bot_api_router.py）
 

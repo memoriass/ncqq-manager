@@ -103,3 +103,22 @@
 - remeber.exec.1: label=uin-id | fact=sender_bots 由昵称字符串改为 uin（QQ号）字符串数组；EMPTY_SENTINEL.selectedUins: string[]；handleSentinelCreate 直接传 sentinelForm.selectedUins | impact=消除昵称变动导致的哨兵失配；唯一标识稳定 | next=存量规则 sender_bots 如有昵称需手动迁移
 - remeber.exec.2: label=sentinel-dialog | fact=QQ Bot哨兵卡片独立"添加哨兵"按钮（#7c3aed，SmartToyIcon）打开专用Dialog；顶部"新增规则"仅保留webhook逻辑；alertTypes移除qq_bot条目 | impact=两种规则创建路径完全分离，用户操作路径清晰 | next=无
 - remeber.exec.3: label=bot-select | fact=openSentinelDialog调用botApi.list()→过滤connected&&uin→setOnlineBots；Select multiple+OutlinedInput+Checkbox多选显示uin+nickname；renderValue拼接uin列表 | impact=用户从在线Bot列表勾选，无需手动输入；空列表显示noOnlineBots提示 | next=部署后验证在线Bot列表加载
+
+
+# login-stabilization-inject-gate 2026-03-28
+- ts: 2026-03-28T10:06:07Z
+- commit: [pending]
+- diff: +73/-26（container_state.py +16/-5；napcat_ws_service.py +37/-8；plan/overview/INTERFACE 更新时间与内容刷新）
+- commands: python -m py_compile services/container_state.py services/napcat_ws_service.py services/docker_lifecycle.py services/docker_async.py → PY_COMPILE=0
+- evidence: services/container_state.py:19-39,267-277,301-311; services/napcat_ws_service.py:267-350; docs/current/plan.md:1-16; docs/current/overview.md:1-12; INTERFACE.md:1-2
+- remeber.exec.1: label=inject-gate | fact=_trigger_bs_inject(name,result,prev) 增加 result.logged_in + result.uin 双门控 | impact=注入触发严格依赖登录判定，避免未登录误触发 | next=观察首次登录注入日志
+- remeber.exec.2: label=prev-snapshot | fact=_tick_once 两处调用点均传入检测前 prev_login_state，不再由已更新 inst 反推 prev | impact=修复状态更新时序导致的 prev 失真，幂等比较可靠 | next=验证重复登录不重复注入
+- remeber.exec.3: label=bs-uin-resolve | fact=check_via_bs 新增 _resolve_known_uin：WS表→instance_subsystem→login_cache 回退链 | impact=降低“BS connected 但实例未登录”的 uin 缺失概率 | next=线上检查 reason=uin_unknown 比例
+- remeber.docs.1: label=plan | fact=docs/current/plan.md 覆盖为本轮检索/改动/验证/回滚 | impact=执行证据链完整 | next=提交后补 commit id
+- remeber.docs.2: label=overview | fact=docs/current/overview.md 更新 scope/target/files/updated | impact=文档与当前改动一致 | next=后续版本继续滚动更新
+- remeber.docs.3: label=interface | fact=INTERFACE.md 仅刷新 Updated 时间戳 | impact=满足 update-style 约束且不复制正文 | next=接口签名变更时再增补段落
+- remeber.summary.1: label=root-cause | fact=BS API 查询依赖 uin 非容器名 | impact=无 uin 时只能 waiting | next=加强 name↔uin 建立
+- remeber.summary.2: label=fix-core | fact=注入触发改为判定结果驱动并绑定 prev 快照 | impact=注入链路稳定可解释 | next=灰度观察
+- remeber.summary.3: label=observability | fact=返回 reason=uin_unknown/method=bs_api | impact=可快速定位归属缺失 | next=接入日志统计
+- remeber.summary.4: label=quality | fact=py_compile 四文件全绿 | impact=基础语法门通过 | next=上线前做场景回归
+- remeber.summary.5: label=rollback | fact=单条 git restore 可回滚代码与文档 | impact=变更可逆 | next=发布窗口执行
