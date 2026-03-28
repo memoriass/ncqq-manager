@@ -708,3 +708,18 @@ export const instanceNetworkApi = {
             { method: 'POST', body: JSON.stringify(req) },
         ),
 };
+
+// ============ Bot 在线状态 API ============
+
+export interface BotStatusItem {
+    name: string;
+    uin: string;
+    nickname: string;
+    connected: boolean;
+    last_seen: number;
+}
+
+export const botApi = {
+    /** 列出所有已知 Bot（含已断线历史），connected=true 表示当前在线 */
+    list: () => request<BotStatusItem[]>('/api/bots'),
+};

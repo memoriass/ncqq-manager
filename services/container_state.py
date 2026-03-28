@@ -15,6 +15,22 @@ from services.log import logger
 from services.instance_subsystem import instance_subsystem
 from services.docker_async import async_login_checker, async_docker_manager
 
+
+def _trigger_bs_inject(name: str, result: Dict, inst) -> None:
+    """触发 BS 注入（fire-and-forget，在主事件循环中调度）。"""
+    try:
+        from services.docker_manager import docker_manager
+        prev = {"logged_in": inst.logged_in, "uin": inst.uin}
+        asyncio.get_event_loop().run_in_executor(
+            None,
+            docker_manager._on_login_detected,
+            name,
+            result,
+            prev,
+        )
+    except Exception as e:
+        logger.debug("BS 注入调度异常 [%s]: %s", name, e)
+
 # ============ 常量 ============
 
 _REFRESH_INTERVAL_MIN = 3      # 事件活跃时的刷新间隔（秒）
@@ -228,12 +244,29 @@ class ContainerStateEngine:
                     inst.http_port = ports.get("http_port", 0)
                     inst.webui_port = ports.get("webui_port", 0)
 
-        # ---- 2. 增量登录检测 — 纯异步 aiohttp ⭐ ----
+        # ---- 2. 增量登录检测 — SDK WS 主路径 + BS/HTTP 兜底 ⭐ ----
+        from services.napcat_ws_service import napcat_ws_service
         now = time.time()
         need_login_instances = []
         for name in running_local_names:
             inst = instance_subsystem.get(name)
             if not inst:
+                continue
+            # WS 已连接时快速命中，跳过轮询 TTL 检查（实时更新）
+            ws_result = napcat_ws_service.get_login_result(name)
+            if ws_result["logged_in"]:
+                old_uin = inst.uin
+                new_uin = ws_result.get("uin", "")
+                was_logged = inst.logged_in
+                inst.update_login(
+                    logged_in=True,
+                    uin=new_uin,
+                    stage="logged_in",
+                    method=ws_result.get("method", "sdk_ws"),
+                    reason=ws_result.get("reason", "ws_connected"),
+                )
+                if new_uin and (not was_logged or old_uin != new_uin):
+                    _trigger_bs_inject(name, ws_result, inst)
                 continue
             ttl = _LOGIN_TTL_OK if inst.logged_in else _LOGIN_TTL_FAIL
             if now - inst.login_ts >= ttl:
@@ -254,24 +287,17 @@ class ContainerStateEngine:
                     inst.update_login(
                         logged_in=result.get("logged_in", False),
                         uin=result.get("uin", ""),
+                        stage=result.get("stage", "waiting"),
+                        method=result.get("method", ""),
+                        reason=result.get("reason", ""),
                     )
-                    # P1修复：异步路径触发 BS 注入（首次登录 / 换号登录时）
                     new_uin = result.get("uin", "")
                     if result.get("logged_in") and new_uin:
                         prev_was_logged, prev_uin, _ = prev_login.get(
                             name, (False, "", "local")
                         )
                         if not prev_was_logged or prev_uin != new_uin:
-                            try:
-                                from services.docker_manager import docker_manager
-                                await asyncio.to_thread(
-                                    docker_manager._on_login_detected,
-                                    name,
-                                    result,
-                                    {"logged_in": prev_was_logged, "uin": prev_uin},
-                                )
-                            except Exception as e:
-                                logger.debug("异步路径 BS 注入异常: %s", e)
+                            _trigger_bs_inject(name, result, inst)
 
         # ---- 2.5 掉线扫码通知 — logged_in: true → false 时推送 ----
         for name, (was_logged_in, old_uin, nid) in prev_login.items():

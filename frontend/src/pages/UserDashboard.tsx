@@ -19,9 +19,10 @@ import { usePublicWebSocket } from '../hooks/usePublicWebSocket';
 import LazyQRImage from '../components/LazyQRImage';
 
 interface QRState {
-    status: 'logged_in' | 'loaded' | 'waiting' | 'error';
+    status: 'logged_in' | 'loaded' | 'waiting' | 'error' | 'scan_confirmed' | 'inject_pending' | 'injected' | 'onebot_ready' | 'loading';
     url?: string;
     uin?: string;
+    reason?: string;
 }
 
 export default function UserDashboard() {

@@ -25,6 +25,8 @@ interface ClusterConfig {
     init_bs_client_base_port: number;
     init_bs_napcat_host: string;
     init_bs_targets: string;
+    init_auto_join_groups_enabled: boolean;
+    init_auto_join_groups: string;
 }
 
 const DEFAULT_CONFIG: ClusterConfig = {
@@ -38,6 +40,8 @@ const DEFAULT_CONFIG: ClusterConfig = {
     init_bs_client_base_port: 6100,
     init_bs_napcat_host: "172.17.0.1",
     init_bs_targets: "[]",
+    init_auto_join_groups_enabled: false,
+    init_auto_join_groups: "[]",
 };
 
 export default function ClusterSettings() {
@@ -49,6 +53,8 @@ export default function ClusterSettings() {
     const [saving, setSaving] = useState(false);
     // BS 目标端点：独立列表 state，避免 JSON 序列化干扰编辑
     const [bsTargets, setBsTargets] = useState<string[]>([]);
+    // 自动加群通知：逐条列表，每个群号一项
+    const [autoGroups, setAutoGroups] = useState<string[]>([]);
 
     useEffect(() => {
         const fetchConfig = async () => {
@@ -62,6 +68,11 @@ export default function ClusterSettings() {
                     const arr = JSON.parse(merged.init_bs_targets || '[]');
                     setBsTargets(Array.isArray(arr) ? arr.filter(Boolean) : []);
                 } catch { setBsTargets([]); }
+                // 从 JSON 字符串还原自动加群群号
+                try {
+                    const grpArr = JSON.parse(merged.init_auto_join_groups || '[]');
+                    setAutoGroups(Array.isArray(grpArr) ? grpArr.filter(Boolean) : []);
+                } catch { setAutoGroups([]); }
             } catch (e) {
                 console.error("Failed to fetch cluster config", e);
             } finally {
@@ -83,8 +94,12 @@ export default function ClusterSettings() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            // 保存时将 bsTargets 列表序列化回 config
-            const saveConfig = { ...config, init_bs_targets: JSON.stringify(bsTargets.filter(Boolean)) };
+            // 序列化 bsTargets 和 autoGroups 回 JSON 字符串
+            const saveConfig = {
+                ...config,
+                init_bs_targets: JSON.stringify(bsTargets.filter(Boolean)),
+                init_auto_join_groups: JSON.stringify(autoGroups.filter(Boolean)),
+            };
             await nodeApi.saveClusterConfig(saveConfig);
             toast.success(t('config.saved') || 'Saved Successfully');
         } catch (e) {
@@ -385,6 +400,72 @@ export default function ClusterSettings() {
                                 </Stack>
                             </Grid>
                         </Grid>
+                    </Collapse>
+                </CardContent>
+            </Card>
+
+            {/* ── 自动加群通知设置 ── */}
+            <Card elevation={0} sx={{
+                borderRadius: 3, mt: 3, mb: 3,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+            }}>
+                <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                            {t('clusterConfig.autoJoinGroupsTitle')}
+                        </Typography>
+                        <FormControlLabel
+                            control={
+                                <Switch
+                                    checked={config.init_auto_join_groups_enabled}
+                                    onChange={() => handleToggle('init_auto_join_groups_enabled')}
+                                    color="primary"
+                                />
+                            }
+                            label={t('clusterConfig.autoJoinGroupsEnable')}
+                            labelPlacement="start"
+                            sx={{ mr: 0 }}
+                        />
+                    </Box>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        {t('clusterConfig.autoJoinGroupsDesc')}
+                    </Typography>
+                    <Collapse in={config.init_auto_join_groups_enabled}>
+                        <Stack spacing={1}>
+                            {autoGroups.map((gid, idx) => (
+                                <Box key={idx} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Chip label={idx + 1} size="small" sx={{ minWidth: 28, fontWeight: 700 }} />
+                                    <TextField
+                                        fullWidth size="small"
+                                        value={gid}
+                                        onChange={e => {
+                                            const next = [...autoGroups];
+                                            next[idx] = e.target.value;
+                                            setAutoGroups(next);
+                                        }}
+                                        placeholder={t('clusterConfig.autoJoinGroupsPlaceholder')}
+                                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : '#fff' } }}
+                                    />
+                                    <Tooltip title={t('common.delete') || 'Remove'}>
+                                        <IconButton size="small" color="error"
+                                            onClick={() => setAutoGroups(autoGroups.filter((_, i) => i !== idx))}>
+                                            <RemoveCircleOutlineIcon fontSize="small" />
+                                        </IconButton>
+                                    </Tooltip>
+                                </Box>
+                            ))}
+                        </Stack>
+                        <Button
+                            variant="outlined" size="small"
+                            startIcon={<AddCircleOutlineIcon />}
+                            onClick={() => setAutoGroups([...autoGroups, ''])}
+                            sx={{ mt: 1, alignSelf: 'flex-start', borderRadius: 2, textTransform: 'none' }}
+                        >
+                            {t('clusterConfig.autoJoinGroupsAdd')}
+                        </Button>
                     </Collapse>
                 </CardContent>
             </Card>

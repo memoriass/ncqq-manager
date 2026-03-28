@@ -47,7 +47,7 @@ class AsyncLoginChecker:
     async def check_login_onebot(self, http_port: int) -> Dict:
         """方案 A：OneBot HTTP API /get_login_info"""
         if not http_port or not self._session:
-            return {"logged_in": False}
+            return {"logged_in": False, "stage": "waiting"}
         try:
             async with self._session.post(
                 f"http://127.0.0.1:{http_port}/get_login_info",
@@ -63,69 +63,133 @@ class AsyncLoginChecker:
                         "uin": uid,
                         "nickname": result["data"].get("nickname", ""),
                         "method": "onebot",
+                        "stage": "logged_in",
+                        "reason": "onebot_http_ready",
                     }
         except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError,
                 ValueError, KeyError):
             pass
-        return {"logged_in": False}
+        return {"logged_in": False, "stage": "waiting"}
 
+
+    # DEPRECATED: check_login_webui 已不再被 check_login_status 调用。
+    # 原逻辑依赖 NapCat WebUI 路径（/api/qrcode、/plugin/.../api/public/info）
+    # 和本地日志文件特征关键词，NapCat 版本升级后极易失效。
+    # 新架构已改为 WS直连 → BS账号API → OneBot HTTP 三级检测，此函数保留供参考，
+    # 生产路径不再调用。
     async def check_login_webui(self, name: str, webui_port: int) -> Dict:
-        """方案 B：NapCat WebUI + 本地文件综合检测。"""
+        """[DEPRECATED] 方案 B：NapCat WebUI + 本地文件 + 日志特征综合检测。"""
         if not webui_port or not self._session:
-            return {"logged_in": False}
+            return {"logged_in": False, "stage": "waiting"}
         try:
-            # 并发请求 qrcode + public/info
             qr_task = self._fetch_json(
                 f"http://127.0.0.1:{webui_port}/api/qrcode", _INFO_TIMEOUT)
             info_task = self._fetch_json(
                 f"http://127.0.0.1:{webui_port}/plugin/napcat-plugin-builtin/api/public/info",
                 _INFO_TIMEOUT)
+            qr_data, info_data, log_stage = await asyncio.gather(
+                qr_task,
+                info_task,
+                self._detect_login_stage_from_logs(name),
+                return_exceptions=True,
+            )
 
-            qr_data, info_data = await asyncio.gather(
-                qr_task, info_task, return_exceptions=True)
+            napcat_alive = (
+                isinstance(info_data, dict)
+                and info_data.get("code") == 0
+                and "data" in info_data
+            )
+            has_qr_url = isinstance(qr_data, dict) and bool(qr_data.get("url"))
 
-            # 有二维码 → 确认未登录
-            if isinstance(qr_data, dict) and qr_data.get("url"):
-                return {"logged_in": False}
-
-            # NapCat 存活检测
-            napcat_alive = (isinstance(info_data, dict)
-                           and info_data.get("code") == 0
-                           and "data" in info_data)
-
-            # qrcode.png 是否停止刷新
             qr_stale = False
             try:
                 qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
                 if os.path.exists(qr_path):
-                    qr_stale = (time.time() - os.path.getmtime(qr_path)) > 30
+                    qr_stale = (time.time() - os.path.getmtime(qr_path)) > 15
                 else:
                     qr_stale = True
             except OSError:
                 pass
 
-            # 从配置文件提取 uin
             uin = self._get_uin_from_config(name)
+            log_result = log_stage if isinstance(log_stage, dict) else {}
+            if log_result.get("stage") == "logged_in" and uin:
+                return {
+                    "logged_in": True,
+                    "uin": uin,
+                    "nickname": "",
+                    "method": "log",
+                    "stage": "logged_in",
+                    "reason": log_result.get("reason", "log_detected"),
+                }
 
             if napcat_alive and qr_stale and uin:
                 return {
-                    "logged_in": True, "uin": uin,
-                    "nickname": "", "method": "webui",
+                    "logged_in": True,
+                    "uin": uin,
+                    "nickname": "",
+                    "method": "webui",
+                    "stage": "logged_in",
+                    "reason": "webui_alive_qr_stale_uin_ready",
+                }
+
+            if napcat_alive and uin:
+                injected = self._has_inject_marker(name, uin)
+                stage = "injected" if injected else "inject_pending"
+                return {
+                    "logged_in": False,
+                    "uin": uin,
+                    "method": "webui",
+                    "stage": stage,
+                    "reason": "webui_alive_uin_ready",
+                }
+
+            if napcat_alive and not has_qr_url:
+                return {
+                    "logged_in": False,
+                    "uin": uin,
+                    "method": log_result.get("method", "webui"),
+                    "stage": log_result.get("stage", "scan_confirmed"),
+                    "reason": log_result.get("reason", "webui_qr_disappeared"),
                 }
         except Exception:
             pass
-        return {"logged_in": False}
+        return {"logged_in": False, "stage": "waiting"}
 
     async def check_login_status(self, name: str,
                                   http_port: int, webui_port: int) -> Dict:
-        """级联检测：A(OneBot) → B(WebUI)。"""
-        result = await self.check_login_onebot(http_port)
-        if result["logged_in"]:
-            return result
-        result = await self.check_login_webui(name, webui_port)
-        if result["logged_in"]:
-            return result
-        return {"logged_in": False}
+        """三级级联检测：SDK WS → BS API → HTTP 兜底。
+
+        优先级：
+          1. napcat_ws_service（零网络开销，WS 已连接时直接返回）
+          2. BS 账号 API（BS 运行时辅助检测，10s TTL 缓存）
+          3. OneBot HTTP /get_login_info（兜底，仅 WS/BS 均无结果时请求）
+        WebUI/日志检测已弱化为不再调用（路径已失效）。
+        """
+        from services.napcat_ws_service import napcat_ws_service
+
+        # 1. SDK WS 直连（主路径）
+        r1 = napcat_ws_service.get_login_result(name)
+        if r1["logged_in"]:
+            logger.debug("登录检测[%s] WS主路径命中 uin=%s", name, r1.get("uin"))
+            return r1
+
+        # 2. BS 账号 API 辅助（次路径）
+        r2 = await napcat_ws_service.check_via_bs(name)
+        if r2["logged_in"]:
+            logger.debug("登录检测[%s] BS辅助命中 uin=%s", name, r2.get("uin"))
+            return r2
+
+        # 3. OneBot HTTP 兜底（仅 WS 未连接 + BS 无信号时）
+        if http_port:
+            r3 = await self.check_login_onebot(http_port)
+            if r3["logged_in"]:
+                logger.debug("登录检测[%s] HTTP兜底命中 uin=%s", name, r3.get("uin"))
+                return r3
+
+        # 均无信号：保留最佳 stage（优先取有 uin 的结果）
+        stage = r1.get("stage") or r2.get("stage") or "waiting"
+        return {"logged_in": False, "stage": stage}
 
     # ============ 批量检测 ============
 
@@ -170,6 +234,33 @@ class AsyncLoginChecker:
         except (aiohttp.ClientError, asyncio.TimeoutError,
                 json.JSONDecodeError, ValueError):
             return None
+
+    # DEPRECATED: _detect_login_stage_from_logs 已不再被调用。
+    # 仅由 check_login_webui（同样已废弃）内部使用，依赖日志关键词特征，
+    # NapCat 版本升级后失效。新架构使用 WS心跳/BS API/OneBot HTTP 三级检测。
+    async def _detect_login_stage_from_logs(self, name: str) -> Dict:
+        """[DEPRECATED] 基于容器最近日志提取登录阶段。"""
+        try:
+            logs = await async_docker_manager.get_logs(name, tail=80)
+        except Exception:
+            logs = ""
+        if not logs:
+            return {}
+        text = logs.lower()
+        if any(key in text for key in ["onebot", "bot online", "login success", "登录成功", "已登录"]):
+            return {"stage": "logged_in", "method": "log", "reason": "log_login_success"}
+        if any(key in text for key in ["ws client", "botshepherd", "注入", "client_endpoint"]):
+            return {"stage": "injected", "method": "log", "reason": "log_injected"}
+        if any(key in text for key in ["scan", "扫码", "confirm", "确认登录", "qrcode expired"]):
+            return {"stage": "scan_confirmed", "method": "log", "reason": "log_scan_confirmed"}
+        return {}
+
+    @staticmethod
+    def _has_inject_marker(name: str, uin: str) -> bool:
+        if not uin:
+            return False
+        marker = os.path.join(get_data_dir(), name, ".bs_injected", f"{uin}.done")
+        return os.path.isfile(marker)
 
     @staticmethod
     def _get_uin_from_config(name: str) -> str:

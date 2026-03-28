@@ -34,6 +34,7 @@ from routers.backup_router import router as backup_router
 from routers.scheduler_router import router as scheduler_router
 from routers.resource_router import router as resource_router
 from routers.botshepherd_router import router as botshepherd_router
+from routers.bot_api_router import router as bot_api_router
 
 
 # ============ 生命周期管理 ============
@@ -216,6 +217,7 @@ app.include_router(backup_router)
 app.include_router(scheduler_router)
 app.include_router(resource_router)
 app.include_router(botshepherd_router)
+app.include_router(bot_api_router)
 
 
 # ============ 全局异常处理器 ============
