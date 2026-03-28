@@ -171,6 +171,25 @@ class NapCatWsService:
             e.disconnect_ts = time.time()
         logger.info("NapCat WS 连接断开（宽限期保活）: name=%s", name)
 
+    def ensure_uin(self, name: str, uin: str) -> None:
+        """事件中检测到真实 uin 时补全/更新注册表（幂等）。
+
+        解决场景：WS 连接建立时 header X-Self-Id 为空/"0"（BS 探测），
+        后续心跳/lifecycle 事件中首次携带真实 uin 时写入注册表，
+        使 get_login_result 能正确返回 logged_in=True。
+        """
+        if not uin:
+            return
+        e = self._table.get(name)
+        if not e:
+            # 注册表中无条目（on_connect 因 header_sid=0 被跳过），补注册
+            self.on_connect(name, uin)
+            return
+        if not e.uin or e.uin != uin:
+            old = e.uin
+            e.uin = uin
+            logger.info("WS 事件补全 uin: name=%s old=%s new=%s", name, old, uin)
+
     def on_heartbeat(self, name: str, online: bool) -> None:
         """来自 WS 心跳事件"""
         e = self._table.get(name)
@@ -264,6 +283,33 @@ class NapCatWsService:
             }
         return {"logged_in": False, "uin": e.uin, "stage": "waiting", "method": "sdk_ws"}
 
+    def _resolve_known_uin(self, name: str) -> str:
+        """解析实例可用 uin（WS注册表 → instance_subsystem → login_cache）。"""
+        e = self._table.get(name)
+        if e and e.uin:
+            return str(e.uin)
+
+        # 兜底1：容器状态引擎内存态（可能由 HTTP 检测更新）
+        try:
+            from services.instance_subsystem import instance_subsystem
+            inst = instance_subsystem.get(name)
+            if inst and inst.uin:
+                return str(inst.uin)
+        except Exception:
+            pass
+
+        # 兜底2：历史登录缓存（兼容旧链路）
+        try:
+            from services.docker_login import read_login_cache
+            c = read_login_cache(name) or {}
+            uin = c.get("uin", "")
+            if uin:
+                return str(uin)
+        except Exception:
+            pass
+
+        return ""
+
     # ------------------------------------------------------------------
     # BS 辅助检测（兜底，异步）
     # ------------------------------------------------------------------
@@ -272,7 +318,7 @@ class NapCatWsService:
         """
         通过 BS /api/accounts/{uin}/online-status 做辅助检测。
         ★ account_id 必须是 QQ 号（uin），非容器名。
-        优先从注册表取已知 uin；若 uin 未知则跳过 BS，降级到 waiting。
+        优先从注册表取已知 uin；若 uin 未知则尝试 instance_subsystem/login_cache。
         结果带短 TTL 缓存，避免频繁请求 BS。
         返回格式与 check_login_status 兼容。
         """
@@ -286,14 +332,16 @@ class NapCatWsService:
             if cached and (time.time() - cached[0]) < _BS_CACHE_TTL:
                 return cached[1]
 
-            # ★ 修复：BS account_id = QQ 号（uin），不是容器名
-            # 从注册表取已知 uin（WS 曾连接过时存在）
-            e = self._table.get(name)
-            known_uin = e.uin if (e and e.uin) else ""
+            # ★ BS account_id = QQ号(uin)；优先使用可解析的已知 uin
+            known_uin = self._resolve_known_uin(name)
             if not known_uin:
-                # uin 未知（WS 从未建立），无法查 BS，直接降级
-                logger.debug("BS 辅助检测跳过 [%s]: uin 未知（WS 尚未连接过）", name)
-                return {"logged_in": False, "stage": "waiting"}
+                logger.debug("BS 辅助检测跳过 [%s]: uin 未知（WS/实例缓存均缺失）", name)
+                return {
+                    "logged_in": False,
+                    "stage": "waiting",
+                    "method": "bs_api",
+                    "reason": "uin_unknown",
+                }
 
             result = await asyncio.wait_for(
                 botshepherd_manager.get_account_online(known_uin), timeout=3.0

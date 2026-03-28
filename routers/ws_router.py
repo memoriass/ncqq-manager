@@ -247,6 +247,11 @@ def _handle_ob11_event(
         return
     seen_sids.add(sid)
 
+    # ★ 核心修复：事件中的 self_id 是真实 uin，补全到 WS 注册表
+    # 解决"扫码登录后 uin 未写入注册表 → 实例卡在待登录"问题
+    if name:
+        napcat_ws_service.ensure_uin(name, sid)
+
     post_type = event.get("post_type", "")
     meta_type = event.get("meta_event_type", "")
     notice_type = event.get("notice_type", "")

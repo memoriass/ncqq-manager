@@ -16,11 +16,17 @@ from services.instance_subsystem import instance_subsystem
 from services.docker_async import async_login_checker, async_docker_manager
 
 
-def _trigger_bs_inject(name: str, result: Dict, inst) -> None:
-    """触发 BS 注入（fire-and-forget，在主事件循环中调度）。"""
+def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
+    """按登录判定结果触发 BS 注入（fire-and-forget）。"""
     try:
+        # 注入依赖登录判定：未登录或缺少 uin 时不触发
+        if not result.get("logged_in"):
+            return
+        uin = str(result.get("uin", ""))
+        if not uin:
+            return
+
         from services.docker_manager import docker_manager
-        prev = {"logged_in": inst.logged_in, "uin": inst.uin}
         asyncio.get_event_loop().run_in_executor(
             None,
             docker_manager._on_login_detected,
@@ -258,6 +264,7 @@ class ContainerStateEngine:
                 old_uin = inst.uin
                 new_uin = ws_result.get("uin", "")
                 was_logged = inst.logged_in
+                prev_login_state = {"logged_in": was_logged, "uin": old_uin}
                 inst.update_login(
                     logged_in=True,
                     uin=new_uin,
@@ -266,7 +273,7 @@ class ContainerStateEngine:
                     reason=ws_result.get("reason", "ws_connected"),
                 )
                 if new_uin and (not was_logged or old_uin != new_uin):
-                    _trigger_bs_inject(name, ws_result, inst)
+                    _trigger_bs_inject(name, ws_result, prev_login_state)
                 continue
             ttl = _LOGIN_TTL_OK if inst.logged_in else _LOGIN_TTL_FAIL
             if now - inst.login_ts >= ttl:
@@ -297,7 +304,11 @@ class ContainerStateEngine:
                             name, (False, "", "local")
                         )
                         if not prev_was_logged or prev_uin != new_uin:
-                            _trigger_bs_inject(name, result, inst)
+                            prev_login_state = {
+                                "logged_in": prev_was_logged,
+                                "uin": prev_uin,
+                            }
+                            _trigger_bs_inject(name, result, prev_login_state)
 
         # ---- 2.5 掉线扫码通知 — logged_in: true → false 时推送 ----
         for name, (was_logged_in, old_uin, nid) in prev_login.items():
