@@ -48,6 +48,7 @@ class ContainerInstance:
 
     def to_public_dict(self) -> Dict:
         """容器列表 API 返回格式 — 兼容 state_engine.get_containers()。"""
+        uin_digits = "".join(ch for ch in str(self.uin) if ch.isdigit()) if self.uin else ""
         d: Dict = {
             "id": self.container_id,
             "name": self.name,
@@ -59,6 +60,8 @@ class ContainerInstance:
             "bot_heartbeat_ts": self.bot_heartbeat_ts,
             "login_stage": self.login_stage,
             "login_method": self.login_method,
+            # 头像 URL — 本地代理缓存（无需认证）；未登录时为空字符串
+            "bot_avatar": f"/api/resource/avatar/{uin_digits}" if uin_digits else "",
         }
         if self.logged_in and self.uin:
             d["uin"] = self.uin

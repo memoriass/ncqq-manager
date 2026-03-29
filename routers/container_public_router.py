@@ -15,23 +15,20 @@ router = APIRouter(prefix="/api", tags=["containers"])
 @router.get("/public/containers", dependencies=[Depends(public_speed_limit(0.5))])
 async def api_public_containers():
     """公开容器列表 — 从状态引擎读内存快照，零阻塞。
-    响应包含 avatar_url 字段，ncqq 插件可直接使用，无需额外请求。
+    响应包含 bot_avatar 字段，ncqq 插件可直接使用，无需额外请求。
     """
     containers = state_engine.get_containers()
     result = []
     for container in containers:
-        uin = container.get("uin", "")
-        uin_digits = "".join(ch for ch in str(uin) if ch.isdigit()) if uin else ""
         result.append({
             "id": container.get("id", ""),
             "name": container["name"],
             "status": container["status"],
             "node_id": container.get("node_id", "local"),
-            "uin": uin,
+            "uin": container.get("uin", ""),
             "bot_online": container.get("bot_online", False),
             "bot_heartbeat_ts": container.get("bot_heartbeat_ts", 0),
-            # 供插件直接使用的本地缓存头像地址（无需认证）
-            "avatar_url": f"/api/resource/avatar/{uin_digits}" if uin_digits else "",
+            "bot_avatar": container.get("bot_avatar", ""),
         })
     return {"status": "ok", "containers": result}
 
