@@ -100,6 +100,12 @@ class LifecycleMixin:
                 _generate_onebot11_config_with_ws_client(config_dir, ws_url, ws_token, uin)
                 self._mark_bs_inject(data_dir_base, name, uin)
                 logger.info("BS/WS 注入完成并写入持久标记: %s uin=%s", name, uin)
+                # 重启前先写入 webui.json autoLoginAccount，NapCat 重启后可快速登录，无需再扫码。
+                try:
+                    self._sync_webui_auto_login(name, uin)  # type: ignore[attr-defined]
+                    logger.info("已同步 webui.json autoLoginAccount: %s uin=%s", name, uin)
+                except Exception as we:
+                    logger.debug("同步 webui autoLoginAccount 失败（不影响注入）: %s", we)
                 # NapCat 不会热重载配置文件，注入后必须重启容器才能生效。
                 # 通过 fire-and-forget 异步调度重启，避免阻塞当前线程。
                 self._schedule_container_restart(name)

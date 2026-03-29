@@ -5,8 +5,9 @@
 """
 import os
 import urllib.request
-from fastapi import APIRouter, Query, Path, Response
+from fastapi import APIRouter, Query, Path, Response, Depends
 from fastapi.responses import FileResponse
+from middleware.rate_limiter import public_speed_limit
 from services.log import logger
 
 router = APIRouter(prefix="/api/resource", tags=["resource"])
@@ -61,7 +62,7 @@ async def get_wallpapers(category: str = Query(default="user-dashboard")):
     return {"status": "ok", **data}
 
 
-@router.get("/avatar/{uin}")
+@router.get("/avatar/{uin}", dependencies=[Depends(public_speed_limit(2.0))])
 async def get_avatar(uin: str = Path(..., pattern=r"^\d{5,12}$")):
     """代理并缓存 QQ 头像到 resource/avatars/{uin}.jpg。
 

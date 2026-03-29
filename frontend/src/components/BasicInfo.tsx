@@ -178,7 +178,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
     const isLoggedIn = stats.uin && stats.uin !== '未登录 / Not Logged In';
     const qqNumber = stats.uin ? String(stats.uin).replace(/\D/g, '') : '';
     const avatarUrl = (isLoggedIn && qqNumber)
-        ? `https://q1.qlogo.cn/g?b=qq&nk=${qqNumber}&s=640`
+        ? `/api/resource/avatar/${qqNumber}`
         : "https://napneko.github.io/assets/newnewlogo.png";
 
     // 3色状态灯：灰=停止，蓝=运行待登录，绿=运行已登录
