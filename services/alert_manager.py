@@ -80,6 +80,14 @@ class AlertManager:
         row = db.fetchone("SELECT * FROM alert_rules WHERE id=?", (rule_id,))
         return self._parse_rule(row) if row else None
 
+    def get_history(self, limit: int = 50) -> List[Dict]:
+        """返回最近 limit 条告警历史记录。"""
+        rows = db.fetchall(
+            "SELECT * FROM alert_history ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
+        return [dict(r) for r in rows]
+
     def _is_local_allowed(self) -> bool:
         """读取 settings 中的 allow_local_webhook 开关"""
         return bool(db.get_setting("allow_local_webhook", False))
