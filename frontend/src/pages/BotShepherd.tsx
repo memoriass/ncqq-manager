@@ -4,7 +4,7 @@ import {
     Alert, useTheme, IconButton, Tooltip, Table, TableBody,
     TableCell, TableContainer, TableHead, TableRow,
     Dialog, DialogTitle, DialogContent, DialogActions,
-    TextField, Switch, FormControlLabel, Pagination, InputAdornment,
+    TextField, Switch, FormControlLabel, Popover,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
@@ -24,13 +24,7 @@ import PersonIcon from '@mui/icons-material/Person';
 import WifiIcon from '@mui/icons-material/Wifi';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
 import TerminalIcon from '@mui/icons-material/Terminal';
-import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
-import MemoryIcon from '@mui/icons-material/Memory';
-import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
 import HubIcon from '@mui/icons-material/Hub';
-import SearchIcon from '@mui/icons-material/Search';
-import CloseIcon from '@mui/icons-material/Close';
 import {
     botshepherdApi, type BotShepherdStatus,
     type BSConnectionsResponse, type BSConnection,
@@ -69,11 +63,8 @@ export default function BotShepherd() {
     const [logAuto, setLogAuto] = useState(true);
     const logEndRef = useRef<HTMLDivElement>(null);
 
-    // 激活连接 Dialog 状态
-    const [activationDlgOpen, setActivationDlgOpen] = useState(false);
-    const [activationSearch, setActivationSearch] = useState('');
-    const [activationPage, setActivationPage] = useState(1);
-    const ACTIVATION_PAGE_SIZE = 10;
+    // 激活连接 Popover 状态
+    const [activationMenuAnchor, setActivationMenuAnchor] = useState<HTMLElement | null>(null);
 
     const fetchLogs = useCallback(async () => {
         setLogLoading(true);
@@ -132,18 +123,6 @@ export default function BotShepherd() {
 
     const isRunning = status?.running ?? false;
     const activation = status?.activation;
-    const serviceStats = useMemo(() => {
-        const activationReady = Boolean(activation?.connected && activation?.self_id);
-        return {
-            installed: status?.installed ? 1 : 0,
-            initialized: status?.initialized ? 1 : 0,
-            running: status?.running ? 1 : 0,
-            activation: activationReady ? 1 : 0,
-        };
-    }, [activation, status]);
-    const activationStatusLabel = activation?.connected
-        ? t('botshepherd.activationConnected')
-        : t('botshepherd.activationDisconnected');
 
     // ---- 连接 CRUD ----
     const connEntries = useMemo(() => Object.entries(connData?.connections ?? {}), [connData]);
@@ -286,7 +265,7 @@ export default function BotShepherd() {
                         <Tooltip title={t('botshepherd.activationStatus')}>
                             <Button variant="outlined" startIcon={<HubIcon />}
                                 color={activation?.connected ? 'success' : 'inherit'}
-                                onClick={() => setActivationDlgOpen(true)}>
+                                onClick={e => setActivationMenuAnchor(e.currentTarget)}>
                                 {t('botshepherd.activationStatus')}
                             </Button>
                         </Tooltip>

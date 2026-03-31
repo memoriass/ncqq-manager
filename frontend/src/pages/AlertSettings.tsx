@@ -54,13 +54,13 @@ export default function AlertSettings() {
 
     useEffect(() => { fetchData(); }, []);
 
-    /** 打开哨兵 Dialog，同时加载在线 Bot 列表 */
+    /** 打开哨兵 Dialog，同时加载在线 Bot 列表（有 name 即可显示，不强要求 uin） */
     const openSentinelDialog = async () => {
         setSentinelForm({ ...EMPTY_SENTINEL });
         setSentinelOpen(true);
         try {
             const bots = await botApi.list();
-            setOnlineBots(bots.filter(b => b.connected && b.uin));
+            setOnlineBots(bots.filter(b => b.connected && b.name));
         } catch (e) { console.error(e); }
     };
 

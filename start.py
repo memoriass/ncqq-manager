@@ -244,22 +244,19 @@ BOTSHEPHERD_DIR = _resolve_botshepherd_dir()
 
 
 def _bs_venv_python() -> str:
-    """返回 BotShepherd 虚拟环境中的 python 路径（优先 .venv，fallback venv）。"""
-    for venv_name in (".venv", "venv"):
-        venv_dir = os.path.join(BOTSHEPHERD_DIR, venv_name)
-        if sys.platform == "win32":
-            p = os.path.join(venv_dir, "Scripts", "python.exe")
-        else:
-            p = os.path.join(venv_dir, "bin", "python")
-        if os.path.isfile(p):
-            return p
-    return sys.executable
+    """返回 BotShepherd venv 中的 python 路径（只找 venv/，由 uv 创建）。"""
+    venv_dir = os.path.join(BOTSHEPHERD_DIR, "venv")
+    if sys.platform == "win32":
+        p = os.path.join(venv_dir, "Scripts", "python.exe")
+    else:
+        p = os.path.join(venv_dir, "bin", "python")
+    return p if os.path.isfile(p) else sys.executable
 
 
 def _ensure_bs_deps(uv_bin: str) -> bool:
-    """用 uv 维护 BotShepherd/.venv：首次安装或 requirements.txt 有更新时自动重装。"""
+    """用 uv 维护 BotShepherd/venv：首次安装或 requirements.txt 有更新时自动重装。"""
     req_file = os.path.join(BOTSHEPHERD_DIR, "requirements.txt")
-    venv_dir = os.path.join(BOTSHEPHERD_DIR, ".venv")
+    venv_dir = os.path.join(BOTSHEPHERD_DIR, "venv")
     cfg_file = os.path.join(venv_dir, "pyvenv.cfg")
 
     if not os.path.isfile(req_file):
@@ -268,18 +265,16 @@ def _ensure_bs_deps(uv_bin: str) -> bool:
 
     need_install = not os.path.isfile(cfg_file)
     if not need_install:
-        # requirements.txt 比 pyvenv.cfg 更新 → 子模块有升级
         need_install = os.path.getmtime(req_file) > os.path.getmtime(cfg_file)
 
     if not need_install:
         info("BotShepherd 依赖已是最新，跳过安装")
         return True
 
-    # 创建 .venv（仅首次）
     if not os.path.isfile(cfg_file):
-        info("正在为 BotShepherd 创建 uv 虚拟环境 (.venv)...")
+        info("正在为 BotShepherd 创建 uv 虚拟环境 (venv)...")
         r = subprocess.run(
-            [uv_bin, "venv", ".venv", "--seed"],
+            [uv_bin, "venv", "venv", "--seed"],
             capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
         )
         if r.returncode != 0:
@@ -288,7 +283,6 @@ def _ensure_bs_deps(uv_bin: str) -> bool:
     else:
         info("检测到 BotShepherd/requirements.txt 有更新，正在同步依赖...")
 
-    # 安装/更新依赖
     env = {**os.environ, "VIRTUAL_ENV": venv_dir, "PYTHONIOENCODING": "utf-8"}
     r = subprocess.run(
         [uv_bin, "pip", "install", "-q", "-r", "requirements.txt"],
@@ -318,7 +312,7 @@ def check_botshepherd():
     if uv_bin:
         if not _ensure_bs_deps(uv_bin):
             warn("BotShepherd 依赖安装失败，可在管理面板中重试")
-            warn("手动修复: cd BotShepherd && uv venv .venv --seed && uv pip install -r requirements.txt")
+            warn("手动修复: cd BotShepherd && uv venv venv --seed && uv pip install -r requirements.txt")
     else:
         warn("未检测到 uv，跳过 BotShepherd 依赖管理（若缺少依赖将在启动时报错）")
 

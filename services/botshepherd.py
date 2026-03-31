@@ -29,22 +29,19 @@ BOTSHEPHERD_DEFAULT_PORT = 5100
 
 
 def _get_venv_python() -> Optional[str]:
-    """返回 BS venv 中的 python 路径（优先 .venv，fallback 旧 venv/）。"""
-    for venv_name in (".venv", "venv"):
-        venv_dir = os.path.join(BOTSHEPHERD_DIR, venv_name)
-        if sys.platform == "win32":
-            p = os.path.join(venv_dir, "Scripts", "python.exe")
-        else:
-            p = os.path.join(venv_dir, "bin", "python")
-        if os.path.isfile(p):
-            return p
-    return None
+    """返回 BS venv 中的 python 路径（只找 venv/，由 uv 创建）。"""
+    venv_dir = os.path.join(BOTSHEPHERD_DIR, "venv")
+    if sys.platform == "win32":
+        p = os.path.join(venv_dir, "Scripts", "python.exe")
+    else:
+        p = os.path.join(venv_dir, "bin", "python")
+    return p if os.path.isfile(p) else None
 
 
-def _ensure_bs_deps_async(uv_bin: str) -> bool:
-    """在后台线程中用 uv 维护 BS/.venv：首次或 requirements.txt 更新后自动重装。"""
+def _bs_ensure_venv(uv_bin: str) -> bool:
+    """用 uv 在 BS 目录下创建名为 venv 的虚拟环境并安装依赖；幂等，仅在需要时操作。"""
     req_file = os.path.join(BOTSHEPHERD_DIR, "requirements.txt")
-    venv_dir = os.path.join(BOTSHEPHERD_DIR, ".venv")
+    venv_dir = os.path.join(BOTSHEPHERD_DIR, "venv")
     cfg_file = os.path.join(venv_dir, "pyvenv.cfg")
 
     if not os.path.isfile(req_file):
@@ -58,11 +55,11 @@ def _ensure_bs_deps_async(uv_bin: str) -> bool:
 
     if not os.path.isfile(cfg_file):
         r = subprocess.run(
-            [uv_bin, "venv", ".venv", "--seed"],
+            [uv_bin, "venv", "venv", "--seed"],
             capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
         )
         if r.returncode != 0:
-            logger.error(f"BS uv venv 创建失败: {r.stderr or r.stdout}")
+            logger.error("BS uv venv 创建失败: %s", r.stderr or r.stdout)
             return False
 
     env = {**os.environ, "VIRTUAL_ENV": venv_dir, "PYTHONIOENCODING": "utf-8"}
@@ -72,7 +69,7 @@ def _ensure_bs_deps_async(uv_bin: str) -> bool:
         env=env, timeout=300,
     )
     if r.returncode != 0:
-        logger.error(f"BS 依赖安装失败: {r.stderr or r.stdout}")
+        logger.error("BS 依赖安装失败: %s", r.stderr or r.stdout)
         return False
     logger.info("BS 依赖同步完成")
     return True
@@ -227,19 +224,19 @@ class BotShepherdManager:
 
     async def setup(self) -> Dict[str, Any]:
         if not self.installed:
-            return {"status": "error", "message": f"botshepherd/ 目录缺失（检查路径: {BOTSHEPHERD_DIR}）"}
+            return {"status": "error", "message": f"botshepherd/ 目录缺失（检查路径: {BOTSHEPHERD_DIR})"}
         logger.info("BotShepherd setup 开始...")
 
-        # ── 步骤 1：用 uv 维护 .venv 与依赖 ──────────────────────────
+        # 用 uv 确保 BS venv 存在并依赖已安装
         uv_bin = os.environ.get("UV_BIN") or shutil.which("uv")
         if uv_bin:
-            ok = await asyncio.to_thread(_ensure_bs_deps_async, uv_bin)
+            ok = await asyncio.to_thread(_bs_ensure_venv, uv_bin)
             if not ok:
                 return {"status": "error", "message": "BotShepherd 依赖安装失败，请查看服务端日志"}
         else:
             logger.warning("未检测到 uv，跳过依赖安装（若缺少依赖将在启动时报错）")
 
-        # ── 步骤 2：用 .venv python 初始化配置目录（--setup）──────────
+        # 用 BS venv python 执行 --setup 初始化配置目录
         python = _get_venv_python() or sys.executable
         env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         proc = await asyncio.to_thread(
@@ -251,6 +248,34 @@ class BotShepherdManager:
             return {"status": "error", "message": proc.stderr or proc.stdout}
         logger.info("BotShepherd setup 完成")
         return {"status": "ok", "message": "setup complete"}
+
+    async def sync_deps(self) -> Dict[str, Any]:
+        """强制重新同步 BS venv 依赖（用于环境损坏时恢复）。"""
+        if not self.installed:
+            return {"status": "error", "message": "BotShepherd 未安装"}
+        uv_bin = os.environ.get("UV_BIN") or shutil.which("uv")
+        if not uv_bin:
+            return {"status": "error", "message": "未检测到 uv，无法同步依赖"}
+        req_file = os.path.join(BOTSHEPHERD_DIR, "requirements.txt")
+        venv_dir = os.path.join(BOTSHEPHERD_DIR, "venv")
+        cfg_file = os.path.join(venv_dir, "pyvenv.cfg")
+        if not os.path.isfile(cfg_file):
+            ok = await asyncio.to_thread(_bs_ensure_venv, uv_bin)
+            if not ok:
+                return {"status": "error", "message": "BS venv 创建失败，请查看服务端日志"}
+            return {"status": "ok", "message": "BS venv 已重建并同步依赖"}
+        env = {**os.environ, "VIRTUAL_ENV": venv_dir, "PYTHONIOENCODING": "utf-8"}
+        r = await asyncio.to_thread(
+            subprocess.run,
+            [uv_bin, "pip", "install", "-q", "-r", req_file],
+            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+            env=env, timeout=300,
+        )
+        if r.returncode != 0:
+            logger.error("BS sync_deps 失败: %s", r.stderr or r.stdout)
+            return {"status": "error", "message": r.stderr or r.stdout}
+        logger.info("BS 依赖同步完成")
+        return {"status": "ok", "message": "依赖同步完成"}
 
     def start(self) -> Dict[str, Any]:
         if self.running:

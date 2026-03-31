@@ -119,7 +119,7 @@ class NapCatApiProxy:
 
 
 class _ConnEntry:
-    __slots__ = ("uin", "nickname", "connected", "connect_ts", "disconnect_ts", "last_hb_ts", "hb_online")
+    __slots__ = ("uin", "nickname", "connected", "connect_ts", "disconnect_ts", "last_hb_ts", "hb_online", "last_seen")
 
     def __init__(self, uin: str = "", nickname: str = ""):
         self.uin: str = uin
@@ -129,6 +129,7 @@ class _ConnEntry:
         self.disconnect_ts: float = 0.0
         self.last_hb_ts: float = 0.0
         self.hb_online: Optional[bool] = None
+        self.last_seen: float = 0.0  # 最后一次在线时间戳（connect_ts 或 disconnect_ts）
 
     def is_alive(self) -> bool:
         """WS 在线 OR 断开宽限期内"""
@@ -160,6 +161,7 @@ class NapCatWsService:
         e.nickname = nickname
         e.connected = True
         e.connect_ts = time.time()
+        e.last_seen = e.connect_ts
         e.disconnect_ts = 0.0
         logger.info("NapCat WS 连接注册: name=%s uin=%s nickname=%s", name, uin, nickname)
 
@@ -169,6 +171,7 @@ class NapCatWsService:
         if e:
             e.connected = False
             e.disconnect_ts = time.time()
+            e.last_seen = e.disconnect_ts
         logger.info("NapCat WS 连接断开（宽限期保活）: name=%s", name)
 
     def ensure_uin(self, name: str, uin: str) -> None:
