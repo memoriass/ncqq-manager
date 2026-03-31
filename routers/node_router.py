@@ -37,7 +37,7 @@ async def get_cluster_config(session: dict = Depends(get_current_user)):
             "webui_base_port": app_config.get("webui_base_port"),
             "http_base_port": app_config.get("http_base_port"),
             "ws_base_port": app_config.get("ws_base_port"),
-            "api_key": app_config.get("api_key"),
+            "api_key": ("***" if app_config.get("api_key") else ""),
             "data_dir": app_config.get("data_dir"),
             "init_ws_client_enabled": app_config.get("init_ws_client_enabled", False),
             "init_ws_client_url": app_config.get("init_ws_client_url", "ws://127.0.0.1:5100/onebot/v11/ws"),

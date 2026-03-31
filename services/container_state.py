@@ -57,6 +57,8 @@ class ContainerStateEngine:
         self._running = False
         self._task: asyncio.Task | None = None
         self._force_event: asyncio.Event | None = None  # 操作/事件后立即触发刷新
+        # 首次 tick 完成前不发上线通知（避免启动时误报所有在线容器）
+        self._engine_initialized: bool = False
 
         # ---- 监控指标（§9 — 观测性） ----
         self._last_tick_duration: float = 0.0   # 最近一次 tick 耗时（秒）
@@ -221,19 +223,38 @@ class ContainerStateEngine:
         # 清理已不存在的容器
         instance_subsystem.cleanup(active_names)
 
-        # ---- 1.6 实例离线检测 — running → 非 running 时触发 webhook ----
+        # ---- 1.6 实例上线/离线检测 — running 集合差集触发通知 ----
         curr_running: set = set()
         for inst in instance_subsystem.get_all():
             if inst.status == "running":
                 curr_running.add((inst.name, inst.node_id))
+        from services.alert_manager import alert_manager
+
+        # 离线：running → 非 running
         went_offline = prev_running - curr_running
         if went_offline:
-            from services.alert_manager import alert_manager
             for name, node_id in went_offline:
+                inst = instance_subsystem.get(name)
+                uin = inst.uin if inst else ""
                 try:
-                    await alert_manager.notify_instance_offline(name, node_id)
+                    await alert_manager.notify_instance_offline(name, node_id, uin)
                 except Exception as e:
                     logger.debug("离线通知异常: %s", e)
+
+        # 上线：非 running → running（首次 tick 跳过，避免启动时误报）
+        came_online = curr_running - prev_running
+        if came_online and self._engine_initialized:
+            for name, node_id in came_online:
+                inst = instance_subsystem.get(name)
+                uin = inst.uin if inst else ""
+                try:
+                    await alert_manager.notify_instance_online(name, node_id, uin)
+                except Exception as e:
+                    logger.debug("上线通知异常: %s", e)
+
+        # 首次 tick 完成后标记初始化完成
+        if not self._engine_initialized:
+            self._engine_initialized = True
 
         # ---- 1.5 批量解析端口（运行中的本地容器）— aiodocker 纯异步 ⭐ ----
         need_ports = [n for n in running_local_names

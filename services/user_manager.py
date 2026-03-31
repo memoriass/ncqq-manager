@@ -162,7 +162,7 @@ class UserManager:
                 "permission": u["permission"],
                 "registerTime": u.get("registerTime", ""),
                 "loginTime": u.get("loginTime", ""),
-                "apiKey": u.get("apiKey", ""),
+                "hasApiKey": bool(u.get("apiKey", "")),
                 "instances": u.get("instances", []),
                 "instanceCount": len(u.get("instances", [])),
             })

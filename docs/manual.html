@@ -763,7 +763,8 @@ curl http://localhost:8000/api/containers?apikey=YOUR_API_KEY</code></pre>
 <tr><td><code>GET</code></td><td><code>/api/containers</code></td><td>容器列表（完整信息）</td><td>登录</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/containers</code></td><td>创建容器</td><td>管理员</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/containers/{name}/action</code></td><td>容器操作（start/stop/restart/delete）</td><td>登录</td></tr>
-<tr><td><code>GET</code></td><td><code>/api/containers/{name}/stats</code></td><td>容器统计信息</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers/{name}/stats</code></td><td>容器统计信息（含 <code>last_event</code> 字段，见下方说明）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers/{name}/events</code></td><td>实例事件 SSE 流（start/stop/die 等生命周期事件）</td><td>登录</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/containers/{name}/files</code></td><td>文件/目录列表（<code>?path=</code> 指定子目录）</td><td>登录</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/containers/{name}/config/{filename}</code></td><td>保存文件内容</td><td>登录</td></tr>
 <tr><td><code>DELETE</code></td><td><code>/api/containers/{name}/files</code></td><td>删除文件或目录（<code>?path=</code> 必填，禁止删根目录）</td><td>登录</td></tr>

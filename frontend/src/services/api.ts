@@ -41,7 +41,7 @@ export interface Node {
     id: string;
     name: string;
     address: string;
-    api_key: string;
+    api_key?: string; // 服务端不再下发，前端仅供编辑表单暂存
     status?: string;
     container_count?: number;
     ping?: number;
@@ -71,7 +71,7 @@ export interface User {
     uuid: string;
     userName: string;
     permission: number;
-    api_key?: string;
+    hasApiKey?: boolean; // 列表接口仅返回是否已配置，不返回明文
     instances?: InstanceRef[];
 }
 
@@ -202,7 +202,7 @@ export const publicApi = {
     },
 
     // 获取二维码（不走 request 封装，避免 401 事件）— 单实例管理页面用
-    getQR: async (name: string, nodeId: string = 'local'): Promise<{ status: string; url?: string; type?: string; uin?: string }> => {
+    getQR: async (name: string, nodeId: string = 'local'): Promise<{ status: string; url?: string; type?: string; uin?: string; generated_at?: number; expires_in?: number; expires_at?: number }> => {
         const response = await fetch(`${API_BASE}/containers/${name}/qrcode?node_id=${nodeId}`, {
             credentials: 'include',
         });
@@ -271,7 +271,7 @@ export const containerApi = {
 
     // 获取二维码
     getQR: (name: string, nodeId: string = 'local') =>
-        request<{ status: string; url?: string; type?: string; uin?: string }>(`/containers/${name}/qrcode?node_id=${nodeId}`),
+        request<{ status: string; url?: string; type?: string; uin?: string; generated_at?: number; expires_in?: number; expires_at?: number }>(`/containers/${name}/qrcode?node_id=${nodeId}`),
 
     // 刷新登录状态（管理员用，走 request 封装含 401 处理）
     refreshLogin: (name: string, nodeId: string = 'local') =>
@@ -569,6 +569,20 @@ export const setupApi = {
 
 // ============ BotShepherd API ============
 
+export interface BSActivationStatus {
+    enabled: boolean;
+    running: boolean;
+    status: string;
+    url: string;
+    self_id: string;
+    connected: boolean;
+    last_seen: number;
+    last_error: string;
+    last_connect_at: number;
+    last_disconnect_at: number;
+    source: string;
+}
+
 export interface BotShepherdStatus {
     installed: boolean;
     initialized: boolean;
@@ -578,6 +592,7 @@ export interface BotShepherdStatus {
     auto_start: boolean;
     dir: string;
     webui_port: number | null;
+    activation?: BSActivationStatus;
 }
 
 export interface BSConnectionStatus {

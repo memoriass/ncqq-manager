@@ -69,12 +69,19 @@ export default function AdminLayout() {
         }
     }, []);
 
-    // WS 未连接时回退到 HTTP 轮询（首次加载 + 断线容灾）
+    // WS 未连接时回退到 HTTP 轮询（首次加载 + 断线容灾，指数退避 5s→60s）
     useEffect(() => {
         if (wsConnected) return;
+        let timer: ReturnType<typeof setTimeout>;
+        let delay = 5000;
+        const poll = () => {
+            refreshContainers();
+            delay = Math.min(delay * 1.5, 60000);
+            timer = setTimeout(poll, delay);
+        };
         refreshContainers();
-        const fallback = setInterval(refreshContainers, 10000);
-        return () => clearInterval(fallback);
+        timer = setTimeout(poll, delay);
+        return () => clearTimeout(timer);
     }, [wsConnected, refreshContainers]);
 
     // 加载管理员后台背景壁纸

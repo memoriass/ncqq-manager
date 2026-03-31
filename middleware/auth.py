@@ -130,9 +130,34 @@ def get_current_user(request: Request) -> dict:
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
+def get_api_key_user(request: Request) -> dict:
+    """仅允许 x-request-api-key 认证（插件对接专用）。"""
+    from services.user_manager import user_manager, ROLE
+
+    api_key = request.headers.get("x-request-api-key", "").strip()
+    if not api_key:
+        raise HTTPException(status_code=401, detail="MISSING_API_KEY")
+
+    if api_key == app_config.get("api_key"):
+        return {"uuid": "cluster", "userName": "api_user", "permission": ROLE.ADMIN}
+
+    user = user_manager.get_user_by_api_key(api_key)
+    if not user:
+        raise HTTPException(status_code=401, detail="INVALID_API_KEY")
+    if user.get("permission", 0) == ROLE.BAN:
+        raise HTTPException(status_code=403, detail="ACCOUNT_BANNED")
+
+    return {
+        "uuid": user["uuid"],
+        "userName": user["userName"],
+        "permission": user["permission"],
+    }
+
+
 def validate_token_value(token: str) -> Optional[dict]:
     """直接校验 token 字符串（供 WebSocket 鉴权使用）"""
     return _validate_token(token)
+
 
 
 def get_optional_user(request: Request) -> Optional[dict]:

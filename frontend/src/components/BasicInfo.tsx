@@ -1,7 +1,7 @@
 /**
  * BasicInfo 组件 - 容器基本信息（现代化三列仪表盘风格）
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
     Box, Typography, Button, CircularProgress, Chip,
     Grid, useTheme, IconButton, Tooltip,
@@ -34,6 +34,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
     const [stats, setStats] = useState<Partial<ContainerStats>>({});
     const [qrcode, setQrcode] = useState('');
     const [showQrcode, setShowQrcode] = useState(false);
+    const [qrExpiresIn, setQrExpiresIn] = useState<number | null>(null);
     const [loading, setLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState('');
     const [deleteDialog, setDeleteDialog] = useState({ open: false, deleteData: false });
@@ -42,12 +43,17 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
     const t = useTranslate();
     const toast = useToast();
 
-    const fetchStats = async () => {
+    // useRef 持有登录状态，避免 setInterval 闭包快照 bug
+    const isLoggedInRef = useRef(false);
+
+    const fetchStats = useCallback(async () => {
         setLoading(true);
         try {
             const data = await containerApi.getStats(name, node_id);
             setStats(data);
-            if (data.uin && data.uin !== '未登录 / Not Logged In') {
+            const loggedIn = !!(data.uin && data.uin !== '未登录 / Not Logged In');
+            isLoggedInRef.current = loggedIn;
+            if (loggedIn) {
                 setShowQrcode(false);
             }
         } catch {
@@ -55,7 +61,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [name, node_id]);
 
     // 刷新按钮：直接读取容器状态 + 本地二维码文件（零阻塞）
     const handleRefresh = async () => {
@@ -69,31 +75,35 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         }
     };
 
-    const fetchQrcode = async () => {
+    const fetchQrcode = useCallback(async () => {
         try {
             const data = await containerApi.getQR(name, node_id);
             if (data.status === 'logged_in') {
+                isLoggedInRef.current = true;
                 setShowQrcode(false);
                 setQrcode('');
+                setQrExpiresIn(null);
             } else if (data.status === 'ok' && data.url) {
                 if (data.type === 'file') {
                     setQrcode(data.url);
                 } else {
                     setQrcode(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.url)}`);
                 }
+                setQrExpiresIn(data.expires_in ?? null);
                 setShowQrcode(true);
             } else {
                 // waiting 状态 — 容器启动中或 QR 尚未生成
                 setShowQrcode(true);
                 setQrcode('');
+                setQrExpiresIn(null);
             }
         } catch {
             // 请求失败时仍显示二维码区域（等待/加载中），避免界面无反应
-            if (!stats.uin || stats.uin === '未登录 / Not Logged In') {
+            if (!isLoggedInRef.current) {
                 setShowQrcode(true);
             }
         }
-    };
+    }, [name, node_id]);
 
     const handleAction = async (action: string) => {
         if (action === 'delete') {
@@ -138,10 +148,13 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         let qi: ReturnType<typeof setInterval>;
 
         const startPolling = () => {
-            si = setInterval(fetchStats, 15000);
-            // 已登录时不轮询 QR（节省请求）
-            if (!stats.uin || stats.uin === '未登录 / Not Logged In') {
-                qi = setInterval(fetchQrcode, 15000);
+            clearInterval(si);
+            clearInterval(qi);
+            // 已登录：60s（对齐后端 TTL_OK），未登录：15s
+            si = setInterval(fetchStats, isLoggedInRef.current ? 60000 : 15000);
+            // 未登录时额外 8s 轮询 QR（对齐后端 TTL_FAIL）
+            if (!isLoggedInRef.current) {
+                qi = setInterval(fetchQrcode, 8000);
             }
         };
         const stopPolling = () => {
@@ -151,6 +164,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         const handleVisibility = () => {
             if (document.visibilityState === 'visible') {
                 fetchStats();
+                fetchQrcode();
                 startPolling();
             } else {
                 stopPolling();
@@ -163,7 +177,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
             stopPolling();
             document.removeEventListener('visibilitychange', handleVisibility);
         };
-    }, [name, node_id]);
+    }, [name, node_id, fetchStats, fetchQrcode]);
 
     const formatMB = (mb: number) => {
         if (!mb) return '-';
@@ -275,6 +289,15 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                                 <Box sx={{ p: 2, bgcolor: '#fff', borderRadius: 3, boxShadow: '0 8px 32px rgba(0,0,0,0.1)' }}>
                                     <img src={qrcode} alt="QR Code" style={{ width: 200, height: 200, display: 'block', borderRadius: 6 }} />
                                 </Box>
+                                {qrExpiresIn !== null && (
+                                    <Typography variant="caption" sx={{
+                                        color: qrExpiresIn < 30 ? '#ef4444' : '#f59e0b',
+                                        fontWeight: 600,
+                                        fontFamily: 'monospace',
+                                    }}>
+                                        {qrExpiresIn > 0 ? `二维码剩余有效期 ${qrExpiresIn}s` : '二维码已过期，请刷新'}
+                                    </Typography>
+                                )}
                                 <Button variant="text" size="small" startIcon={<RefreshIcon />} onClick={fetchQrcode}
                                     sx={{ color: '#f59e0b', fontWeight: 600, borderRadius: 2 }}>
                                     {t('basicInfo.refreshQr')}

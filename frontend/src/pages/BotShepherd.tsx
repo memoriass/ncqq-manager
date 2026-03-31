@@ -4,7 +4,7 @@ import {
     Alert, useTheme, IconButton, Tooltip, Table, TableBody,
     TableCell, TableContainer, TableHead, TableRow,
     Dialog, DialogTitle, DialogContent, DialogActions,
-    TextField, Switch, FormControlLabel,
+    TextField, Switch, FormControlLabel, Pagination, InputAdornment,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
@@ -24,6 +24,13 @@ import PersonIcon from '@mui/icons-material/Person';
 import WifiIcon from '@mui/icons-material/Wifi';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
 import TerminalIcon from '@mui/icons-material/Terminal';
+import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import MemoryIcon from '@mui/icons-material/Memory';
+import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
+import HubIcon from '@mui/icons-material/Hub';
+import SearchIcon from '@mui/icons-material/Search';
+import CloseIcon from '@mui/icons-material/Close';
 import {
     botshepherdApi, type BotShepherdStatus,
     type BSConnectionsResponse, type BSConnection,
@@ -31,6 +38,12 @@ import {
 } from '../services/api';
 import { useTranslate } from '../i18n';
 import { useToast } from '../components/Toast';
+
+type ConnDialogData = Partial<BSConnection> & {
+    _copyNewId?: string;
+    _copyNewName?: string;
+    _editId?: string;
+};
 
 export default function BotShepherd() {
     const t = useTranslate();
@@ -46,7 +59,7 @@ export default function BotShepherd() {
     const [onlineMap, setOnlineMap] = useState<Record<string, boolean | null>>({});
 
     // 对话框状态
-    const [connDlg, setConnDlg] = useState<{ mode: 'add' | 'edit' | 'copy'; id: string; data: Partial<BSConnection> } | null>(null);
+    const [connDlg, setConnDlg] = useState<{ mode: 'add' | 'edit' | 'copy'; id: string; data: ConnDialogData } | null>(null);
     const [acctDlg, setAcctDlg] = useState<{ id: string; data: Partial<BSAccount> } | null>(null);
 
     // 日志 Dialog 状态
@@ -55,6 +68,12 @@ export default function BotShepherd() {
     const [logLoading, setLogLoading] = useState(false);
     const [logAuto, setLogAuto] = useState(true);
     const logEndRef = useRef<HTMLDivElement>(null);
+
+    // 激活连接 Dialog 状态
+    const [activationDlgOpen, setActivationDlgOpen] = useState(false);
+    const [activationSearch, setActivationSearch] = useState('');
+    const [activationPage, setActivationPage] = useState(1);
+    const ACTIVATION_PAGE_SIZE = 10;
 
     const fetchLogs = useCallback(async () => {
         setLogLoading(true);
@@ -112,6 +131,19 @@ export default function BotShepherd() {
     };
 
     const isRunning = status?.running ?? false;
+    const activation = status?.activation;
+    const serviceStats = useMemo(() => {
+        const activationReady = Boolean(activation?.connected && activation?.self_id);
+        return {
+            installed: status?.installed ? 1 : 0,
+            initialized: status?.initialized ? 1 : 0,
+            running: status?.running ? 1 : 0,
+            activation: activationReady ? 1 : 0,
+        };
+    }, [activation, status]);
+    const activationStatusLabel = activation?.connected
+        ? t('botshepherd.activationConnected')
+        : t('botshepherd.activationDisconnected');
 
     // ---- 连接 CRUD ----
     const connEntries = useMemo(() => Object.entries(connData?.connections ?? {}), [connData]);
@@ -251,6 +283,13 @@ export default function BotShepherd() {
                             onClick={() => setLogOpen(true)}>
                             {t('botshepherd.viewLogs')}
                         </Button>
+                        <Tooltip title={t('botshepherd.activationStatus')}>
+                            <Button variant="outlined" startIcon={<HubIcon />}
+                                color={activation?.connected ? 'success' : 'inherit'}
+                                onClick={() => setActivationDlgOpen(true)}>
+                                {t('botshepherd.activationStatus')}
+                            </Button>
+                        </Tooltip>
                     </>)}
                 </Box>
             </Paper>
@@ -427,6 +466,35 @@ export default function BotShepherd() {
             {/* ---- 账号编辑对话框 ---- */}
             {acctDlg && <AcctDialog dlg={acctDlg} setDlg={setAcctDlg} onSave={handleAcctSave} t={t} />}
 
+            {/* ---- 激活地址 Popover ---- */}
+            <Popover
+                open={Boolean(activationMenuAnchor)}
+                anchorEl={activationMenuAnchor}
+                onClose={() => setActivationMenuAnchor(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+                slotProps={{ paper: { sx: { p: 2, minWidth: 280, maxWidth: 380, borderRadius: 2 } } }}
+            >
+                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                    {t('botshepherd.activationStatus')}
+                </Typography>
+                {[
+                    { label: t('botshepherd.activationUrl'), value: activation?.url || '-' },
+                    { label: t('botshepherd.activationSelfId'), value: activation?.self_id || '-' },
+                    { label: 'Status', value: activation?.status || '-' },
+                ].map(({ label, value }) => (
+                    <Box key={label} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', py: 0.5, gap: 1 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>{label}</Typography>
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600, wordBreak: 'break-all', textAlign: 'right' }}>{value}</Typography>
+                    </Box>
+                ))}
+                <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                    <Chip size="small" variant="outlined"
+                        color={activation?.connected ? 'success' : 'default'}
+                        label={activation?.connected ? t('botshepherd.activationConnected') : t('botshepherd.activationDisconnected')} />
+                </Box>
+            </Popover>
+
             {/* ---- 日志 Dialog ---- */}
             <Dialog open={logOpen} onClose={() => setLogOpen(false)} maxWidth="md" fullWidth>
                 <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
@@ -435,6 +503,11 @@ export default function BotShepherd() {
                         {t('botshepherd.processLogs')}
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Tooltip title={t('botshepherd.activationUrl')}>
+                            <IconButton size="small" onClick={e => setActivationMenuAnchor(e.currentTarget)}>
+                                <HubIcon fontSize="small" color={activation?.connected ? 'success' : 'action'} />
+                            </IconButton>
+                        </Tooltip>
                         <FormControlLabel
                             control={<Switch size="small" checked={logAuto} onChange={e => setLogAuto(e.target.checked)} />}
                             label={<Typography variant="caption">{t('botshepherd.autoRefresh')}</Typography>}
@@ -499,7 +572,7 @@ function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label:
     );
 }
 
-const STATUS_MAP: Record<string, { color: 'success' | 'info' | 'warning' | 'default' | 'error'; key: string; icon: React.ReactNode }> = {
+const STATUS_MAP: Record<string, { color: 'success' | 'info' | 'warning' | 'default' | 'error'; key: string; icon: React.ReactElement | null }> = {
     connected: { color: 'success', key: 'botshepherd.statusConnected', icon: <LinkIcon fontSize="small" /> },
     listening: { color: 'info', key: 'botshepherd.statusListening', icon: <HearingIcon fontSize="small" /> },
     starting: { color: 'warning', key: 'botshepherd.statusStarting', icon: <CircularProgress size={14} /> },

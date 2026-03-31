@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from middleware.auth import require_admin
 from services.botshepherd import botshepherd_manager
+from services.bs_activation_service import bs_activation_service
 
 router = APIRouter(prefix="/api/botshepherd", tags=["botshepherd"])
 
@@ -107,6 +108,26 @@ async def get_bot_heartbeat(self_id: str, _user=Depends(require_admin)):
 class ProbeTargetRequest(BaseModel):
     url: str
     token: str = ""
+
+
+class ActivationRequest(BaseModel):
+    url: str
+    token: str = ""
+
+
+@router.get("/activation")
+async def get_activation_status(_user=Depends(require_admin)):
+    return {"status": "ok", "activation": bs_activation_service.status()}
+
+
+@router.post("/activation/start")
+async def start_activation(body: ActivationRequest, _user=Depends(require_admin)):
+    return await bs_activation_service.start(body.url, body.token)
+
+
+@router.post("/activation/stop")
+async def stop_activation(_user=Depends(require_admin)):
+    return await bs_activation_service.stop()
 
 
 @router.post("/probe-target")

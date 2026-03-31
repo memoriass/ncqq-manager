@@ -152,10 +152,26 @@ class AlertManager:
         if rule and rule.get("webhook_url"):
             await self._send_webhook_async(rule["webhook_url"], message, level, extra)
 
-    async def notify_instance_offline(self, name: str, node_id: str = "local"):
-        """实例离线通知 — 查找所有 instance_offline 类型且 enabled 的规则并触发。"""
+    async def notify_instance_offline(self, name: str, node_id: str = "local", uin: str = ""):
+        """实例离线通知 — 查找所有 instance_offline 类型且 enabled 的规则并触发。
+        同时通过 qq_bot 哨兵渠道发 QQ 消息（群/私聊均支持）。
+        """
         rules = self.list_rules()
-        message = f"⚠️ 实例离线: {name} (节点: {node_id})"
+        offline_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        uin_display = uin or "未知"
+        message = (
+            f"⚠️ 实例停止: {name}\n"
+            f"📋 QQ 账号: {uin_display}\n"
+            f"🖥️ 节点: {node_id}\n"
+            f"⏰ 停止时间: {offline_time}"
+        )
+        extra = {
+            "event": "instance_offline",
+            "instance": name,
+            "node_id": node_id,
+            "uin": uin_display,
+            "offline_time": offline_time,
+        }
         for rule in rules:
             if rule.get("type") == "instance_offline" and rule.get("enabled"):
                 # 检查 config 中是否配置了过滤条件
@@ -166,7 +182,43 @@ class AlertManager:
                     continue
                 if target_node and target_node != node_id:
                     continue
-                await self.trigger_alert_async(rule["id"], message, "critical")
+                await self.trigger_alert_async(rule["id"], message, "critical", extra)
+        # qq_bot 哨兵渠道：容器停止也推 QQ 消息
+        await self._dispatch_qq_bot_rules(message, extra)
+
+    async def notify_instance_online(self, name: str, node_id: str = "local", uin: str = ""):
+        """实例上线通知 — 容器从非 running 变为 running 时触发。
+        触发所有 instance_online 类型且 enabled 的 webhook 规则，
+        同时通过 qq_bot 哨兵渠道发 QQ 消息。
+        """
+        rules = self.list_rules()
+        online_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        uin_display = uin or "未知"
+        message = (
+            f"✅ 实例上线: {name}\n"
+            f"📋 QQ 账号: {uin_display}\n"
+            f"🖥️ 节点: {node_id}\n"
+            f"⏰ 上线时间: {online_time}"
+        )
+        extra = {
+            "event": "instance_online",
+            "instance": name,
+            "node_id": node_id,
+            "uin": uin_display,
+            "online_time": online_time,
+        }
+        for rule in rules:
+            if rule.get("type") == "instance_online" and rule.get("enabled"):
+                cfg = rule.get("config", {})
+                target = cfg.get("instance_name", "")
+                target_node = cfg.get("node_id", "")
+                if target and target != name:
+                    continue
+                if target_node and target_node != node_id:
+                    continue
+                await self.trigger_alert_async(rule["id"], message, "info", extra)
+        # qq_bot 哨兵渠道：实例上线也推 QQ 消息
+        await self._dispatch_qq_bot_rules(message, extra)
 
     async def notify_login_lost(
         self, name: str, uin: str = "", node_id: str = "local",
@@ -300,7 +352,7 @@ class AlertManager:
                 logger.debug("qq_bot 规则缺少有效 targets，跳过: rule_id=%s", rule.get("id"))
                 continue
 
-            # ---- 从哨兵数组中选取第一个在线的 Bot ----
+            # ---- 从哨兵数组中选取第一个在线的 Bot（sender_bots 存容器名）----
             sender = None
             for s in senders:
                 if napcat_ws_service.is_connected(s):

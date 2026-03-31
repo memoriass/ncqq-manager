@@ -127,7 +127,7 @@ class ClusterManager:
                 result.append(await self._check_node_async(n))
             else:
                 # 远程节点：仅骨架
-                copy = n.copy()
+                copy = self._safe_node(n)
                 copy["status"] = "unknown"
                 copy["ping"] = -1
                 copy["system"] = {}
@@ -155,6 +155,13 @@ class ClusterManager:
         self._nodes_cache_ts = now
         return result
 
+    @staticmethod
+    def _safe_node(node: Dict) -> Dict:
+        """返回节点对象的安全副本 — 剔除 api_key，防止密钥通过 API 泄露。"""
+        safe = node.copy()
+        safe.pop("api_key", None)
+        return safe
+
     async def _check_node_async(self, node: Dict) -> Dict:
         """单节点状态检查 — 本地直接读内存，远程 aiohttp。"""
         node_copy = node.copy()
@@ -164,7 +171,6 @@ class ClusterManager:
             from services.daemon_monitor import daemon_monitor
             node_copy["status"] = "online"
             node_copy["ping"] = 0
-            node_copy["api_key"] = app_config.get("api_key")
             node_copy["system"] = {
                 "cpu_percent": daemon_monitor.current_cpu,
                 "mem_percent": daemon_monitor.current_mem,
@@ -174,7 +180,7 @@ class ClusterManager:
             }
             node_copy["instances"] = daemon_monitor.get_instance_status()
             node_copy["chart"] = daemon_monitor.get_chart_data()
-            return node_copy
+            return self._safe_node(node_copy)
 
         status, ping = "offline", -1
         system_info, instances_info, chart_info = {}, {}, {}
@@ -202,7 +208,7 @@ class ClusterManager:
         node_copy["system"] = system_info
         node_copy["instances"] = instances_info
         node_copy["chart"] = chart_info
-        return node_copy
+        return self._safe_node(node_copy)
 
     # ============ 异步远程容器列表 ============
 

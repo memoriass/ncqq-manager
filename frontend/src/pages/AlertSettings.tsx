@@ -22,7 +22,7 @@ const EMPTY_FORM = {
 };
 
 const EMPTY_SENTINEL = {
-    selectedUins: [] as string[],
+    selectedNames: [] as string[],   // 存容器名（与后端 napcat_ws_service._table key 一致）
     targets: [{ msg_type: 'private', target_id: '' }] as QqBotTarget[],
 };
 
@@ -75,14 +75,14 @@ export default function AlertSettings() {
         } catch (e) { console.error(e); }
     };
 
-    /** 哨兵规则创建（type 固定 qq_bot，sender_bots 为 uin 数组） */
+    /** 哨兵规则创建（type 固定 qq_bot，sender_bots 存容器名） */
     const handleSentinelCreate = async () => {
-        if (sentinelForm.selectedUins.length === 0) return;
+        if (sentinelForm.selectedNames.length === 0) return;
         const config = {
-            sender_bots: sentinelForm.selectedUins,
+            sender_bots: sentinelForm.selectedNames,   // 容器名，后端按 name 查 WS 表
             targets: sentinelForm.targets.filter(t => t.target_id),
         };
-        const autoName = `qq_bot_${sentinelForm.selectedUins[0]}_${Date.now()}`;
+        const autoName = `qq_bot_${sentinelForm.selectedNames[0]}_${Date.now()}`;
         try {
             await alertApi.createRule({ name: autoName, type: 'qq_bot', config, webhook_url: '' });
             setSentinelOpen(false);
@@ -340,11 +340,11 @@ export default function AlertSettings() {
                 PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 480 } }}>
                 <DialogTitle sx={{ fontWeight: 700 }}>{t('alerts.addSentinel')}</DialogTitle>
                 <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
-                    {/* 哨兵 Bot 多选（下拉勾选，按 uin 识别） */}
+                    {/* 哨兵 Bot 多选（下拉勾选，按容器名识别，secondary 显示 QQ号） */}
                     <FormControl size="small">
                         <InputLabel>{t('alerts.senderBots')}</InputLabel>
-                        <Select multiple value={sentinelForm.selectedUins}
-                            onChange={e => setSentinelForm({ ...sentinelForm, selectedUins: e.target.value as string[] })}
+                        <Select multiple value={sentinelForm.selectedNames}
+                            onChange={e => setSentinelForm({ ...sentinelForm, selectedNames: e.target.value as string[] })}
                             input={<OutlinedInput label={t('alerts.senderBots')} sx={{ borderRadius: 2 }} />}
                             renderValue={selected => (selected as string[]).join(', ')}
                             sx={{ borderRadius: 2 }}>
@@ -353,13 +353,13 @@ export default function AlertSettings() {
                                     <Typography variant="caption" color="text.secondary">{t('alerts.noOnlineBots')}</Typography>
                                 </MenuItem>
                             ) : onlineBots.map(bot => (
-                                <MenuItem key={bot.uin} value={bot.uin}>
+                                <MenuItem key={bot.name} value={bot.name}>
                                     <ListItemIcon sx={{ minWidth: 36 }}>
-                                        <Checkbox checked={sentinelForm.selectedUins.includes(bot.uin)} size="small" />
+                                        <Checkbox checked={sentinelForm.selectedNames.includes(bot.name)} size="small" />
                                     </ListItemIcon>
                                     <ListItemText
-                                        primary={bot.uin}
-                                        secondary={bot.nickname || undefined}
+                                        primary={bot.name}
+                                        secondary={bot.uin ? `QQ: ${bot.uin}${bot.nickname ? ` (${bot.nickname})` : ''}` : undefined}
                                     />
                                 </MenuItem>
                             ))}
@@ -400,7 +400,7 @@ export default function AlertSettings() {
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
                     <Button onClick={() => setSentinelOpen(false)} color="inherit" sx={{ borderRadius: 2 }}>{t('admin.cancelText')}</Button>
-                    <Button onClick={handleSentinelCreate} disabled={sentinelForm.selectedUins.length === 0}
+                    <Button onClick={handleSentinelCreate} disabled={sentinelForm.selectedNames.length === 0}
                         variant="contained" disableElevation
                         sx={{ borderRadius: 2, background: '#7c3aed' }}>{t('alerts.addSentinel')}</Button>
                 </DialogActions>

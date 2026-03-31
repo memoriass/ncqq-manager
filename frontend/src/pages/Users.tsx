@@ -195,8 +195,8 @@ export default function Users() {
                                 </Box>
                                 <Box>
                                     <Typography variant="caption" color="text.secondary" display="block">{t('userMgmt.apiKeyHint')}</Typography>
-                                    <Typography variant="body2" sx={{ filter: 'blur(3px)', transition: '0.3s', cursor: 'pointer', '&:hover': { filter: 'blur(0)' }, fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        {u.apiKey}
+                                    <Typography variant="body2" sx={{ fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        {u.hasApiKey ? t('userMgmt.apiKeySet') : t('userMgmt.apiKeyNotSet')}
                                         <IconButton size="small" onClick={() => handleRegenerateKey(u.uuid)} sx={{ color: '#3b82f6' }}><KeyIcon fontSize="small" /></IconButton>
                                     </Typography>
                                 </Box>
