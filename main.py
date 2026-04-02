@@ -128,6 +128,10 @@ async def lifespan(app: FastAPI):
     if botshepherd_manager.installed and botshepherd_manager._auto_start:
         botshepherd_manager.start()
 
+    # 连接健康监控跟随 BS 生命周期：BS 在运行则自动启动监控
+    from services.bs_activation_service import bs_activation_service
+    await bs_activation_service.auto_resume()
+
     # 注入主事件循环引用到 docker_manager（供线程池回调中 fire-and-forget BS 注入使用）
     from services.docker_manager import set_main_event_loop
     set_main_event_loop(asyncio.get_event_loop())
@@ -144,6 +148,7 @@ async def lifespan(app: FastAPI):
     await cluster_manager.stop_session()
     await scheduler.stop()
     botshepherd_manager.stop()
+    await bs_activation_service.stop()
     operation_logger.flush()
     cleanup_expired_tokens()
     database.close_db()

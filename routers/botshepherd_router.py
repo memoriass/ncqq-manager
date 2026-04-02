@@ -28,11 +28,18 @@ async def run_setup(_user=Depends(require_admin)):
 
 @router.post("/start")
 async def start_service(_user=Depends(require_admin)):
-    return botshepherd_manager.start()
+    result = botshepherd_manager.start()
+    # BS 启动成功后自动拉起连接健康监控
+    if result.get("status") == "ok" and not bs_activation_service._running:
+        await bs_activation_service.start()
+    return result
 
 
 @router.post("/stop")
 async def stop_service(_user=Depends(require_admin)):
+    # 停止 BS 前先停止健康监控（避免监控空转报错）
+    if bs_activation_service._running:
+        await bs_activation_service.stop()
     return botshepherd_manager.stop()
 
 
@@ -111,7 +118,7 @@ class ProbeTargetRequest(BaseModel):
 
 
 class ActivationRequest(BaseModel):
-    url: str
+    url: str = ""
     token: str = ""
 
 
@@ -121,7 +128,7 @@ async def get_activation_status(_user=Depends(require_admin)):
 
 
 @router.post("/activation/start")
-async def start_activation(body: ActivationRequest, _user=Depends(require_admin)):
+async def start_activation(body: ActivationRequest = ActivationRequest(), _user=Depends(require_admin)):
     return await bs_activation_service.start(body.url, body.token)
 
 

@@ -229,6 +229,7 @@ def _handle_ob11_event(
     name: str,
     header_sid: str | None,
     seen_sids: set,
+    ws_ref: "WebSocket | None" = None,
 ) -> None:
     """
     解析单条 OneBot 事件并分发至 bot_heartbeat / napcat_ws_service。
@@ -250,7 +251,7 @@ def _handle_ob11_event(
     # ★ 核心修复：事件中的 self_id 是真实 uin，补全到 WS 注册表
     # 解决"扫码登录后 uin 未写入注册表 → 实例卡在待登录"问题
     if name:
-        napcat_ws_service.ensure_uin(name, sid)
+        napcat_ws_service.ensure_uin(name, sid, ws=ws_ref)
 
     post_type = event.get("post_type", "")
     meta_type = event.get("meta_event_type", "")
@@ -312,7 +313,7 @@ async def _ob11_recv_loop(ws: WebSocket, name: str, header_sid: str | None) -> N
                 if proxy:
                     proxy.on_response(str(data["echo"]), data)
             else:
-                _handle_ob11_event(data, name, header_sid, seen_sids)
+                _handle_ob11_event(data, name, header_sid, seen_sids, ws_ref=ws)
 
     except WebSocketDisconnect:
         pass
@@ -323,7 +324,7 @@ async def _ob11_recv_loop(ws: WebSocket, name: str, header_sid: str | None) -> N
         for sid in seen_sids:
             bot_heartbeat.on_ws_lost(sid)
         if name:
-            napcat_ws_service.on_disconnect(name)
+            napcat_ws_service.on_disconnect(name, ws=ws)
         logger.info("OneBot WS 断开: name=%s seen_sids=%s", name or "compat", seen_sids)
 
 
@@ -348,7 +349,7 @@ async def ws_napcat_named(ws: WebSocket, name: str):
     # 连接建立时先用 header_sid 预注册（事件到来前的宽限期）
     # "0" 是 BS probe_target_endpoint 探测握手的哑值，跳过避免污染注册表 uin
     if header_sid and header_sid != "0":
-        napcat_ws_service.on_connect(name, header_sid)
+        napcat_ws_service.on_connect(name, header_sid, ws=ws)
 
     # 注册 API 代理（复用此 WS 连接主动调用 NapCat API）
     napcat_ws_service.register_proxy(name, ws)

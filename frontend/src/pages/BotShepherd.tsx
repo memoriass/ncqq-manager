@@ -63,8 +63,12 @@ export default function BotShepherd() {
     const [logAuto, setLogAuto] = useState(true);
     const logEndRef = useRef<HTMLDivElement>(null);
 
-    // 激活连接 Popover 状态
+    // 连接健康监控 Popover 状态
     const [activationMenuAnchor, setActivationMenuAnchor] = useState<HTMLElement | null>(null);
+
+    const openActivationPopover = useCallback((e: React.MouseEvent<HTMLElement>) => {
+        setActivationMenuAnchor(e.currentTarget);
+    }, []);
 
     const fetchLogs = useCallback(async () => {
         setLogLoading(true);
@@ -265,7 +269,7 @@ export default function BotShepherd() {
                         <Tooltip title={t('botshepherd.activationStatus')}>
                             <Button variant="outlined" startIcon={<HubIcon />}
                                 color={activation?.connected ? 'success' : 'inherit'}
-                                onClick={e => setActivationMenuAnchor(e.currentTarget)}>
+                                onClick={openActivationPopover}>
                                 {t('botshepherd.activationStatus')}
                             </Button>
                         </Tooltip>
@@ -445,32 +449,86 @@ export default function BotShepherd() {
             {/* ---- 账号编辑对话框 ---- */}
             {acctDlg && <AcctDialog dlg={acctDlg} setDlg={setAcctDlg} onSave={handleAcctSave} t={t} />}
 
-            {/* ---- 激活地址 Popover ---- */}
+            {/* ---- 连接健康监控 Popover ---- */}
             <Popover
                 open={Boolean(activationMenuAnchor)}
                 anchorEl={activationMenuAnchor}
                 onClose={() => setActivationMenuAnchor(null)}
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
                 transformOrigin={{ vertical: 'top', horizontal: 'right' }}
-                slotProps={{ paper: { sx: { p: 2, minWidth: 280, maxWidth: 380, borderRadius: 2 } } }}
+                slotProps={{ paper: { sx: { p: 2, minWidth: 360, maxWidth: 480, borderRadius: 2 } } }}
             >
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, display: 'block', mb: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
                     {t('botshepherd.activationStatus')}
                 </Typography>
-                {[
-                    { label: t('botshepherd.activationUrl'), value: activation?.url || '-' },
-                    { label: t('botshepherd.activationSelfId'), value: activation?.self_id || '-' },
-                    { label: 'Status', value: activation?.status || '-' },
-                ].map(({ label, value }) => (
-                    <Box key={label} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', py: 0.5, gap: 1 }}>
-                        <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>{label}</Typography>
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600, wordBreak: 'break-all', textAlign: 'right' }}>{value}</Typography>
+
+                {/* 连接统计概览 */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mb: 1.5 }}>
+                    {[
+                        { label: t('botshepherd.totalConnections'), value: activation?.total_connections ?? 0 },
+                        { label: t('botshepherd.connectedCount'), value: activation?.active_connections ?? 0 },
+                        { label: t('botshepherd.managedCount') ?? 'Managed', value: activation?.managed_connections ?? 0 },
+                        { label: 'Status', value: activation?.status ?? 'idle' },
+                    ].map(({ label, value }) => (
+                        <Box key={label} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.3, gap: 1 }}>
+                            <Typography variant="caption" color="text.secondary">{label}</Typography>
+                            <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>{value}</Typography>
+                        </Box>
+                    ))}
+                </Box>
+
+                {/* 缺失端点警告 */}
+                {(activation?.missing_endpoints?.length ?? 0) > 0 && (
+                    <Alert severity="warning" sx={{ py: 0, px: 1, mb: 1.5, '& .MuiAlert-message': { fontSize: '0.75rem' } }}>
+                        {t('botshepherd.missingEndpoints') ?? 'Missing manager endpoint'}: {activation!.missing_endpoints.join(', ')}
+                    </Alert>
+                )}
+
+                {/* 连接明细列表 */}
+                {(activation?.connections?.length ?? 0) > 0 && (
+                    <Box sx={{ mb: 1.5, maxHeight: 200, overflowY: 'auto' }}>
+                        {activation!.connections.map((c) => (
+                            <Box key={c.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 0.5,
+                                borderBottom: '1px solid', borderColor: 'divider' }}>
+                                <Chip size="small" variant="outlined"
+                                    color={c.ws_alive ? 'success' : c.enabled ? 'warning' : 'default'}
+                                    label={c.client_status}
+                                    sx={{ minWidth: 70, fontSize: '0.7rem' }} />
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 600, display: 'block' }} noWrap>
+                                        {c.name || c.id}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary" noWrap>
+                                        {c.self_id ? `QQ: ${c.self_id}` : '-'}
+                                        {c.has_manager_endpoint ? '' : ' | ⚠ no mgr endpoint'}
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        ))}
                     </Box>
-                ))}
-                <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                )}
+
+                {/* 错误信息 */}
+                {activation?.last_error && (
+                    <Alert severity="error" sx={{ py: 0, px: 1, mb: 1.5, '& .MuiAlert-message': { fontSize: '0.75rem' } }}>
+                        {activation.last_error}
+                    </Alert>
+                )}
+
+                {/* 状态指示 — 监控生命周期跟随 BS，无需手动操控 */}
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
                     <Chip size="small" variant="outlined"
-                        color={activation?.connected ? 'success' : 'default'}
-                        label={activation?.connected ? t('botshepherd.activationConnected') : t('botshepherd.activationDisconnected')} />
+                        color={activation?.connected ? 'success' : activation?.running ? 'info' : 'default'}
+                        label={activation?.connected
+                            ? t('botshepherd.activationConnected')
+                            : activation?.running
+                                ? (t('botshepherd.monitorRunning') ?? 'Monitoring')
+                                : t('botshepherd.activationDisconnected')} />
+                    <Typography variant="caption" color="text.secondary">
+                        {activation?.running
+                            ? (t('botshepherd.monitorAutoTip') ?? 'Auto-managed with BS lifecycle')
+                            : (t('botshepherd.monitorStoppedTip') ?? 'Start BS to enable monitoring')}
+                    </Typography>
                 </Box>
             </Popover>
 
@@ -482,8 +540,8 @@ export default function BotShepherd() {
                         {t('botshepherd.processLogs')}
                     </Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Tooltip title={t('botshepherd.activationUrl')}>
-                            <IconButton size="small" onClick={e => setActivationMenuAnchor(e.currentTarget)}>
+                        <Tooltip title={t('botshepherd.activationStatus')}>
+                            <IconButton size="small" onClick={openActivationPopover}>
                                 <HubIcon fontSize="small" color={activation?.connected ? 'success' : 'action'} />
                             </IconButton>
                         </Tooltip>

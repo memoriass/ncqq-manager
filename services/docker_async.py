@@ -248,6 +248,10 @@ class AsyncLoginChecker:
         if http_port:
             r3 = await self.check_login_onebot(http_port)
             if r3["logged_in"]:
+                # ★ HTTP 兜底命中也反写 WS 注册表
+                r3_uin = r3.get("uin", "")
+                if r3_uin:
+                    napcat_ws_service.ensure_uin(name, r3_uin)
                 logger.debug("登录检测[%s] HTTP兜底命中 uin=%s", name, r3.get("uin"))
                 return r3
 
@@ -257,7 +261,19 @@ class AsyncLoginChecker:
         if webui_port:
             r4 = await self._check_login_via_filesystem(name, webui_port)
             if r4["logged_in"]:
-                logger.info("登录检测[%s] 文件系统兜底命中 uin=%s", name, r4.get("uin"))
+                # ★ 反写 WS 注册表：让 Level 1 下次能直接命中，
+                # 打破「每 60s 重复走到 Level 4」的循环
+                r4_uin = r4.get("uin", "")
+                if r4_uin:
+                    napcat_ws_service.ensure_uin(name, r4_uin)
+                logger.info(
+                    "登录检测[%s] 文件系统兜底命中 uin=%s"
+                    " (ws=%s bs_reason=%s http_port=%d webui_port=%d)",
+                    name, r4.get("uin"),
+                    napcat_ws_service.is_connected(name),
+                    r2.get("reason", ""),
+                    http_port, webui_port,
+                )
                 return r4
 
         # 均无信号：保留最佳 stage（优先取有 uin 的结果）

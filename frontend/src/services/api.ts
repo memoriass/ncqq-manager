@@ -569,19 +569,36 @@ export const setupApi = {
 
 // ============ BotShepherd API ============
 
+export interface BSActivationConnection {
+    id: string;
+    name: string;
+    enabled: boolean;
+    client_status: string;
+    ws_alive: boolean;
+    has_manager_endpoint: boolean;
+    ws_registered: boolean;
+    self_id: number | string | null;
+    last_seen: number;
+}
+
 export interface BSActivationStatus {
     enabled: boolean;
     running: boolean;
     status: string;
-    url: string;
-    self_id: string;
     connected: boolean;
-    last_seen: number;
-    last_error: string;
-    last_connect_at: number;
-    last_disconnect_at: number;
     source: string;
+    last_error: string;
+    last_check_at: number;
+    total_connections: number;
+    managed_connections: number;
+    active_connections: number;
+    injected_connections: number;
+    missing_endpoints: string[];
+    connections: BSActivationConnection[];
 }
+
+
+
 
 export interface BotShepherdStatus {
     installed: boolean;
@@ -686,6 +703,7 @@ export const botshepherdApi = {
             '/botshepherd/radar/inject-by-alias',
             { method: 'POST', body: JSON.stringify(params) },
         ),
+    // 连接健康监控（生命周期跟随 BS，无需手动调用）
 };
 
 // ============ 网络配置注入 ============

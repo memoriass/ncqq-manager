@@ -259,7 +259,8 @@ class ContainerStateEngine:
         # ---- 1.5 批量解析端口（运行中的本地容器）— aiodocker 纯异步 ⭐ ----
         need_ports = [n for n in running_local_names
                       if instance_subsystem.get(n)
-                      and instance_subsystem.get(n).http_port == 0]
+                      and (instance_subsystem.get(n).http_port == 0
+                           or instance_subsystem.get(n).webui_port == 0)]
         if need_ports:
             try:
                 port_map = await async_docker_manager.resolve_ports(need_ports)

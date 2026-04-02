@@ -119,7 +119,7 @@ class NapCatApiProxy:
 
 
 class _ConnEntry:
-    __slots__ = ("uin", "nickname", "connected", "connect_ts", "disconnect_ts", "last_hb_ts", "hb_online", "last_seen")
+    __slots__ = ("uin", "nickname", "connected", "connect_ts", "disconnect_ts", "last_hb_ts", "hb_online", "last_seen", "ws_ref")
 
     def __init__(self, uin: str = "", nickname: str = ""):
         self.uin: str = uin
@@ -130,6 +130,7 @@ class _ConnEntry:
         self.last_hb_ts: float = 0.0
         self.hb_online: Optional[bool] = None
         self.last_seen: float = 0.0  # 最后一次在线时间戳（connect_ts 或 disconnect_ts）
+        self.ws_ref: Optional["WebSocket"] = None  # 绑定的 WS 实例，防止并发连接状态覆盖
 
     def is_alive(self) -> bool:
         """WS 在线 OR 断开宽限期内"""
@@ -154,7 +155,7 @@ class NapCatWsService:
     # 写入（由 ws_router 调用）
     # ------------------------------------------------------------------
 
-    def on_connect(self, name: str, uin: str, nickname: str = "") -> None:
+    def on_connect(self, name: str, uin: str, nickname: str = "", ws: "WebSocket | None" = None) -> None:
         """NapCat WS 连接建立"""
         e = self._table.setdefault(name, _ConnEntry())
         e.uin = uin
@@ -163,18 +164,28 @@ class NapCatWsService:
         e.connect_ts = time.time()
         e.last_seen = e.connect_ts
         e.disconnect_ts = 0.0
+        e.ws_ref = ws  # 绑定 WS 实例
         logger.info("NapCat WS 连接注册: name=%s uin=%s nickname=%s", name, uin, nickname)
 
-    def on_disconnect(self, name: str) -> None:
-        """NapCat WS 连接断开（保留宽限期）"""
+    def on_disconnect(self, name: str, ws: "WebSocket | None" = None) -> None:
+        """NapCat WS 连接断开（保留宽限期）。
+
+        修复：当同一 name 存在多个并发 WS 连接时（如 BS 探测连接 + 正常连接），
+        只有绑定的 WS 实例断开才更新状态，防止探测连接断开覆盖正常连接状态。
+        """
         e = self._table.get(name)
         if e:
+            # ws_ref 校验：如果指定了 ws 且不匹配当前绑定实例，跳过（旧/探测连接断开）
+            if ws is not None and e.ws_ref is not None and e.ws_ref is not ws:
+                logger.debug("NapCat WS 断开跳过（非当前绑定实例）: name=%s", name)
+                return
             e.connected = False
             e.disconnect_ts = time.time()
             e.last_seen = e.disconnect_ts
+            e.ws_ref = None
         logger.info("NapCat WS 连接断开（宽限期保活）: name=%s", name)
 
-    def ensure_uin(self, name: str, uin: str) -> None:
+    def ensure_uin(self, name: str, uin: str, ws: "WebSocket | None" = None) -> None:
         """事件中检测到真实 uin 时补全/更新注册表（幂等）。
 
         解决场景：WS 连接建立时 header X-Self-Id 为空/"0"（BS 探测），
@@ -186,7 +197,7 @@ class NapCatWsService:
         e = self._table.get(name)
         if not e:
             # 注册表中无条目（on_connect 因 header_sid=0 被跳过），补注册
-            self.on_connect(name, uin)
+            self.on_connect(name, uin, ws=ws)
             return
         if not e.uin or e.uin != uin:
             old = e.uin

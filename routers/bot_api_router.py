@@ -50,21 +50,46 @@ class SendRequest(BaseModel):
 
 @router.get("", response_model=List[BotStatusItem])
 async def list_bots(_user=Depends(get_current_user)):
-    """列出所有已知 Bot（包含已断线的历史记录）。"""
+    """列出所有已知 Bot。
+
+    数据来源（优先级高→低）：
+      1. napcat_ws_service._table — 曾通过 WS 直连管理器的 Bot（含 nickname/uin）
+      2. instance_subsystem       — Docker 容器列表（WS 表无记录时兜底，确保哨兵配置
+                                   不受"Bot 是否曾直连管理器"限制）
+    """
     from services.napcat_ws_service import napcat_ws_service
-    result: List[BotStatusItem] = []
+    from services.instance_subsystem import instance_subsystem
+
+    merged: Dict[str, BotStatusItem] = {}
+
+    # ── 1. WS 直连历史（数据最准，含 nickname/uin/在线状态）──────────────
     for name in napcat_ws_service.all_names():
         entry = napcat_ws_service._table.get(name)
         if entry is None:
             continue
-        result.append(BotStatusItem(
+        merged[name] = BotStatusItem(
             name=name,
             uin=entry.uin or "",
             nickname=entry.nickname or "",
             connected=entry.is_alive() if hasattr(entry, "is_alive") else entry.connected,
             last_seen=entry.last_seen,
-        ))
-    logger.debug("GET /api/bots → %d bots", len(result))
+        )
+
+    # ── 2. Docker 容器兜底（WS 表未收录时补入，connected=false）────────────
+    for inst in instance_subsystem.get_all():
+        if inst.name in merged:
+            continue  # WS 表优先，不覆盖
+        merged[inst.name] = BotStatusItem(
+            name=inst.name,
+            uin=inst.uin or "",
+            nickname="",
+            connected=False,
+            last_seen=inst.login_ts,
+        )
+
+    result = list(merged.values())
+    logger.debug("GET /api/bots → %d bots (ws=%d inst=%d)",
+                 len(result), len(napcat_ws_service.all_names()), instance_subsystem.count)
     return result
 
 

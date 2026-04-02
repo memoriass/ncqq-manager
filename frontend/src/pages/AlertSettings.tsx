@@ -54,13 +54,15 @@ export default function AlertSettings() {
 
     useEffect(() => { fetchData(); }, []);
 
-    /** 打开哨兵 Dialog，同时加载在线 Bot 列表（有 name 即可显示，不强要求 uin） */
+    /** 打开哨兵 Dialog，同时加载 Bot 列表（WS 直连 + Docker 容器兜底，不强要求在线） */
     const openSentinelDialog = async () => {
         setSentinelForm({ ...EMPTY_SENTINEL });
         setSentinelOpen(true);
         try {
             const bots = await botApi.list();
-            setOnlineBots(bots.filter(b => b.connected && b.name));
+            // 只要容器名存在即可配置为哨兵，不限制 connected 状态
+            // 运行时实际发消息时再判断是否在线（_dispatch_qq_bot_rules 轮询在线哨兵）
+            setOnlineBots(bots.filter(b => b.name));
         } catch (e) { console.error(e); }
     };
 
@@ -358,7 +360,15 @@ export default function AlertSettings() {
                                         <Checkbox checked={sentinelForm.selectedNames.includes(bot.name)} size="small" />
                                     </ListItemIcon>
                                     <ListItemText
-                                        primary={bot.name}
+                                        primary={
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <span>{bot.name}</span>
+                                                <Box component="span" sx={{
+                                                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                                                    bgcolor: bot.connected ? 'success.main' : 'text.disabled', ml: 0.5,
+                                                }} />
+                                            </Box>
+                                        }
                                         secondary={bot.uin ? `QQ: ${bot.uin}${bot.nickname ? ` (${bot.nickname})` : ''}` : undefined}
                                     />
                                 </MenuItem>
