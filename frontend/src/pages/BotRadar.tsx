@@ -521,7 +521,7 @@ export default function BotBackend() {
             });
             toast.success(t('botRadar.autoCollectDone').replace('{n}', String(added)));
         } catch {
-            toast.error('收集失败');
+            toast.error(t('botRadar.collectFailed'));
         } finally {
             setCollectingBS(false);
         }

@@ -27,13 +27,18 @@ def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
             return
 
         from services.docker_manager import docker_manager
-        asyncio.get_event_loop().run_in_executor(
-            None,
-            docker_manager._on_login_detected,
-            name,
-            result,
-            prev,
-        )
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None:
+            loop.run_in_executor(
+                None,
+                docker_manager._on_login_detected,
+                name,
+                result,
+                prev,
+            )
     except Exception as e:
         logger.debug("BS 注入调度异常 [%s]: %s", name, e)
 
@@ -264,7 +269,8 @@ class ContainerStateEngine:
         if need_ports:
             try:
                 port_map = await async_docker_manager.resolve_ports(need_ports)
-            except Exception:
+            except Exception as e:
+                logger.warning("端口解析批量失败: %s", e)
                 port_map = {}
             for name, ports in port_map.items():
                 inst = instance_subsystem.get(name)
@@ -354,14 +360,15 @@ class ContainerStateEngine:
             qr_data = None
             try:
                 qr_path = os.path.join(data_dir, name, "cache", "qrcode.png")
-                if os.path.exists(qr_path):
-                    age = now - os.path.getmtime(qr_path)
+                exists = await asyncio.to_thread(os.path.exists, qr_path)
+                if exists:
+                    age = now - await asyncio.to_thread(os.path.getmtime, qr_path)
                     if age < _QR_MAX_AGE:
-                        with open(qr_path, "rb") as f:
-                            b64 = base64.b64encode(f.read()).decode("utf-8")
+                        raw = await asyncio.to_thread(lambda: open(qr_path, "rb").read())
+                        b64 = base64.b64encode(raw).decode("utf-8")
                         qr_data = f"data:image/png;base64,{b64}"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("QR 读取失败 [%s]: %s", name, e)
             inst.update_qr(qr_data)
 
         # 记录本轮容器数（供 health_info 使用）

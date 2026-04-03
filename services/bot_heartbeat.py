@@ -135,9 +135,10 @@ class BotHeartbeatService:
             return
         self._alert_ts[key] = now
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(self._async_alert(key))
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._async_alert(key))
+        except RuntimeError:
+            pass
         except Exception as e:
             logger.debug("bot_heartbeat 触发告警异常: %s", e)
 

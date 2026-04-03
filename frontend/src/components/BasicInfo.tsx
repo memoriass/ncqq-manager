@@ -57,7 +57,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                 setShowQrcode(false);
             }
         } catch {
-            toast.error('获取状态失败');
+            toast.error(t('basicInfo.fetchStatusFailed'));
         } finally {
             setLoading(false);
         }
@@ -69,7 +69,7 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         try {
             await Promise.all([fetchStats(), fetchQrcode()]);
         } catch {
-            toast.error('刷新失败');
+            toast.error(t('basicInfo.refreshFailed'));
         } finally {
             setLoading(false);
         }
@@ -435,7 +435,11 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                     {t('basicInfo.confirmDeleteTitle')}
                 </DialogTitle>
                 <DialogContent>
-                    <Typography variant="body2" sx={{ mb: 2 }} dangerouslySetInnerHTML={{ __html: t('basicInfo.deleteInstanceDesc').replace('{name}', name) }} />
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                        {t('basicInfo.deleteInstanceDesc').split('{name}')[0]}
+                        <strong>{name}</strong>
+                        {t('basicInfo.deleteInstanceDesc').split('{name}')[1]}
+                    </Typography>
                     <FormControlLabel
                         control={
                             <Checkbox checked={deleteDialog.deleteData} color="error"

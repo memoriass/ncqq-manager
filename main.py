@@ -44,9 +44,11 @@ from services.daemon_monitor import daemon_monitor
 
 async def background_monitor():
     _gc_counter = 0
+    _session_gc_counter = 0
     while True:
         daemon_monitor.record_tick()
         _gc_counter += 1
+        _session_gc_counter += 1
         # 每 120 次 tick（约 1 小时）执行一次 bot_heartbeat GC
         if _gc_counter >= 120:
             try:
@@ -55,6 +57,13 @@ async def background_monitor():
             except Exception:
                 pass
             _gc_counter = 0
+        # 每 360 次 tick（约 3 小时）清理过期 session，防止 sessions 表膨胀
+        if _session_gc_counter >= 360:
+            try:
+                cleanup_expired_tokens()
+            except Exception:
+                pass
+            _session_gc_counter = 0
         await asyncio.sleep(30)
 
 async def background_flush_logs():
@@ -91,6 +100,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("NapCat QQ Manager 启动中...")
     logger.info("前端路径: %s", FRONTEND_DIST)
+
+    # COOKIE_SECURE 安全检查
+    import os as _os
+    _cookie_secure = _os.environ.get("COOKIE_SECURE", "false").lower() in ("1", "true", "yes")
+    if not _cookie_secure:
+        logger.warning("COOKIE_SECURE=false — HTTPS 部署下请设置 COOKIE_SECURE=true 以防止 cookie 明文传输")
 
     # 将 uvicorn 日志也接入内存缓冲区（Web 控制台可查看）
     from services.log import attach_memory_handler_to, suppress_bs_polling_logs
@@ -134,13 +149,17 @@ async def lifespan(app: FastAPI):
 
     # 注入主事件循环引用到 docker_manager（供线程池回调中 fire-and-forget BS 注入使用）
     from services.docker_manager import set_main_event_loop
-    set_main_event_loop(asyncio.get_event_loop())
+    set_main_event_loop(asyncio.get_running_loop())
 
     yield
 
     # 关闭时清理
     monitor_task.cancel()
     flush_task.cancel()
+    try:
+        await asyncio.gather(monitor_task, flush_task, return_exceptions=True)
+    except Exception:
+        pass
     docker_event_watcher.stop()
     await state_engine.stop()
     await async_docker_manager.stop()

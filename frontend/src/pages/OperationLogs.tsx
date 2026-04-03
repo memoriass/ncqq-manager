@@ -107,7 +107,7 @@ const OperationLogs: React.FC = () => {
             setLogs(nextLogs);
             setTotalPages(data.pagination?.pages || 0);
         } catch (error) {
-            toast.error('获取操作日志失败');
+            toast.error(t('opLogs.fetchFailed'));
         } finally {
             setLoading(false);
         }

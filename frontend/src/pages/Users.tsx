@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Box, Typography, Button, TextField, Skeleton, IconButton, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Chip, Checkbox, InputAdornment, Pagination } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
 import PeopleIcon from '@mui/icons-material/People';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AddIcon from '@mui/icons-material/Add';
@@ -13,7 +12,6 @@ import { useTranslate } from '../i18n';
 import { containerApi, userApi, type User, type Container, type InstanceRef, type UserEditPayload } from '../services/api';
 
 export default function Users() {
-    const navigate = useNavigate();
     const theme = useTheme();
     const t = useTranslate();
     const [loading, setLoading] = useState(true);

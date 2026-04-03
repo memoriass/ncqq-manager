@@ -141,16 +141,16 @@ export default function BotShepherd() {
         return { total, connected, listening, disabled, errors };
     }, [connEntries]);
 
-    const handleConnSave = async () => {
+    const handleConnSave = async (id: string, data: Partial<BSConnection>) => {
         if (!connDlg) return;
-        const { mode, id, data } = connDlg;
+        const { mode } = connDlg;
         try {
             if (mode === 'copy') {
-                const r = await botshepherdApi.copyConnection(id, data._copyNewId ?? '', data._copyNewName ?? '');
+                const r = await botshepherdApi.copyConnection(id, (data as any)._copyNewId ?? '', (data as any)._copyNewName ?? '');
                 if ((r as any).success) toast.success(t('botshepherd.connCopySuccess'));
                 else toast.error((r as any).error ?? 'Failed');
             } else {
-                const payload = { ...data }; delete (payload as any)._copyNewId; delete (payload as any)._copyNewName;
+                const payload = { ...data }; delete (payload as any)._copyNewId; delete (payload as any)._copyNewName; delete (payload as any)._editId;
                 const r = await botshepherdApi.updateConnection(id, payload);
                 if ((r as any).success) toast.success(t('botshepherd.connSaveSuccess'));
                 else toast.error((r as any).error ?? 'Failed');
@@ -173,10 +173,10 @@ export default function BotShepherd() {
     // ---- 账号 CRUD ----
     const acctEntries = useMemo(() => Object.entries(acctData?.accounts ?? {}), [acctData]);
 
-    const handleAcctSave = async () => {
+    const handleAcctSave = async (data: Partial<BSAccount>) => {
         if (!acctDlg) return;
         try {
-            const r = await botshepherdApi.updateAccount(acctDlg.id, acctDlg.data);
+            const r = await botshepherdApi.updateAccount(acctDlg.id, data);
             if ((r as any).success) toast.success(t('botshepherd.accountSaveSuccess'));
             else toast.error((r as any).error ?? 'Failed');
             setAcctDlg(null); await refreshAccounts();
@@ -676,7 +676,7 @@ function ConnRow({ id, conn, t, showActions, onEdit, onCopy, onDelete }: {
 
 function ConnDialog({ dlg, setDlg, onSave, t }: {
     dlg: { mode: 'add' | 'edit' | 'copy'; id: string; data: Partial<BSConnection> };
-    setDlg: (v: null) => void; onSave: () => void; t: (k: string) => string;
+    setDlg: (v: null) => void; onSave: (id: string, data: Partial<BSConnection>) => void; t: (k: string) => string;
 }) {
     const isCopy = dlg.mode === 'copy';
     const title = isCopy ? t('botshepherd.copyConnection')
@@ -684,8 +684,9 @@ function ConnDialog({ dlg, setDlg, onSave, t }: {
         : t('botshepherd.editConnection');
 
     // 用内部 state 让输入受控
-    const [form, setForm] = useState(dlg.data as any);
-    const setField = (k: string, v: any) => { setForm((p: any) => ({ ...p, [k]: v })); dlg.data = { ...dlg.data, [k]: v }; };
+    const [form, setForm] = useState<any>({ ...dlg.data });
+    const [editId, setEditId] = useState(dlg.id);
+    const setField = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
 
     return (
         <Dialog open maxWidth="sm" fullWidth onClose={() => setDlg(null)}>
@@ -699,7 +700,7 @@ function ConnDialog({ dlg, setDlg, onSave, t }: {
                 </>) : (<>
                     {dlg.mode === 'add' && (
                         <TextField label={t('botshepherd.connId')} size="small" fullWidth
-                            value={form._editId ?? dlg.id} onChange={e => { setField('_editId', e.target.value); dlg.id = e.target.value; }} />
+                            value={editId} onChange={e => setEditId(e.target.value)} />
                     )}
                     <TextField label={t('botshepherd.connName')} size="small" fullWidth
                         value={form.name ?? ''} onChange={e => setField('name', e.target.value)} />
@@ -742,7 +743,7 @@ function ConnDialog({ dlg, setDlg, onSave, t }: {
             </DialogContent>
             <DialogActions>
                 <Button onClick={() => setDlg(null)}>{t('botshepherd.connCancel')}</Button>
-                <Button variant="contained" onClick={onSave}>{t('botshepherd.connSave')}</Button>
+                <Button variant="contained" onClick={() => onSave(editId, form)}>{t('botshepherd.connSave')}</Button>
             </DialogActions>
         </Dialog>
     );
@@ -752,10 +753,10 @@ function ConnDialog({ dlg, setDlg, onSave, t }: {
 
 function AcctDialog({ dlg, setDlg, onSave, t }: {
     dlg: { id: string; data: Partial<BSAccount> };
-    setDlg: (v: null) => void; onSave: () => void; t: (k: string) => string;
+    setDlg: (v: null) => void; onSave: (data: Partial<BSAccount>) => void; t: (k: string) => string;
 }) {
-    const [form, setForm] = useState(dlg.data as any);
-    const setField = (k: string, v: any) => { setForm((p: any) => ({ ...p, [k]: v })); dlg.data = { ...dlg.data, [k]: v }; };
+    const [form, setForm] = useState<any>({ ...dlg.data });
+    const setField = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
 
     return (
         <Dialog open maxWidth="sm" fullWidth onClose={() => setDlg(null)}>
@@ -771,7 +772,7 @@ function AcctDialog({ dlg, setDlg, onSave, t }: {
             </DialogContent>
             <DialogActions>
                 <Button onClick={() => setDlg(null)}>{t('botshepherd.connCancel')}</Button>
-                <Button variant="contained" onClick={onSave}>{t('botshepherd.connSave')}</Button>
+                <Button variant="contained" onClick={() => onSave(form)}>{t('botshepherd.connSave')}</Button>
             </DialogActions>
         </Dialog>
     );

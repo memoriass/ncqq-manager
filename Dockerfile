@@ -37,6 +37,12 @@ COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 # 数据目录
 RUN mkdir -p /app/config /app/data
 
+# 创建非 root 用户运行应用
+# 注意：Docker socket 挂载时需确保宿主机 docker 组 GID 与容器内一致，
+# 或通过 docker run --group-add 指定 docker 组
+RUN groupadd -r appuser && useradd -r -g appuser -d /app appuser \
+    && chown -R appuser:appuser /app
+
 # 环境变量
 ENV PYTHONUNBUFFERED=1
 ENV CORS_ORIGINS=""
@@ -48,6 +54,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/api/health || exit 1
 
 VOLUME ["/app/config", "/app/data"]
+
+USER appuser
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 

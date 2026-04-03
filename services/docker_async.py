@@ -87,12 +87,6 @@ class AsyncLoginChecker:
             return {"logged_in": False, "stage": "waiting"}
         try:
             # 1. 确认 NapCat WebUI 进程在线（用根页面或 /auth/check，不需认证）
-            manager_host = "127.0.0.1"
-            try:
-                from services.config import app_config
-                manager_host = str(app_config.get("manager_host", "127.0.0.1"))
-            except Exception:
-                pass
             webui_alive = False
             try:
                 async with self._session.get(
@@ -109,7 +103,7 @@ class AsyncLoginChecker:
                 return {"logged_in": False, "stage": "waiting"}
 
             # 2. 从文件名发现 uin（不读取文件内容）
-            uin = self._get_uin_from_config(name)
+            uin = await asyncio.to_thread(self._get_uin_from_config, name)
             if not uin:
                 return {"logged_in": False, "stage": "waiting"}
 
@@ -117,8 +111,10 @@ class AsyncLoginChecker:
             qr_stale = True
             try:
                 qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
-                if os.path.exists(qr_path):
-                    qr_stale = (time.time() - os.path.getmtime(qr_path)) > 60
+                exists = await asyncio.to_thread(os.path.exists, qr_path)
+                if exists:
+                    mtime = await asyncio.to_thread(os.path.getmtime, qr_path)
+                    qr_stale = (time.time() - mtime) > 60
             except OSError:
                 pass
 
@@ -130,90 +126,6 @@ class AsyncLoginChecker:
                     "method": "filesystem",
                     "stage": "logged_in",
                     "reason": "webui_alive_qr_stale_uin_in_config",
-                }
-        except Exception:
-            pass
-        return {"logged_in": False, "stage": "waiting"}
-
-    # DEPRECATED: check_login_webui 已不再被 check_login_status 调用。
-    # 原逻辑依赖 NapCat WebUI 路径（/api/qrcode、/plugin/.../api/public/info）
-    # 和本地日志文件特征关键词，NapCat 版本升级后极易失效。
-    # 新架构已改为 WS直连 → BS账号API → OneBot HTTP → 文件系统 四级检测，此函数保留供参考，
-    # 生产路径不再调用。
-    async def check_login_webui(self, name: str, webui_port: int) -> Dict:
-        """[DEPRECATED] 方案 B：NapCat WebUI + 本地文件 + 日志特征综合检测。"""
-        if not webui_port or not self._session:
-            return {"logged_in": False, "stage": "waiting"}
-        try:
-            qr_task = self._fetch_json(
-                f"http://127.0.0.1:{webui_port}/api/qrcode", _INFO_TIMEOUT)
-            info_task = self._fetch_json(
-                f"http://127.0.0.1:{webui_port}/plugin/napcat-plugin-builtin/api/public/info",
-                _INFO_TIMEOUT)
-            qr_data, info_data, log_stage = await asyncio.gather(
-                qr_task,
-                info_task,
-                self._detect_login_stage_from_logs(name),
-                return_exceptions=True,
-            )
-
-            napcat_alive = (
-                isinstance(info_data, dict)
-                and info_data.get("code") == 0
-                and "data" in info_data
-            )
-            has_qr_url = isinstance(qr_data, dict) and bool(qr_data.get("url"))
-
-            qr_stale = False
-            try:
-                qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
-                if os.path.exists(qr_path):
-                    qr_stale = (time.time() - os.path.getmtime(qr_path)) > 15
-                else:
-                    qr_stale = True
-            except OSError:
-                pass
-
-            uin = self._get_uin_from_config(name)
-            log_result = log_stage if isinstance(log_stage, dict) else {}
-            if log_result.get("stage") == "logged_in" and uin:
-                return {
-                    "logged_in": True,
-                    "uin": uin,
-                    "nickname": "",
-                    "method": "log",
-                    "stage": "logged_in",
-                    "reason": log_result.get("reason", "log_detected"),
-                }
-
-            if napcat_alive and qr_stale and uin:
-                return {
-                    "logged_in": True,
-                    "uin": uin,
-                    "nickname": "",
-                    "method": "webui",
-                    "stage": "logged_in",
-                    "reason": "webui_alive_qr_stale_uin_ready",
-                }
-
-            if napcat_alive and uin:
-                injected = self._has_inject_marker(name, uin)
-                stage = "injected" if injected else "inject_pending"
-                return {
-                    "logged_in": False,
-                    "uin": uin,
-                    "method": "webui",
-                    "stage": stage,
-                    "reason": "webui_alive_uin_ready",
-                }
-
-            if napcat_alive and not has_qr_url:
-                return {
-                    "logged_in": False,
-                    "uin": uin,
-                    "method": log_result.get("method", "webui"),
-                    "stage": log_result.get("stage", "scan_confirmed"),
-                    "reason": log_result.get("reason", "webui_qr_disappeared"),
                 }
         except Exception:
             pass
@@ -324,33 +236,6 @@ class AsyncLoginChecker:
                 json.JSONDecodeError, ValueError):
             return None
 
-    # DEPRECATED: _detect_login_stage_from_logs 已不再被调用。
-    # 仅由 check_login_webui（同样已废弃）内部使用，依赖日志关键词特征，
-    # NapCat 版本升级后失效。新架构使用 WS心跳/BS API/OneBot HTTP 三级检测。
-    async def _detect_login_stage_from_logs(self, name: str) -> Dict:
-        """[DEPRECATED] 基于容器最近日志提取登录阶段。"""
-        try:
-            logs = await async_docker_manager.get_logs(name, tail=80)
-        except Exception:
-            logs = ""
-        if not logs:
-            return {}
-        text = logs.lower()
-        if any(key in text for key in ["onebot", "bot online", "login success", "登录成功", "已登录"]):
-            return {"stage": "logged_in", "method": "log", "reason": "log_login_success"}
-        if any(key in text for key in ["ws client", "botshepherd", "注入", "client_endpoint"]):
-            return {"stage": "injected", "method": "log", "reason": "log_injected"}
-        if any(key in text for key in ["scan", "扫码", "confirm", "确认登录", "qrcode expired"]):
-            return {"stage": "scan_confirmed", "method": "log", "reason": "log_scan_confirmed"}
-        return {}
-
-    @staticmethod
-    def _has_inject_marker(name: str, uin: str) -> bool:
-        if not uin:
-            return False
-        marker = os.path.join(get_data_dir(), name, ".bs_injected", f"{uin}.done")
-        return os.path.isfile(marker)
-
     @staticmethod
     def _get_uin_from_config(name: str) -> str:
         """从本地 onebot11_*.json 文件名提取 uin。"""
@@ -393,8 +278,6 @@ async_login_checker = AsyncLoginChecker()
 # ============================================================
 #  AsyncDockerManager — aiodocker 替代 docker-py 热路径
 # ============================================================
-
-_STATS_TIMEOUT = 5  # 单容器 stats 超时（秒）
 
 
 class AsyncDockerManager:
@@ -470,19 +353,22 @@ class AsyncDockerManager:
         """异步批量解析容器端口映射（inspect → NetworkSettings.Ports）。"""
         if not self._docker:
             return {n: {"http_port": 0, "webui_port": 0} for n in names}
-        result: Dict[str, Dict] = {}
-        for name in names:
+
+        async def _resolve_one(name: str) -> tuple:
             try:
                 container = await self._docker.containers.get(name)
                 info = await container.show()
                 ports = info.get("NetworkSettings", {}).get("Ports", {}) or {}
-                result[name] = {
+                return name, {
                     "http_port": self._extract_host_port(ports, "3000/tcp"),
                     "webui_port": self._extract_host_port(ports, "6099/tcp"),
                 }
-            except (aiodocker.exceptions.DockerError, Exception):
-                result[name] = {"http_port": 0, "webui_port": 0}
-        return result
+            except Exception as e:
+                logger.debug("端口解析失败 [%s]: %s", name, e)
+                return name, {"http_port": 0, "webui_port": 0}
+
+        pairs = await asyncio.gather(*[_resolve_one(n) for n in names])
+        return dict(pairs)
 
     # ---- 3. 容器操作（CRUD 异步化 — 替代 docker_manager.action_container） ----
 

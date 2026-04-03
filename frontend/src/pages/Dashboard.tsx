@@ -141,7 +141,7 @@ export default function Dashboard() {
             const data = await nodeApi.list(true);
             setNodes(data.nodes || []);
         } catch (e) {
-            toast.error('获取节点列表失败');
+            toast.error(t('admin.fetchNodesFailed'));
         }
     };
 
@@ -530,7 +530,9 @@ export default function Dashboard() {
                 </DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" sx={{ mb: 2 }}>
-                        <span dangerouslySetInnerHTML={{ __html: t('admin.deleteInstanceMsg').replace('{name}', deleteDialog.name) }} />
+                        {t('admin.deleteInstanceMsg').split('{name}')[0]}
+                        <strong>{deleteDialog.name}</strong>
+                        {t('admin.deleteInstanceMsg').split('{name}')[1]}
                     </Typography>
                     <FormControlLabel
                         control={

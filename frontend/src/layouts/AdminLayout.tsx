@@ -1,9 +1,7 @@
 import React, { useEffect, useState, useContext, useCallback } from 'react';
-import { Box, Typography, IconButton, Collapse, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Drawer, useTheme } from '@mui/material';
+import { Box, Typography, IconButton, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Drawer, useTheme } from '@mui/material';
 import { useNavigate, Outlet, useLocation } from 'react-router-dom';
 import PublicIcon from '@mui/icons-material/Public';
-import ExpandLess from '@mui/icons-material/ExpandLess';
-import ExpandMore from '@mui/icons-material/ExpandMore';
 import NapCatIcon from '../components/NapCatIcon';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import StorageIcon from '@mui/icons-material/Storage';
@@ -38,7 +36,6 @@ export default function AdminLayout() {
     const { toggleLanguage } = useContext(LanguageContext);
     const t = useTranslate();
     const [containers, setContainers] = useState<Container[]>([]);
-    const [openInstances, setOpenInstances] = useState(true);
     const toast = useToast();
     const [bgUrl, setBgUrl] = useState('');
 
@@ -65,7 +62,7 @@ export default function AdminLayout() {
             const data = await containerApi.list();
             setContainers(data.containers || []);
         } catch {
-            toast.error('刷新容器列表失败');
+            toast.error(t('admin.refreshContainersFailed'));
         }
     }, []);
 

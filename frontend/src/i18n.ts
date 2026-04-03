@@ -17,6 +17,8 @@ export const translations = {
             botOnline: 'Bot在线',
             heartbeatLost: '心跳丢失',
             exited: '已停止',
+            refreshContainersFailed: '刷新容器列表失败',
+            fetchNodesFailed: '获取节点列表失败',
             created: '已创建',
             paused: '已暂停',
             coreDeployment: '核心部署引擎',
@@ -48,7 +50,7 @@ export const translations = {
             dataDir: '数据目录：data/{name}/  ·  镜像/端口等默认参数在「实例初始化设置」中配置',
             quickCreate: '快速创建',
             confirmDeleteInstance: '确认删除实例',
-            deleteInstanceMsg: '即将删除实例 <strong>{name}</strong>，此操作将停止并移除 Docker 容器。',
+            deleteInstanceMsg: '即将删除实例 {name}，此操作将停止并移除 Docker 容器。',
             deleteWithData: '同时删除本地数据',
             deleteDataWarning: '删除 data/{name}/ 下所有文件（QQ数据、配置、插件、缓存），不可恢复',
             deleteInstanceOnly: '仅删除实例',
@@ -429,7 +431,8 @@ export const translations = {
             configChange: '{operator} 修改了配置',
             nodeCreate: '{operator} 创建了节点 {target}',
             nodeDelete: '{operator} 删除了节点 {target}',
-            unknownAction: '{operator} 执行了操作: {type}'
+            unknownAction: '{operator} 执行了操作: {type}',
+            fetchFailed: '获取操作日志失败'
         },
         basicInfo: {
             running: '运行中',
@@ -463,12 +466,14 @@ export const translations = {
             netWsClient: 'WS 客户端',
             networkEndpoints: '网络端点概览',
             confirmDeleteTitle: '确认删除实例',
-            deleteInstanceDesc: '即将删除实例 <strong>{name}</strong>，此操作将停止并移除 Docker 容器。',
+            deleteInstanceDesc: '即将删除实例 {name}，此操作将停止并移除 Docker 容器。',
             deleteWithData: '同时删除本地数据',
             deleteDataWarning: '删除 data/{name}/ 下所有文件（QQ数据、配置、插件、缓存），不可恢复',
             cancel: '取消',
             deleteInstanceOnly: '仅删除实例',
-            deleteInstanceAndData: '删除实例和数据'
+            deleteInstanceAndData: '删除实例和数据',
+            fetchStatusFailed: '获取状态失败',
+            refreshFailed: '刷新失败'
         },
         clusterConfig: {
             title: '初始化设置',
@@ -588,28 +593,14 @@ export const translations = {
             checkOnline: '检测在线',
             viewLogs: '查看日志',
             processLogs: '进程日志',
-            bsLauncherTitle: 'BS 激活器',
-            bsLauncherDesc: '将启动入口与激活状态集中到独立卡片，便于快速操作与观察。',
-            bsStatusTitle: '集成状态',
-            installedStatus: '已安装',
-            initializedStatus: '已初始化',
-            runningStatus: '运行中',
             activationStatus: '连接健康',
-            activationReady: '已激活',
-            activationWaiting: '待激活',
             activationConnected: '已连接',
             activationDisconnected: '未连接',
-            activationSelfId: '账号 ID',
-            activationUrl: '激活地址',
-            activationTokenPlaceholder: '可选，留空表示无认证',
-            activationStarted: '连接健康监控已启动',
-            activationStopped: '连接健康监控已停止',
             managedCount: '已注入端点',
             missingEndpoints: '缺失管理器端点',
             monitorRunning: '监控中',
             monitorAutoTip: '跟随 BS 生命周期自动管理',
             monitorStoppedTip: '启动 BS 即可自动开启监控',
-            openLauncher: '打开激活',
             autoRefresh: '自动刷新',
             noLogs: '暂无日志输出…',
             logLineCount: '行',
@@ -667,6 +658,7 @@ export const translations = {
             confirmInject: '确认注入',
             cancelText: '取消',
             partialSuccess: '{ok} 成功 / {fail} 失败',
+            collectFailed: '收集失败'
         }
     },
     en: {
@@ -684,6 +676,8 @@ export const translations = {
             botOnline: 'Bot Online',
             heartbeatLost: 'Heartbeat Lost',
             exited: 'STOPPED',
+            refreshContainersFailed: 'Failed to refresh container list',
+            fetchNodesFailed: 'Failed to fetch node list',
             created: 'CREATED',
             paused: 'PAUSED',
             coreDeployment: 'Core Deployment Engine',
@@ -715,7 +709,7 @@ export const translations = {
             dataDir: 'Data dir: data/{name}/ · Image/port defaults in Instance Settings',
             quickCreate: 'Quick Create',
             confirmDeleteInstance: 'Confirm Delete',
-            deleteInstanceMsg: 'About to delete instance <strong>{name}</strong>. This will stop and remove the Docker container.',
+            deleteInstanceMsg: 'About to delete instance {name}. This will stop and remove the Docker container.',
             deleteWithData: 'Also delete local data',
             deleteDataWarning: 'Delete all files under data/{name}/ (QQ data, config, plugins, cache). This cannot be undone.',
             deleteInstanceOnly: 'Delete Instance Only',
@@ -1096,7 +1090,8 @@ export const translations = {
             configChange: '{operator} changed config',
             nodeCreate: '{operator} created node {target}',
             nodeDelete: '{operator} deleted node {target}',
-            unknownAction: '{operator} performed action: {type}'
+            unknownAction: '{operator} performed action: {type}',
+            fetchFailed: 'Failed to fetch operation logs'
         },
         basicInfo: {
             running: 'Running',
@@ -1130,12 +1125,14 @@ export const translations = {
             netWsClient: 'WS Client',
             networkEndpoints: 'Network Endpoints',
             confirmDeleteTitle: 'Confirm Delete Instance',
-            deleteInstanceDesc: 'About to delete instance <strong>{name}</strong>. This will stop and remove the Docker container.',
+            deleteInstanceDesc: 'About to delete instance {name}. This will stop and remove the Docker container.',
             deleteWithData: 'Also delete local data',
             deleteDataWarning: 'Delete all files under data/{name}/ (QQ data, config, plugins, cache). This cannot be undone.',
             cancel: 'Cancel',
             deleteInstanceOnly: 'Delete Instance Only',
-            deleteInstanceAndData: 'Delete Instance & Data'
+            deleteInstanceAndData: 'Delete Instance & Data',
+            fetchStatusFailed: 'Failed to fetch status',
+            refreshFailed: 'Refresh failed'
         },
         clusterConfig: {
             title: 'Initialization Settings',
@@ -1258,11 +1255,6 @@ export const translations = {
             activationStatus: 'Connection Health',
             activationConnected: 'Connected',
             activationDisconnected: 'Disconnected',
-            activationSelfId: 'Account ID',
-            activationUrl: 'Activation URL',
-            activationTokenPlaceholder: 'Optional, leave empty for no auth',
-            activationStarted: 'Connection health monitor started',
-            activationStopped: 'Connection health monitor stopped',
             managedCount: 'Injected',
             missingEndpoints: 'Missing manager endpoint',
             monitorRunning: 'Monitoring',
@@ -1325,6 +1317,7 @@ export const translations = {
             confirmInject: 'Confirm Inject',
             cancelText: 'Cancel',
             partialSuccess: '{ok} succeeded / {fail} failed',
+            collectFailed: 'Auto-collect failed'
         }
     }
 };

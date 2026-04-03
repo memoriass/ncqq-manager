@@ -761,5 +761,5 @@ export interface BotStatusItem {
 
 export const botApi = {
     /** 列出所有已知 Bot（含已断线历史），connected=true 表示当前在线 */
-    list: () => request<BotStatusItem[]>('/api/bots'),
+    list: () => request<BotStatusItem[]>('/bots'),
 };

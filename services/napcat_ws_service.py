@@ -217,6 +217,11 @@ class NapCatWsService:
 
     def register_proxy(self, name: str, ws: "WebSocket") -> NapCatApiProxy:
         """注册 NapCatApiProxy（WS 建立后立即调用）。"""
+        # 快速重连时关闭旧 proxy，防止泄漏 pending Futures
+        old = self._proxies.pop(name, None)
+        if old:
+            old.close()
+            logger.debug("NapCatApiProxy 替换旧实例: name=%s", name)
         proxy = NapCatApiProxy(ws)
         self._proxies[name] = proxy
         logger.debug("NapCatApiProxy 注册: name=%s", name)

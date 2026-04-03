@@ -342,6 +342,7 @@ class BotShepherdManager:
                         "password": auth.get("password", "admin")}
         except Exception:
             pass
+        logger.warning("BS global_config.json 缺失 web_auth 配置，使用默认凭据 admin/admin — 请尽快修改")
         return {"username": "admin", "password": "admin"}
 
     def _read_configs_from_dir(self, subdir: str) -> Dict[str, Any]:

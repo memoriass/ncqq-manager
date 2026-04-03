@@ -117,7 +117,8 @@ def get_current_user(request: Request) -> dict:
     api_key = request.headers.get("x-request-api-key")
 
     if api_key:
-        if api_key == app_config.get("api_key"):
+        configured_key = app_config.get("api_key")
+        if configured_key and api_key == configured_key:
             return {"uuid": "cluster", "userName": "api_user", "permission": ROLE.ADMIN}
         user = user_manager.get_user_by_api_key(api_key)
         if user:

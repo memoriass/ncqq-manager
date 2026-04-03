@@ -115,6 +115,7 @@ class DockerEventWatcher:
     def _watch_loop(self):
         """后台线程主循环 — 断线自动重连。"""
         while self._running:
+            client = None
             try:
                 client = docker.from_env(timeout=10)
                 logger.info("Docker Events 已连接")
@@ -123,6 +124,12 @@ class DockerEventWatcher:
                 logger.debug("Docker Events 连接失败: %s", e)
             except Exception as e:
                 logger.debug("Docker Events 异常: %s", e)
+            finally:
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
 
             if self._running:
                 time.sleep(_RECONNECT_INTERVAL)
