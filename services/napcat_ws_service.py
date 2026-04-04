@@ -13,6 +13,7 @@ NapCat WS 连接注册表服务
   2. BS 账号 API 在线（BS 接管，WS 尚未重连）
   3. 无信号 → waiting
 """
+
 import asyncio
 import time
 import uuid
@@ -35,6 +36,7 @@ _API_PROXY_TIMEOUT = 10.0
 # NapCatApiProxy — 复用反向 WS 连接，向 NapCat 主动发 OneBot API 调用
 # ---------------------------------------------------------------------------
 
+
 class NapCatApiProxy:
     """
     通过已建立的反向 WS 连接（FastAPI WebSocket）主动调用 NapCat OneBot API。
@@ -52,6 +54,8 @@ class NapCatApiProxy:
         # echo → Future，等待 NapCat 响应
         self._pending: Dict[str, "asyncio.Future[Dict[str, Any]]"] = {}
         self._closed = False
+        # 绑定的 WS 实例引用，用于注销时校验
+        self._ws_ref = ws
 
     def on_response(self, echo: str, data: Dict[str, Any]) -> None:
         """ws_router 收到带 echo 的响应时回调，唤醒对应的 call_action 调用方。"""
@@ -110,16 +114,32 @@ class NapCatApiProxy:
         action = "send_private_msg" if msg_type == "private" else "send_group_msg"
         id_key = "user_id" if msg_type == "private" else "group_id"
         try:
-            data = await self.call_action(action, {id_key: target_id, "message": message})
+            data = await self.call_action(
+                action, {id_key: target_id, "message": message}
+            )
             return data.get("message_id")
         except Exception as exc:
-            logger.warning("NapCatApiProxy.send_message 失败: type=%s target=%s: %s",
-                           msg_type, target_id, exc)
+            logger.warning(
+                "NapCatApiProxy.send_message 失败: type=%s target=%s: %s",
+                msg_type,
+                target_id,
+                exc,
+            )
             return None
 
 
 class _ConnEntry:
-    __slots__ = ("uin", "nickname", "connected", "connect_ts", "disconnect_ts", "last_hb_ts", "hb_online", "last_seen", "ws_ref")
+    __slots__ = (
+        "uin",
+        "nickname",
+        "connected",
+        "connect_ts",
+        "disconnect_ts",
+        "last_hb_ts",
+        "hb_online",
+        "last_seen",
+        "ws_ref",
+    )
 
     def __init__(self, uin: str = "", nickname: str = ""):
         self.uin: str = uin
@@ -130,7 +150,9 @@ class _ConnEntry:
         self.last_hb_ts: float = 0.0
         self.hb_online: Optional[bool] = None
         self.last_seen: float = 0.0  # 最后一次在线时间戳（connect_ts 或 disconnect_ts）
-        self.ws_ref: Optional["WebSocket"] = None  # 绑定的 WS 实例，防止并发连接状态覆盖
+        self.ws_ref: Optional["WebSocket"] = (
+            None  # 绑定的 WS 实例，防止并发连接状态覆盖
+        )
 
     def is_alive(self) -> bool:
         """WS 在线 OR 断开宽限期内"""
@@ -155,7 +177,9 @@ class NapCatWsService:
     # 写入（由 ws_router 调用）
     # ------------------------------------------------------------------
 
-    def on_connect(self, name: str, uin: str, nickname: str = "", ws: "WebSocket | None" = None) -> None:
+    def on_connect(
+        self, name: str, uin: str, nickname: str = "", ws: "WebSocket | None" = None
+    ) -> None:
         """NapCat WS 连接建立"""
         e = self._table.setdefault(name, _ConnEntry())
         e.uin = uin
@@ -165,7 +189,9 @@ class NapCatWsService:
         e.last_seen = e.connect_ts
         e.disconnect_ts = 0.0
         e.ws_ref = ws  # 绑定 WS 实例
-        logger.info("NapCat WS 连接注册: name=%s uin=%s nickname=%s", name, uin, nickname)
+        logger.info(
+            "NapCat WS 连接注册: name=%s uin=%s nickname=%s", name, uin, nickname
+        )
 
     def on_disconnect(self, name: str, ws: "WebSocket | None" = None) -> None:
         """NapCat WS 连接断开（保留宽限期）。
@@ -227,10 +253,19 @@ class NapCatWsService:
         logger.debug("NapCatApiProxy 注册: name=%s", name)
         return proxy
 
-    def unregister_proxy(self, name: str) -> None:
-        """注销并关闭 proxy（WS 断开时调用）。"""
-        proxy = self._proxies.pop(name, None)
+    def unregister_proxy(self, name: str, ws: "WebSocket | None" = None) -> None:
+        """注销并关闭 proxy（WS 断开时调用）。
+
+        修复：当同一 name 存在多个并发 WS 连接时（如快速重连），
+        只有绑定的 WS 实例断开才注销，防止旧连接断开删除新连接的 proxy。
+        """
+        proxy = self._proxies.get(name)
         if proxy:
+            # ws_ref 校验：如果指定了 ws 且不匹配当前绑定实例，跳过（旧连接断开）
+            if ws is not None and hasattr(proxy, "_ws_ref") and proxy._ws_ref is not ws:
+                logger.debug("NapCatApiProxy 注销跳过（非当前绑定实例）: name=%s", name)
+                return
+            self._proxies.pop(name, None)
             proxy.close()
             logger.debug("NapCatApiProxy 注销: name=%s", name)
 
@@ -300,7 +335,12 @@ class NapCatWsService:
                 "method": "sdk_ws",
                 "reason": "ws_connected" if e.connected else "ws_grace",
             }
-        return {"logged_in": False, "uin": e.uin, "stage": "waiting", "method": "sdk_ws"}
+        return {
+            "logged_in": False,
+            "uin": e.uin,
+            "stage": "waiting",
+            "method": "sdk_ws",
+        }
 
     def _resolve_known_uin(self, name: str) -> str:
         """解析实例可用 uin（WS注册表 → instance_subsystem → login_cache）。"""
@@ -311,6 +351,7 @@ class NapCatWsService:
         # 兜底1：容器状态引擎内存态（可能由 HTTP 检测更新）
         try:
             from services.instance_subsystem import instance_subsystem
+
             inst = instance_subsystem.get(name)
             if inst and inst.uin:
                 return str(inst.uin)
@@ -320,6 +361,7 @@ class NapCatWsService:
         # 兜底2：历史登录缓存（兼容旧链路）
         try:
             from services.docker_login import read_login_cache
+
             c = read_login_cache(name) or {}
             uin = c.get("uin", "")
             if uin:
@@ -343,6 +385,7 @@ class NapCatWsService:
         """
         try:
             from services.botshepherd import botshepherd_manager
+
             if not botshepherd_manager.running:
                 return {"logged_in": False, "stage": "waiting"}
 
@@ -354,7 +397,9 @@ class NapCatWsService:
             # ★ BS account_id = QQ号(uin)；优先使用可解析的已知 uin
             known_uin = self._resolve_known_uin(name)
             if not known_uin:
-                logger.debug("BS 辅助检测跳过 [%s]: uin 未知（WS/实例缓存均缺失）", name)
+                logger.debug(
+                    "BS 辅助检测跳过 [%s]: uin 未知（WS/实例缓存均缺失）", name
+                )
                 return {
                     "logged_in": False,
                     "stage": "waiting",
@@ -367,11 +412,15 @@ class NapCatWsService:
             )
             # _error 表示 BS 返回了非 200 响应（如 404/账号不存在）
             if not isinstance(result, dict) or result.get("_error"):
-                logger.debug("BS 辅助检测无效响应 [%s] uin=%s: %s", name, known_uin, result)
+                logger.debug(
+                    "BS 辅助检测无效响应 [%s] uin=%s: %s", name, known_uin, result
+                )
                 return {"logged_in": False, "stage": "waiting"}
 
             online = bool(result.get("online", False))
-            uin = str(result.get("uin", "") or result.get("account_id", "") or known_uin)
+            uin = str(
+                result.get("uin", "") or result.get("account_id", "") or known_uin
+            )
             ret: Dict = {
                 "logged_in": online,
                 "stage": "logged_in" if online else "waiting",
@@ -393,4 +442,3 @@ class NapCatWsService:
 
 # 全局单例
 napcat_ws_service = NapCatWsService()
-
