@@ -1,6 +1,7 @@
 """
 BotShepherd 集成路由 - 初始化/启停/状态/连接管理/账号管理
 """
+
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from middleware.auth import require_admin
@@ -16,7 +17,9 @@ async def get_status(_user=Depends(require_admin)):
 
 
 @router.get("/logs")
-async def get_bs_logs(lines: int = Query(100, ge=1, le=500), _user=Depends(require_admin)):
+async def get_bs_logs(
+    lines: int = Query(100, ge=1, le=500), _user=Depends(require_admin)
+):
     """获取 BotShepherd 进程控制台输出（最近 N 行）"""
     return {"status": "ok", "logs": botshepherd_manager.read_logs(lines)}
 
@@ -45,13 +48,16 @@ async def stop_service(_user=Depends(require_admin)):
 
 # ---- 连接管理 ----
 
+
 @router.get("/connections")
 async def get_connections(_user=Depends(require_admin)):
     return await botshepherd_manager.get_connections()
 
 
 @router.put("/connections/{connection_id}")
-async def update_connection(connection_id: str, body: dict, _user=Depends(require_admin)):
+async def update_connection(
+    connection_id: str, body: dict, _user=Depends(require_admin)
+):
     return await botshepherd_manager.update_connection(connection_id, body)
 
 
@@ -66,6 +72,7 @@ async def delete_connection(connection_id: str, _user=Depends(require_admin)):
 
 
 # ---- 账号管理 ----
+
 
 @router.get("/accounts")
 async def get_accounts(_user=Depends(require_admin)):
@@ -89,6 +96,7 @@ async def get_account_online(account_id: str, _user=Depends(require_admin)):
 
 # ---- Bot 掉线检测（管理器内置 OneBot WS 端点采集） ----
 
+
 @router.get("/bots/heartbeat")
 async def get_bots_heartbeat(_user=Depends(require_admin)):
     """查询所有已接入管理器 OneBot WS 端点的 Bot 在线状态。
@@ -97,6 +105,7 @@ async def get_bots_heartbeat(_user=Depends(require_admin)):
     online=true 表示最近一个心跳周期内有心跳且 NapCat 上报 online=true。
     """
     from services.bot_heartbeat import bot_heartbeat
+
     return {"status": "ok", "bots": bot_heartbeat.get_all()}
 
 
@@ -104,6 +113,7 @@ async def get_bots_heartbeat(_user=Depends(require_admin)):
 async def get_bot_heartbeat(self_id: str, _user=Depends(require_admin)):
     """查询指定 Bot（self_id）的在线状态。"""
     from services.bot_heartbeat import bot_heartbeat
+
     result = bot_heartbeat.get_one(self_id)
     if result is None:
         return {"status": "ok", "online": False, "detail": "no heartbeat received"}
@@ -111,6 +121,7 @@ async def get_bot_heartbeat(self_id: str, _user=Depends(require_admin)):
 
 
 # ---- Bot 框架端点探测 ----
+
 
 class ProbeTargetRequest(BaseModel):
     url: str
@@ -128,7 +139,9 @@ async def get_activation_status(_user=Depends(require_admin)):
 
 
 @router.post("/activation/start")
-async def start_activation(body: ActivationRequest = ActivationRequest(), _user=Depends(require_admin)):
+async def start_activation(
+    body: ActivationRequest = ActivationRequest(), _user=Depends(require_admin)
+):
     return await bs_activation_service.start(body.url, body.token)
 
 
@@ -149,6 +162,7 @@ async def probe_target(body: ProbeTargetRequest, _user=Depends(require_admin)):
 
 # ---- Bot 雷达端点库 ----
 
+
 @router.get("/radar/endpoints")
 async def get_radar_endpoints(_user=Depends(require_admin)):
     """读取 Bot 雷达端点库（config/bot_radar_endpoints.json）。"""
@@ -161,6 +175,7 @@ async def save_radar_endpoints(body: dict, _user=Depends(require_admin)):
     endpoints = body.get("endpoints", [])
     if not isinstance(endpoints, list):
         from fastapi import HTTPException
+
         raise HTTPException(status_code=400, detail="endpoints 必须为数组")
     botshepherd_manager.save_radar_endpoints(endpoints)
     return {"status": "ok", "count": len(endpoints)}
@@ -168,10 +183,10 @@ async def save_radar_endpoints(body: dict, _user=Depends(require_admin)):
 
 class InjectByAliasRequest(BaseModel):
     alias: str
-    target: str                  # "bs" | "nc"
-    conn_id: str = ""            # target=bs 时必填
-    container_name: str = ""     # target=nc 时必填
-    uin: str = "default"         # target=nc 时使用
+    target: str  # "bs" | "nc"
+    conn_id: str = ""  # target=bs 时必填
+    container_name: str = ""  # target=nc 时必填
+    uin: str = "default"  # target=nc 时使用
 
 
 @router.post("/radar/inject-by-alias")
@@ -192,3 +207,28 @@ async def inject_by_alias(body: InjectByAliasRequest, _user=Depends(require_admi
         container_name=body.container_name,
         uin=body.uin,
     )
+
+
+class RemoveEndpointRequest(BaseModel):
+    conn_id: str
+    endpoint_url: str
+
+
+@router.post("/connections/{connection_id}/remove-endpoint")
+async def remove_endpoint_from_connection(
+    connection_id: str, body: RemoveEndpointRequest, _user=Depends(require_admin)
+):
+    """从指定 BS 连接的 target_endpoints 中移除管理器自身端点。
+
+    安全限制：只允许删除管理器自身注册的端点（/ws/napcat/*），
+    拒绝删除用户手动配置的第三方端点（包括其他 OneBot 端点），避免误操作。
+
+    用途：清理管理器自身注册的端点，例如容器删除后清理残留端点。
+
+    示例：
+      POST /api/botshepherd/connections/conn_miya/remove-endpoint
+      {"conn_id": "conn_miya", "endpoint_url": "ws://192.168.1.211:8000/ws/napcat/698076448"}
+    """
+    # 优先使用路径参数，兼容 body 参数
+    conn_id = connection_id or body.conn_id
+    return await botshepherd_manager.remove_endpoint_from_bs(conn_id, body.endpoint_url)

@@ -8,6 +8,7 @@ WebSocket 路由 - 实时事件推送 + 日志流
   /ws/onebot/v11/ws  — OneBot v11 反向 WS 接收端点（BS 默认目标），用于 Bot 掉线检测
   /ws/napcat/{name}  — 带容器名的主路径端点，支持 NapCatApiProxy 主动 API 调用
 """
+
 import asyncio
 
 import orjson
@@ -74,7 +75,8 @@ async def ws_events(ws: WebSocket):
             try:
                 if curr_snapshot != prev_snapshot:
                     await asyncio.wait_for(
-                        ws.send_json({"type": "containers", "data": containers}), timeout=5
+                        ws.send_json({"type": "containers", "data": containers}),
+                        timeout=5,
                     )
                     prev_snapshot = curr_snapshot
                 else:
@@ -95,7 +97,8 @@ async def ws_events(ws: WebSocket):
 
 @router.websocket("/ws/logs/{name}")
 async def ws_container_logs(
-    ws: WebSocket, name: str,
+    ws: WebSocket,
+    name: str,
     node_id: str = Query(default="local"),
 ):
     """容器日志实时流推送"""
@@ -111,7 +114,7 @@ async def ws_container_logs(
             try:
                 logs = await asyncio.wait_for(
                     run_in_threadpool(cluster_manager.get_logs, node_id, name, 200),
-                    timeout=8
+                    timeout=8,
                 )
             except (asyncio.TimeoutError, Exception):
                 logs = ""
@@ -128,8 +131,8 @@ async def ws_container_logs(
         logger.debug("WS logs 连接异常 [%s]: %s", name, e)
 
 
-
 # ============ 公开 WS — 无需认证，推送容器列表 + QR 状态 ============
+
 
 @router.websocket("/ws/public")
 async def ws_public(ws: WebSocket):
@@ -152,7 +155,7 @@ async def ws_public(ws: WebSocket):
         return
 
     # 默认推送全量（向后兼容），客户端可发 subscribe 切换分页
-    sub_page = 0       # 0 = 全量模式
+    sub_page = 0  # 0 = 全量模式
     sub_page_size = 20
     prev_version: tuple | None = None
 
@@ -180,7 +183,8 @@ async def ws_public(ws: WebSocket):
             if sub_page > 0:
                 # 分页模式 — 只推送当前页（MCSM instance/select 模式）
                 page_result = instance_subsystem.query(
-                    page=sub_page, page_size=sub_page_size)
+                    page=sub_page, page_size=sub_page_size
+                )
                 containers = page_result["data"]
                 qr_states = {}
                 for item in containers:
@@ -224,6 +228,7 @@ async def ws_public(ws: WebSocket):
 #   /ws/onebot/v11/ws           — 旧兼容路径（无容器归属，依赖 header self_id）
 #   /ws/napcat/{name}           — 新路径（携带容器名，接入 napcat_ws_service）
 
+
 def _handle_ob11_event(
     event: dict,
     name: str,
@@ -265,24 +270,35 @@ def _handle_ob11_event(
             bot_heartbeat.on_heartbeat(sid, interval_ms, status_data)
             if name:
                 napcat_ws_service.on_heartbeat(name, online)
-            logger.debug("Bot 心跳: name=%s self_id=%s online=%s", name or "?", sid, online)
+            logger.debug(
+                "Bot 心跳: name=%s self_id=%s online=%s", name or "?", sid, online
+            )
 
         elif meta_type == "lifecycle":
             sub_type = event.get("sub_type", "")
             if sub_type == "connect":
                 bot_heartbeat.on_connect(sid)
-                logger.info("Bot lifecycle.connect: name=%s self_id=%s", name or "?", sid)
+                logger.info(
+                    "Bot lifecycle.connect: name=%s self_id=%s", name or "?", sid
+                )
             elif sub_type == "disconnect":
                 bot_heartbeat.on_disconnect(sid)
-                logger.info("Bot lifecycle.disconnect: name=%s self_id=%s", name or "?", sid)
+                logger.info(
+                    "Bot lifecycle.disconnect: name=%s self_id=%s", name or "?", sid
+                )
 
     elif post_type == "notice" and notice_type == "bot_offline":
         # NapCat BotOfflineEvent：tag/message 字段记录掉线原因
         tag = event.get("tag", "")
         msg = event.get("message", "")
         bot_heartbeat.on_disconnect(sid)
-        logger.info("Bot offline notice: name=%s self_id=%s tag=%s msg=%s",
-                    name or "?", sid, tag, msg)
+        logger.info(
+            "Bot offline notice: name=%s self_id=%s tag=%s msg=%s",
+            name or "?",
+            sid,
+            tag,
+            msg,
+        )
 
 
 async def _ob11_recv_loop(ws: WebSocket, name: str, header_sid: str | None) -> None:
@@ -291,6 +307,7 @@ async def _ob11_recv_loop(ws: WebSocket, name: str, header_sid: str | None) -> N
     - 不带 echo 的消息：OneBot 事件，分发给 _handle_ob11_event
     """
     from services.napcat_ws_service import napcat_ws_service
+
     seen_sids: set = set()
     try:
         while True:
@@ -321,6 +338,7 @@ async def _ob11_recv_loop(ws: WebSocket, name: str, header_sid: str | None) -> N
         logger.warning("OneBot WS 接收异常 [%s]: %s", name or "compat", e)
     finally:
         from services.bot_heartbeat import bot_heartbeat
+
         for sid in seen_sids:
             bot_heartbeat.on_ws_lost(sid)
         if name:
@@ -343,20 +361,25 @@ async def ws_napcat_named(ws: WebSocket, name: str):
 
     await ws.accept()
     header_sid = ws.headers.get("x-self-id") or ws.headers.get("X-Self-Id") or ""
-    logger.info("NapCat WS [%s] 新连接 header_self_id=%s client=%s",
-                name, header_sid, ws.client)
+    logger.info(
+        "NapCat WS [%s] 新连接 header_self_id=%s client=%s", name, header_sid, ws.client
+    )
 
     # 连接建立时先用 header_sid 预注册（事件到来前的宽限期）
     # "0" 是 BS probe_target_endpoint 探测握手的哑值，跳过避免污染注册表 uin
-    if header_sid and header_sid != "0":
+    is_probe = header_sid == "0"
+    if header_sid and not is_probe:
         napcat_ws_service.on_connect(name, header_sid, ws=ws)
 
     # 注册 API 代理（复用此 WS 连接主动调用 NapCat API）
-    napcat_ws_service.register_proxy(name, ws)
+    # 探测连接不注册 proxy，避免覆盖正常连接的 proxy
+    if not is_probe:
+        napcat_ws_service.register_proxy(name, ws)
     try:
         await _ob11_recv_loop(ws, name, header_sid or None)
     finally:
-        napcat_ws_service.unregister_proxy(name)
+        if not is_probe:
+            napcat_ws_service.unregister_proxy(name, ws=ws)
 
 
 @router.websocket("/ws/onebot/v11/ws")
@@ -370,6 +393,7 @@ async def ws_onebot_receiver(ws: WebSocket):
     """
     await ws.accept()
     header_sid = ws.headers.get("x-self-id") or ws.headers.get("X-Self-Id")
-    logger.info("OneBot WS 兼容端点：新连接 header_self_id=%s client=%s",
-                header_sid, ws.client)
+    logger.info(
+        "OneBot WS 兼容端点：新连接 header_self_id=%s client=%s", header_sid, ws.client
+    )
     await _ob11_recv_loop(ws, "", header_sid)

@@ -1,7 +1,17 @@
 """
 BotShepherd 集成管理器 - 已嵌入本项目，负责初始化、进程启停和状态查询
 """
-import os, sys, signal, subprocess, asyncio, json, glob, shutil, threading, collections
+
+import os
+import sys
+import signal
+import subprocess
+import asyncio
+import json
+import glob
+import shutil
+import threading
+import collections
 from typing import Optional, Dict, Any, List
 import aiohttp
 from services.log import logger
@@ -17,7 +27,9 @@ def _resolve_botshepherd_dir() -> str:
     # fallback：扫描目录匹配（最健壮，适配任意大小写）
     try:
         for entry in os.listdir(BASE_DIR):
-            if entry.lower() == "botshepherd" and os.path.isdir(os.path.join(BASE_DIR, entry)):
+            if entry.lower() == "botshepherd" and os.path.isdir(
+                os.path.join(BASE_DIR, entry)
+            ):
                 return os.path.join(BASE_DIR, entry)
     except OSError:
         pass
@@ -56,7 +68,9 @@ def _bs_ensure_venv(uv_bin: str) -> bool:
     if not os.path.isfile(cfg_file):
         r = subprocess.run(
             [uv_bin, "venv", "venv", "--seed"],
-            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+            capture_output=True,
+            text=True,
+            cwd=BOTSHEPHERD_DIR,
         )
         if r.returncode != 0:
             logger.error("BS uv venv 创建失败: %s", r.stderr or r.stdout)
@@ -65,8 +79,11 @@ def _bs_ensure_venv(uv_bin: str) -> bool:
     env = {**os.environ, "VIRTUAL_ENV": venv_dir, "PYTHONIOENCODING": "utf-8"}
     r = subprocess.run(
         [uv_bin, "pip", "install", "-q", "-r", "requirements.txt"],
-        capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
-        env=env, timeout=300,
+        capture_output=True,
+        text=True,
+        cwd=BOTSHEPHERD_DIR,
+        env=env,
+        timeout=300,
     )
     if r.returncode != 0:
         logger.error("BS 依赖安装失败: %s", r.stderr or r.stdout)
@@ -98,9 +115,12 @@ class BSApiClient:
         sess = await self._ensure_session()
         auth = self._mgr._read_bs_auth()
         try:
-            async with sess.post(f"{self._base}/login", data=auth,
-                                 timeout=aiohttp.ClientTimeout(total=5),
-                                 allow_redirects=False) as r:
+            async with sess.post(
+                f"{self._base}/login",
+                data=auth,
+                timeout=aiohttp.ClientTimeout(total=5),
+                allow_redirects=False,
+            ) as r:
                 self._authed = r.status in (200, 302)
                 return self._authed
         except Exception:
@@ -117,21 +137,28 @@ class BSApiClient:
                 return None
         url = f"{self._base}{path}"
         try:
-            async with sess.request(method, url,
-                                    timeout=aiohttp.ClientTimeout(total=10),
-                                    **kwargs) as resp:
+            async with sess.request(
+                method, url, timeout=aiohttp.ClientTimeout(total=10), **kwargs
+            ) as resp:
                 if resp.status == 401:
                     if await self._login():
-                        async with sess.request(method, url,
-                                                timeout=aiohttp.ClientTimeout(total=10),
-                                                **kwargs) as r2:
+                        async with sess.request(
+                            method,
+                            url,
+                            timeout=aiohttp.ClientTimeout(total=10),
+                            **kwargs,
+                        ) as r2:
                             if r2.status == 200:
                                 return await r2.json()
                     return None
                 if resp.status == 200:
                     return await resp.json()
                 body = await resp.json()
-                return {"_error": True, "status": resp.status, **(body if isinstance(body, dict) else {"detail": body})}
+                return {
+                    "_error": True,
+                    "status": resp.status,
+                    **(body if isinstance(body, dict) else {"detail": body}),
+                }
         except Exception as e:
             logger.debug("BS API %s %s failed: %s", method, path, e)
             return None
@@ -155,7 +182,9 @@ class BotShepherdManager:
         self._port: int = BOTSHEPHERD_DEFAULT_PORT
         self._auto_start: bool = True
         self.api: BSApiClient = None  # type: ignore  — 延迟初始化
-        self._log_buffer: collections.deque = collections.deque(maxlen=self._LOG_BUFFER_MAX)
+        self._log_buffer: collections.deque = collections.deque(
+            maxlen=self._LOG_BUFFER_MAX
+        )
         self._log_thread: Optional[threading.Thread] = None
 
     # ---- 进程日志捕获 ----
@@ -214,17 +243,25 @@ class BotShepherdManager:
 
     def status(self) -> Dict[str, Any]:
         from services.bs_activation_service import bs_activation_service
+
         return {
-            "installed": self.installed, "initialized": self.initialized,
-            "running": self.running, "port": self.port, "pid": self.pid,
-            "auto_start": self._auto_start, "dir": BOTSHEPHERD_DIR,
+            "installed": self.installed,
+            "initialized": self.initialized,
+            "running": self.running,
+            "port": self.port,
+            "pid": self.pid,
+            "auto_start": self._auto_start,
+            "dir": BOTSHEPHERD_DIR,
             "webui_port": self.port if self.running else None,
             "activation": bs_activation_service.status(),
         }
 
     async def setup(self) -> Dict[str, Any]:
         if not self.installed:
-            return {"status": "error", "message": f"botshepherd/ 目录缺失（检查路径: {BOTSHEPHERD_DIR})"}
+            return {
+                "status": "error",
+                "message": f"botshepherd/ 目录缺失（检查路径: {BOTSHEPHERD_DIR})",
+            }
         logger.info("BotShepherd setup 开始...")
 
         # 用 uv 确保 BS venv 存在并依赖已安装
@@ -232,7 +269,10 @@ class BotShepherdManager:
         if uv_bin:
             ok = await asyncio.to_thread(_bs_ensure_venv, uv_bin)
             if not ok:
-                return {"status": "error", "message": "BotShepherd 依赖安装失败，请查看服务端日志"}
+                return {
+                    "status": "error",
+                    "message": "BotShepherd 依赖安装失败，请查看服务端日志",
+                }
         else:
             logger.warning("未检测到 uv，跳过依赖安装（若缺少依赖将在启动时报错）")
 
@@ -242,7 +282,11 @@ class BotShepherdManager:
         proc = await asyncio.to_thread(
             subprocess.run,
             [python, "main.py", "--setup"],
-            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR, timeout=300, env=env,
+            capture_output=True,
+            text=True,
+            cwd=BOTSHEPHERD_DIR,
+            timeout=300,
+            env=env,
         )
         if proc.returncode != 0:
             return {"status": "error", "message": proc.stderr or proc.stdout}
@@ -262,14 +306,20 @@ class BotShepherdManager:
         if not os.path.isfile(cfg_file):
             ok = await asyncio.to_thread(_bs_ensure_venv, uv_bin)
             if not ok:
-                return {"status": "error", "message": "BS venv 创建失败，请查看服务端日志"}
+                return {
+                    "status": "error",
+                    "message": "BS venv 创建失败，请查看服务端日志",
+                }
             return {"status": "ok", "message": "BS venv 已重建并同步依赖"}
         env = {**os.environ, "VIRTUAL_ENV": venv_dir, "PYTHONIOENCODING": "utf-8"}
         r = await asyncio.to_thread(
             subprocess.run,
             [uv_bin, "pip", "install", "-q", "-r", req_file],
-            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
-            env=env, timeout=300,
+            capture_output=True,
+            text=True,
+            cwd=BOTSHEPHERD_DIR,
+            env=env,
+            timeout=300,
         )
         if r.returncode != 0:
             logger.error("BS sync_deps 失败: %s", r.stderr or r.stdout)
@@ -292,15 +342,24 @@ class BotShepherdManager:
             # BS WebServer 需要 BOTSHEPHERD_SECRET_KEY 作为 Flask session secret
             if "BOTSHEPHERD_SECRET_KEY" not in env:
                 import secrets
+
                 env["BOTSHEPHERD_SECRET_KEY"] = secrets.token_hex(32)
             self._log_buffer.clear()
             self._process = subprocess.Popen(
-                [python, "main.py"], cwd=BOTSHEPHERD_DIR,
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, **kw)
+                [python, "main.py"],
+                cwd=BOTSHEPHERD_DIR,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=env,
+                **kw,
+            )
             # 后台线程读取进程输出，避免 PIPE 缓冲区满阻塞
             self._log_thread = threading.Thread(
-                target=self._reader_worker, args=(self._process.stdout,),
-                daemon=True, name="bs-log-reader")
+                target=self._reader_worker,
+                args=(self._process.stdout,),
+                daemon=True,
+                name="bs-log-reader",
+            )
             self._log_thread.start()
             logger.info("BotShepherd started, PID=%s", self._process.pid)
             self._ensure_api().invalidate()
@@ -338,11 +397,15 @@ class BotShepherdManager:
                 with open(cfg, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 auth = data.get("web_auth", {})
-                return {"username": auth.get("username", "admin"),
-                        "password": auth.get("password", "admin")}
+                return {
+                    "username": auth.get("username", "admin"),
+                    "password": auth.get("password", "admin"),
+                }
         except Exception:
             pass
-        logger.warning("BS global_config.json 缺失 web_auth 配置，使用默认凭据 admin/admin — 请尽快修改")
+        logger.warning(
+            "BS global_config.json 缺失 web_auth 配置，使用默认凭据 admin/admin — 请尽快修改"
+        )
         return {"username": "admin", "password": "admin"}
 
     def _read_configs_from_dir(self, subdir: str) -> Dict[str, Any]:
@@ -366,7 +429,10 @@ class BotShepherdManager:
         data = await api.request("GET", "/api/connections")
         if data is not None and not (isinstance(data, dict) and data.get("_error")):
             return {"source": "api", "connections": data}
-        return {"source": "file", "connections": self._read_configs_from_dir("connections")}
+        return {
+            "source": "file",
+            "connections": self._read_configs_from_dir("connections"),
+        }
 
     async def update_connection(self, conn_id: str, config: dict) -> Dict[str, Any]:
         api = self._ensure_api()
@@ -433,6 +499,7 @@ class BotShepherdManager:
           note       — 可选补充信息（"handshake_rejected"）
         """
         import time
+
         t0 = time.time()
         # OneBot v11 标准探测头，与 BotShepherd proxy_connection 保持一致
         headers = {
@@ -445,7 +512,9 @@ class BotShepherdManager:
         try:
             timeout = aiohttp.ClientTimeout(total=3.0, connect=2.0)
             async with aiohttp.ClientSession() as session:
-                ws = await session.ws_connect(url, timeout=timeout, heartbeat=None, headers=headers)
+                ws = await session.ws_connect(
+                    url, timeout=timeout, heartbeat=None, headers=headers
+                )
                 await ws.close()
             latency_ms = round((time.time() - t0) * 1000)
             return {"online": True, "latency_ms": latency_ms}
@@ -453,15 +522,23 @@ class BotShepherdManager:
             # 服务器返回了 HTTP 响应（4xx）→ 端口可达，服务在线，但握手被拒（认证失败等）
             latency_ms = round((time.time() - t0) * 1000)
             if e.status and 400 <= e.status < 500:
-                return {"online": True, "latency_ms": latency_ms, "note": "handshake_rejected", "status_code": e.status}
+                return {
+                    "online": True,
+                    "latency_ms": latency_ms,
+                    "note": "handshake_rejected",
+                    "status_code": e.status,
+                }
             return {"online": False, "latency_ms": None}
         except Exception:
             return {"online": False, "latency_ms": None}
 
     # ---- Bot 雷达端点库（持久化） ----
 
-    _RADAR_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                               "config", "bot_radar_endpoints.json")
+    _RADAR_FILE = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config",
+        "bot_radar_endpoints.json",
+    )
 
     def get_radar_endpoints(self) -> List[Dict[str, Any]]:
         """读取 Bot 雷达端点库（config/bot_radar_endpoints.json）。"""
@@ -514,14 +591,20 @@ class BotShepherdManager:
                 return {"success": False, "error": "端点已在 BS 目标列表中"}
             targets.append(url)
             await self.update_connection(conn_id, {**conn, "target_endpoints": targets})
-            return {"success": True, "message": f"已注入 '{alias}' → BS 连接 '{conn_id}'"}
+            return {
+                "success": True,
+                "message": f"已注入 '{alias}' → BS 连接 '{conn_id}'",
+            }
 
         if target == "nc":
             if not container_name:
                 return {"success": False, "error": "注入 NC 需要 container_name"}
             from services.config import get_data_dir
             import json as _json
-            cfg_path = os.path.join(get_data_dir(), container_name, "config", f"onebot11_{uin}.json")
+
+            cfg_path = os.path.join(
+                get_data_dir(), container_name, "config", f"onebot11_{uin}.json"
+            )
             existing_clients: List[Dict[str, Any]] = []
             if os.path.isfile(cfg_path):
                 try:
@@ -535,14 +618,20 @@ class BotShepherdManager:
             if any(c.get("url") == url for c in existing_clients):
                 return {"success": False, "error": "端点已在 WS 客户端列表中"}
             new_client = {
-                "name": alias or "bot-radar", "enable": True, "url": url,
-                "reportSelfMessage": False, "messagePostFormat": "array",
-                "token": token or "", "debug": False,
-                "heartInterval": 30000, "reconnectInterval": 30000,
+                "name": alias or "bot-radar",
+                "enable": True,
+                "url": url,
+                "reportSelfMessage": False,
+                "messagePostFormat": "array",
+                "token": token or "",
+                "debug": False,
+                "heartInterval": 30000,
+                "reconnectInterval": 30000,
             }
             # 调用现有 inject-network-config 内部逻辑（复用文件写入）
             from routers.container_crud_router import _ALLOWED_NET_KEYS  # noqa
             import json as _json2
+
             cfg_dir = os.path.join(get_data_dir(), container_name, "config")
             os.makedirs(cfg_dir, exist_ok=True)
             full_cfg: Dict[str, Any] = {}
@@ -557,10 +646,55 @@ class BotShepherdManager:
             full_cfg["network"] = network
             with open(cfg_path, "w", encoding="utf-8") as f:
                 _json2.dump(full_cfg, f, indent=2, ensure_ascii=False)
-            return {"success": True, "message": f"已注入 '{alias}' → 容器 '{container_name}' (uin={uin})"}
+            return {
+                "success": True,
+                "message": f"已注入 '{alias}' → 容器 '{container_name}' (uin={uin})",
+            }
 
         return {"success": False, "error": f"未知 target: {target}"}
 
+    async def remove_endpoint_from_bs(
+        self, conn_id: str, endpoint_url: str
+    ) -> Dict[str, Any]:
+        """从指定 BS 连接的 target_endpoints 中移除管理器自身端点。
+
+        安全限制：只允许删除管理器自身注册的端点（URL 包含 /ws/napcat/），
+        拒绝删除用户手动配置的第三方端点（包括其他 OneBot 端点），避免误操作。
+
+        Args:
+            conn_id: BS 连接 ID
+            endpoint_url: 要移除的端点 URL（必须是管理器自身端点）
+
+        Returns:
+            {"success": bool, "message": str, "removed": bool}
+        """
+        # 安全检查：只允许删除管理器自身的 /ws/napcat/* 端点
+        if "/ws/napcat/" not in endpoint_url:
+            return {
+                "success": False,
+                "error": "安全限制：只能删除管理器自身端点（/ws/napcat/*），不能删除用户配置的第三方端点",
+            }
+
+        res = await self.get_connections()
+        conn = (res.get("connections") or {}).get(conn_id)
+        if not conn:
+            return {"success": False, "error": f"BS 连接 '{conn_id}' 不存在"}
+
+        targets: List[str] = list(conn.get("target_endpoints") or [])
+        if endpoint_url not in targets:
+            return {
+                "success": True,
+                "message": "端点不在目标列表中（已是期望状态）",
+                "removed": False,
+            }
+
+        targets.remove(endpoint_url)
+        await self.update_connection(conn_id, {**conn, "target_endpoints": targets})
+        return {
+            "success": True,
+            "message": f"已从 BS 连接 '{conn_id}' 移除管理器端点: {endpoint_url}",
+            "removed": True,
+        }
+
 
 botshepherd_manager = BotShepherdManager()
-

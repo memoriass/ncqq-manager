@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"from services.bs_activation_service import bs_activation_service; print\\('OK:', bs_activation_service.status\\(\\)\\)\")",
+      "Bash(python -c \"from services.napcat_ws_service import napcat_ws_service; print\\('OK:', napcat_ws_service.is_connected\\('test'\\)\\)\")",
+      "Bash(npx tsc:*)",
+      "Bash(python -c ':*)"
+    ]
+  }
+}
