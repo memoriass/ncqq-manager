@@ -302,8 +302,12 @@ class ContainerStateEngine:
                 continue
             # WS 已连接时快速命中，跳过轮询 TTL 检查（实时更新）
             ws_result = napcat_ws_service.get_login_result(name)
-            # 如果心跳明确表示离线（bot_online=False且曾经收到过心跳），则强制降级到 WebUI 轮询以获取准确登录状态
-            force_poll = inst.bot_heartbeat_ts > 0 and not inst.bot_online
+            # 强制降级到 WebUI 轮询的条件：
+            # 1. 当前状态为未登录（inst.logged_in=False）：WS 连接不能作为登录成功的唯一依据
+            # 2. 心跳明确表示离线（bot_online=False 且曾经收到过心跳）
+            force_poll = not inst.logged_in or (
+                inst.bot_heartbeat_ts > 0 and not inst.bot_online
+            )
             if ws_result["logged_in"] and not force_poll:
                 old_uin = inst.uin
                 new_uin = ws_result.get("uin", "")
