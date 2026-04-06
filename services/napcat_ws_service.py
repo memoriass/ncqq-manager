@@ -337,7 +337,7 @@ class NapCatWsService:
             }
         return {
             "logged_in": False,
-            "uin": e.uin,
+            "uin": "",  # 掉线后不返回旧 UIN，确保 update_login 清空 inst.uin
             "stage": "waiting",
             "method": "sdk_ws",
         }
