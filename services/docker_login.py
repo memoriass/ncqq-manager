@@ -148,6 +148,20 @@ class LoginMixin:
                     if url or bstate in (1, 2, 3, 4):
                         return {"logged_in": False}
 
+            # 检查 3：如果 qr_data 为 None（API 请求失败），检查二维码文件状态
+            # 如果二维码文件存在且新鲜（< 30s），说明正在待扫码，返回未登录
+            if qr_data is None:
+                try:
+                    qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
+                    if os.path.exists(qr_path):
+                        age = time.time() - os.path.getmtime(qr_path)
+                        if age < 30:
+                            # 二维码文件新鲜，说明正在待扫码
+                            return {"logged_in": False}
+                except OSError:
+                    pass
+
+            # 检查 4：NapCat 进程存活 + 二维码停止刷新 + 有 UIN 配置
             napcat_alive = False
             try:
                 info_data = f_info.result(timeout=2)
@@ -156,7 +170,6 @@ class LoginMixin:
             except Exception:
                 pass
 
-            # 检查 3：qrcode.png 是否停止刷新（mtime > 30s）
             qr_stale = False
             try:
                 qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
@@ -168,16 +181,31 @@ class LoginMixin:
             except OSError:
                 pass
 
-            # 检查 4：onebot11_{uin}.json / napcat_{uin}.json 存在
             uin = self._get_uin_from_config(name)  # type: ignore[attr-defined]
 
+            # 最终判定逻辑：
+            # 如果我们没能从 API 获取到确切的状态 (qr_data is None)，
+            # 我们不能仅仅因为二维码文件过期 (qr_stale) 就认为登录成功了，因为这也可能是因为二维码过期且没刷新。
+            # 只有在明确知道不需要扫码的情况下才能判定为登录成功。
             if napcat_alive and qr_stale and uin:
-                return {
-                    "logged_in": True,
-                    "uin": uin,
-                    "nickname": "",
-                    "method": "webui",
-                }
+                # 额外增加一层保护：检查最近的日志是否有登录成功的标志
+                # 或者直接依赖 websocket 的心跳（如果有的话）
+                # 这里我们通过检查本地缓存记录来防止误判
+                from services.instance_subsystem import instance_subsystem
+
+                inst = instance_subsystem.get(name)
+                # 如果容器之前是明确处于未登录（等待扫码或过期）状态，并且现在只凭兜底逻辑判断，那大概率是误判
+                # 只有在容器原本就是已登录状态，或者是刚启动无法获取状态时，才信任兜底逻辑
+                if inst and inst.logged_in is False:
+                    # 之前是未登录状态，必须有明确的 API 返回不再需要扫码，才允许变为已登录
+                    pass
+                else:
+                    return {
+                        "logged_in": True,
+                        "uin": uin,
+                        "nickname": "",
+                        "method": "webui",
+                    }
 
         except docker.errors.NotFound:
             pass
