@@ -17,7 +17,11 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
-from middleware.auth import check_instance_permission, get_api_key_user, get_current_user
+from middleware.auth import (
+    check_instance_permission,
+    get_api_key_user,
+    get_current_user,
+)
 from middleware.rate_limiter import public_speed_limit, speed_limit
 from services.cluster_manager import cluster_manager
 from services.config import app_config, get_data_dir
@@ -64,7 +68,9 @@ def _get_request_id(request: Request) -> str:
     return request_id or uuid4().hex
 
 
-def _build_error(status_code: int, code: str, message: str, request_id: str) -> JSONResponse:
+def _build_error(
+    status_code: int, code: str, message: str, request_id: str
+) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
         content={
@@ -120,6 +126,45 @@ def _clear_instance_data(name: str, scope: str, keep_config: bool = False) -> li
             cleared.append(item)
         if item in {"qq_data", "config", "plugins", "cache"}:
             os.makedirs(target_path, exist_ok=True)
+
+    # 清理 BS 注入标记和内部状态（scope=all 时）
+    if scope == "all":
+        # 1. 删除 BS 注入标记目录
+        bs_marker_dir = root / ".bs_injected"
+        if bs_marker_dir.exists():
+            shutil.rmtree(bs_marker_dir, ignore_errors=True)
+            logger.info("已清理 BS 注入标记: %s", name)
+
+        # 2. 清理 instance_subsystem 中的实例状态
+        try:
+            from services.instance_subsystem import instance_subsystem
+
+            instance_subsystem.remove(name)
+            logger.info("已清理实例状态: %s", name)
+        except Exception as e:
+            logger.debug("清理实例状态失败 [%s]: %s", name, e)
+
+        # 3. 异步清理 BotShepherd 连接配置
+        try:
+            import asyncio
+            from services.botshepherd import botshepherd_manager
+
+            async def _cleanup_bs():
+                try:
+                    await botshepherd_manager.delete_connection(name)
+                    logger.info("已清理 BS 连接配置: %s", name)
+                except Exception as e:
+                    logger.debug("清理 BS 连接配置失败 [%s]: %s", name, e)
+
+            try:
+                asyncio.get_running_loop()
+                asyncio.create_task(_cleanup_bs())
+            except RuntimeError:
+                # 没有运行中的事件循环，跳过
+                pass
+        except Exception as e:
+            logger.debug("调度 BS 清理任务失败 [%s]: %s", name, e)
+
     return cleared
 
 
@@ -198,10 +243,14 @@ async def api_clear_container_data(
     try:
         scope_value = _validate_scope(scope)
     except HTTPException:
-        return _build_error(400, "INVALID_SCOPE", "scope must be all|config|cache|logs", request_id)
+        return _build_error(
+            400, "INVALID_SCOPE", "scope must be all|config|cache|logs", request_id
+        )
 
     if not check_instance_permission(session, node_id, name):
-        return _build_error(403, "NO_PERMISSION", "no permission for this instance", request_id)
+        return _build_error(
+            403, "NO_PERMISSION", "no permission for this instance", request_id
+        )
 
     if node_id != "local":
         code, body, _ = await cluster_manager.proxy_to_node_async(
@@ -211,9 +260,15 @@ async def api_clear_container_data(
             timeout=10.0,
         )
         if code >= 400:
-            message = body.decode("utf-8", errors="ignore") if body else "remote clear failed"
+            message = (
+                body.decode("utf-8", errors="ignore") if body else "remote clear failed"
+            )
             return _build_error(code, "REMOTE_CLEAN_FAILED", message, request_id)
-        remote_data = json.loads(body) if body else {"status": "ok", "name": name, "cleared": [], "restarted": False}
+        remote_data = (
+            json.loads(body)
+            if body
+            else {"status": "ok", "name": name, "cleared": [], "restarted": False}
+        )
         if isinstance(remote_data, dict):
             remote_data["request_id"] = request_id
         return remote_data
@@ -222,14 +277,20 @@ async def api_clear_container_data(
     if was_running:
         stopped = await async_docker_manager.action_container(name, "stop")
         if not stopped:
-            return _build_error(500, "STOP_FAILED", "failed to stop container before clear", request_id)
+            return _build_error(
+                500, "STOP_FAILED", "failed to stop container before clear", request_id
+            )
 
     try:
         cleared = _clear_instance_data(name, scope_value)
     except HTTPException as exc:
-        return _build_error(exc.status_code, str(exc.detail), "invalid data path", request_id)
+        return _build_error(
+            exc.status_code, str(exc.detail), "invalid data path", request_id
+        )
     except Exception as exc:
-        return _build_error(500, "CLEAN_FAILED", f"clear data failed: {exc}", request_id)
+        return _build_error(
+            500, "CLEAN_FAILED", f"clear data failed: {exc}", request_id
+        )
 
     restarted = False
     if was_running:
@@ -251,7 +312,13 @@ async def api_clear_container_data(
             },
         ),
     )
-    return {"status": "ok", "name": name, "cleared": cleared, "restarted": restarted, "request_id": request_id}
+    return {
+        "status": "ok",
+        "name": name,
+        "cleared": cleared,
+        "restarted": restarted,
+        "request_id": request_id,
+    }
 
 
 @router.post("/containers/{name}/recreate", dependencies=[Depends(speed_limit(1.0))])
@@ -266,7 +333,9 @@ async def api_recreate_container(
         return _build_error(400, "INVALID_NAME", "invalid container name", request_id)
 
     if not check_instance_permission(session, req.node_id, name):
-        return _build_error(403, "NO_PERMISSION", "no permission for this instance", request_id)
+        return _build_error(
+            403, "NO_PERMISSION", "no permission for this instance", request_id
+        )
 
     if req.node_id != "local":
         code, body, _ = await cluster_manager.proxy_to_node_async(
@@ -289,7 +358,11 @@ async def api_recreate_container(
             },
         )
         if code >= 400:
-            message = body.decode("utf-8", errors="ignore") if body else "remote recreate failed"
+            message = (
+                body.decode("utf-8", errors="ignore")
+                if body
+                else "remote recreate failed"
+            )
             return _build_error(code, "REMOTE_RECREATE_FAILED", message, request_id)
         remote_data = json.loads(body) if body else {"status": "ok", "name": name}
         if isinstance(remote_data, dict):
@@ -303,22 +376,31 @@ async def api_recreate_container(
 
     old_removed = await async_docker_manager.action_container(name, "delete")
     if not old_removed:
-        return _build_error(500, "RECREATE_DELETE_FAILED", "failed to delete old container", request_id)
+        return _build_error(
+            500, "RECREATE_DELETE_FAILED", "failed to delete old container", request_id
+        )
 
     cleared: list[str] = []
     if req.clean_data:
         try:
             cleared = _clear_instance_data(name, "all", req.keep_config)
         except HTTPException as exc:
-            return _build_error(exc.status_code, str(exc.detail), "invalid data path", request_id)
+            return _build_error(
+                exc.status_code, str(exc.detail), "invalid data path", request_id
+            )
         except Exception as exc:
-            return _build_error(500, "CLEAN_FAILED", f"clear data failed: {exc}", request_id)
+            return _build_error(
+                500, "CLEAN_FAILED", f"clear data failed: {exc}", request_id
+            )
 
     data_dir = os.path.join(get_data_dir(), name)
     volumes = {
         os.path.join(data_dir, "qq_data"): {"bind": "/app/.config/QQ", "mode": "rw"},
         os.path.join(data_dir, "config"): {"bind": "/app/napcat/config", "mode": "rw"},
-        os.path.join(data_dir, "plugins"): {"bind": "/app/napcat/plugins", "mode": "rw"},
+        os.path.join(data_dir, "plugins"): {
+            "bind": "/app/napcat/plugins",
+            "mode": "rw",
+        },
         os.path.join(data_dir, "cache"): {"bind": "/app/napcat/cache", "mode": "rw"},
     }
     for host_dir in volumes:
@@ -327,19 +409,28 @@ async def api_recreate_container(
     used_ports = await async_docker_manager.get_used_ports()
     webui_port = req.webui_port or int(snapshot.get("webui_port") or 0)
     if webui_port <= 0:
-        webui_port = async_docker_manager.find_available_port(app_config.get("webui_base_port", 6000), used_ports)
+        webui_port = async_docker_manager.find_available_port(
+            app_config.get("webui_base_port", 6000), used_ports
+        )
     used_ports.add(webui_port)
 
     http_port = req.http_port or int(snapshot.get("http_port") or 0)
     if http_port <= 0:
-        http_port = async_docker_manager.find_available_port(app_config.get("http_base_port", 3000), used_ports)
+        http_port = async_docker_manager.find_available_port(
+            app_config.get("http_base_port", 3000), used_ports
+        )
     used_ports.add(http_port)
 
     ws_port = req.ws_port or int(snapshot.get("ws_port") or 0)
     if ws_port <= 0:
-        ws_port = async_docker_manager.find_available_port(app_config.get("ws_base_port", 3001), used_ports)
+        ws_port = async_docker_manager.find_available_port(
+            app_config.get("ws_base_port", 3001), used_ports
+        )
 
-    image = req.docker_image or str(snapshot.get("image") or app_config.get("docker_image", "mlikiowa/napcat-docker:latest"))
+    image = req.docker_image or str(
+        snapshot.get("image")
+        or app_config.get("docker_image", "mlikiowa/napcat-docker:latest")
+    )
 
     if req.env_vars is None:
         env_dict = dict(snapshot.get("env") or {})
@@ -347,20 +438,36 @@ async def api_recreate_container(
         try:
             env_dict = _parse_env_list(req.env_vars)
         except HTTPException:
-            return _build_error(400, "INVALID_ENV", "env_vars must be KEY=VALUE list", request_id)
+            return _build_error(
+                400, "INVALID_ENV", "env_vars must be KEY=VALUE list", request_id
+            )
     if "ACCOUNT" not in env_dict:
         env_dict["ACCOUNT"] = ""
 
-    restart_policy_name = req.restart_policy if req.restart_policy is not None else str(snapshot.get("restart_policy") or "always")
+    restart_policy_name = (
+        req.restart_policy
+        if req.restart_policy is not None
+        else str(snapshot.get("restart_policy") or "always")
+    )
     if not restart_policy_name or restart_policy_name == "no":
         restart_policy = {"Name": "always"}
     else:
         restart_policy = {"Name": restart_policy_name}
 
-    memory_limit = req.memory_limit if req.memory_limit is not None else int(snapshot.get("memory_limit") or 0)
+    memory_limit = (
+        req.memory_limit
+        if req.memory_limit is not None
+        else int(snapshot.get("memory_limit") or 0)
+    )
 
-    network_mode = req.network_mode if req.network_mode is not None else str(snapshot.get("network_mode") or "bridge")
-    network_mode_arg = network_mode if network_mode and network_mode != "bridge" else None
+    network_mode = (
+        req.network_mode
+        if req.network_mode is not None
+        else str(snapshot.get("network_mode") or "bridge")
+    )
+    network_mode_arg = (
+        network_mode if network_mode and network_mode != "bridge" else None
+    )
 
     cid = await async_docker_manager.create_container(
         name=name,
@@ -373,7 +480,9 @@ async def api_recreate_container(
         network_mode=network_mode_arg,
     )
     if not cid:
-        return _build_error(500, "RECREATE_CREATE_FAILED", "failed to create new container", request_id)
+        return _build_error(
+            500, "RECREATE_CREATE_FAILED", "failed to create new container", request_id
+        )
 
     state_engine.notify_change()
     operation_logger.info(
@@ -404,12 +513,24 @@ async def api_recreate_container(
         "request_id": request_id,
     }
 
+
 @router.post("/containers/{name}/action", dependencies=[Depends(speed_limit(2.0))])
-async def api_container_action(name: str, action: ContainerAction, request: Request, node_id: str = "local", delete_data: bool = False, session: dict = Depends(get_current_user)):
+async def api_container_action(
+    name: str,
+    action: ContainerAction,
+    request: Request,
+    node_id: str = "local",
+    delete_data: bool = False,
+    session: dict = Depends(get_current_user),
+):
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
     action_value = action.value
-    success = await async_docker_manager.action_container(name, action_value) if node_id == "local" else await cluster_manager.action_container_async(node_id, name, action_value)
+    success = (
+        await async_docker_manager.action_container(name, action_value)
+        if node_id == "local"
+        else await cluster_manager.action_container_async(node_id, name, action_value)
+    )
     if not success:
         raise HTTPException(status_code=500, detail="Action failed")
     state_engine.notify_change()
@@ -417,15 +538,18 @@ async def api_container_action(name: str, action: ContainerAction, request: Requ
         # 删除数据目录（仅勾选 delete_data 时）
         if delete_data:
             import shutil
+
             data_dir = os.path.join(get_data_dir(), name)
             if os.path.exists(data_dir):
                 shutil.rmtree(data_dir, ignore_errors=True)
                 logger.info("已删除本地数据目录: %s", data_dir)
         # 删除 BS 连接配置（BS 已启用时），避免僵尸连接堆积
         from services.config import app_config as _cfg
+
         if _cfg.get("init_bs_enabled", False):
             try:
                 from services.botshepherd import botshepherd_manager
+
                 r = await botshepherd_manager.delete_connection(name)
                 if isinstance(r, dict) and r.get("success", True) is not False:
                     logger.info("已删除 BS 连接配置: %s", name)
@@ -433,40 +557,77 @@ async def api_container_action(name: str, action: ContainerAction, request: Requ
                     logger.debug("BS 连接配置删除结果: %s → %s", name, r)
             except Exception as _e:
                 logger.debug("删除 BS 连接配置失败（可忽略）: %s → %s", name, _e)
-    operation_logger.info("container_action", {"operator_ip": request.client.host if request.client else "unknown", "operator_name": session["userName"], "operator_uuid": session.get("uuid"), "container_name": name, "action": action_value, "node_id": node_id, "delete_data": delete_data})
+    operation_logger.info(
+        "container_action",
+        {
+            "operator_ip": request.client.host if request.client else "unknown",
+            "operator_name": session["userName"],
+            "operator_uuid": session.get("uuid"),
+            "container_name": name,
+            "action": action_value,
+            "node_id": node_id,
+            "delete_data": delete_data,
+        },
+    )
     return {"status": "ok"}
 
 
 @router.get("/containers/{name}/stats")
-async def get_container_stats(name: str, node_id: str = "local", session: dict = Depends(get_current_user)):
+async def get_container_stats(
+    name: str, node_id: str = "local", session: dict = Depends(get_current_user)
+):
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
     stats = await cluster_manager.get_stats_async(node_id, name)
     if node_id == "local" and isinstance(stats, dict):
         from services.docker_events import docker_event_watcher
+
         last = docker_event_watcher.get_last_event(name)
         stats["last_event"] = last
     return stats
 
 
 @router.get("/containers/{name}/logs")
-async def get_container_logs(name: str, lines: int = 100, node_id: str = "local", session: dict = Depends(get_current_user)):
+async def get_container_logs(
+    name: str,
+    lines: int = 100,
+    node_id: str = "local",
+    session: dict = Depends(get_current_user),
+):
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
-    logs = await async_docker_manager.get_logs(name, lines) if node_id == "local" else await cluster_manager.get_logs_async(node_id, name, lines)
+    logs = (
+        await async_docker_manager.get_logs(name, lines)
+        if node_id == "local"
+        else await cluster_manager.get_logs_async(node_id, name, lines)
+    )
     return {"status": "ok", "logs": logs}
 
 
 @router.get("/containers/{name}/logs/download")
-async def download_container_logs(name: str, lines: int = 2000, node_id: str = "local", session: dict = Depends(get_current_user)):
+async def download_container_logs(
+    name: str,
+    lines: int = 2000,
+    node_id: str = "local",
+    session: dict = Depends(get_current_user),
+):
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
-    logs = await async_docker_manager.get_logs(name, lines) if node_id == "local" else await cluster_manager.get_logs_async(node_id, name, lines)
+    logs = (
+        await async_docker_manager.get_logs(name, lines)
+        if node_id == "local"
+        else await cluster_manager.get_logs_async(node_id, name, lines)
+    )
     filename = f"{name}_logs_{time.strftime('%Y%m%d_%H%M%S')}.txt"
-    return PlainTextResponse(content=logs or "", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    return PlainTextResponse(
+        content=logs or "",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
-@router.get("/containers/{name}/qrcode", dependencies=[Depends(public_speed_limit(0.5))])
+@router.get(
+    "/containers/{name}/qrcode", dependencies=[Depends(public_speed_limit(0.5))]
+)
 async def get_qr_code(name: str, node_id: str = "local"):
     if node_id != "local":
         result = await cluster_manager.get_qr_status_async(node_id, name)
@@ -486,7 +647,9 @@ async def get_qr_code(name: str, node_id: str = "local"):
                 with open(qr_path, "rb") as file_handle:
                     data = base64.b64encode(file_handle.read()).decode("utf-8")
                 if age > 30:
-                    login = await run_in_threadpool(docker_manager.check_login_status, name)
+                    login = await run_in_threadpool(
+                        docker_manager.check_login_status, name
+                    )
                     if login.get("logged_in"):
                         return {"status": "logged_in", "uin": login.get("uin", "")}
                 expires_in = max(0, int(_QR_MAX_AGE - age))
@@ -522,12 +685,20 @@ async def get_qr_code(name: str, node_id: str = "local"):
 
 
 @router.post("/containers/{name}/refresh-login")
-async def refresh_login_status(name: str, node_id: str = "local", session: dict = Depends(get_current_user)):
+async def refresh_login_status(
+    name: str, node_id: str = "local", session: dict = Depends(get_current_user)
+):
     if node_id != "local":
         return {"status": "ok", "logged_in": False, "method": "remote_unsupported"}
     login = await run_in_threadpool(docker_manager.check_login_status, name, True)
     state_engine.notify_change()
-    return {"status": "ok", "logged_in": login.get("logged_in", False), "uin": login.get("uin", ""), "nickname": login.get("nickname", ""), "method": login.get("method", "")}
+    return {
+        "status": "ok",
+        "logged_in": login.get("logged_in", False),
+        "uin": login.get("uin", ""),
+        "nickname": login.get("nickname", ""),
+        "method": login.get("method", ""),
+    }
 
 
 @router.post("/internal/login-event")
@@ -571,7 +742,9 @@ async def stream_container_events(
     if not check_instance_permission(session, node_id, name):
         raise HTTPException(status_code=403, detail="No permission for this instance")
     if node_id != "local":
-        raise HTTPException(status_code=501, detail="Event stream only supported on local node")
+        raise HTTPException(
+            status_code=501, detail="Event stream only supported on local node"
+        )
 
     _timeout = min(max(timeout, 5), 300)
     loop = asyncio.get_event_loop()
@@ -587,7 +760,9 @@ async def stream_container_events(
                 if remaining <= 0:
                     break
                 try:
-                    payload = await asyncio.wait_for(q.get(), timeout=min(remaining, 15))
+                    payload = await asyncio.wait_for(
+                        q.get(), timeout=min(remaining, 15)
+                    )
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
                 except asyncio.TimeoutError:
                     # 心跳注释行，保持连接活跃
@@ -603,4 +778,3 @@ async def stream_container_events(
             "X-Accel-Buffering": "no",
         },
     )
-

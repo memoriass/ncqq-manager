@@ -425,14 +425,26 @@ class BotShepherdManager:
     # ---- 连接管理 ----
 
     async def get_connections(self) -> Dict[str, Any]:
+        """获取所有连接配置。
+
+        优先从 API 获取，失败时从文件系统读取。
+        如果两者都失败，抛出异常（防止误覆盖用户配置）。
+        """
         api = self._ensure_api()
         data = await api.request("GET", "/api/connections")
         if data is not None and not (isinstance(data, dict) and data.get("_error")):
             return {"source": "api", "connections": data}
-        return {
-            "source": "file",
-            "connections": self._read_configs_from_dir("connections"),
-        }
+
+        # API 失败，尝试从文件读取
+        file_configs = self._read_configs_from_dir("connections")
+        if file_configs or os.path.isdir(
+            os.path.join(BOTSHEPHERD_DIR, "config", "connections")
+        ):
+            # 如果配置目录存在（即使为空），也认为是有效的
+            return {"source": "file", "connections": file_configs}
+
+        # 两者都失败，抛出异常
+        raise RuntimeError("无法获取 BS 连接配置：API 不可用且配置目录不存在")
 
     async def update_connection(self, conn_id: str, config: dict) -> Dict[str, Any]:
         api = self._ensure_api()

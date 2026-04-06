@@ -262,14 +262,27 @@ class LifecycleMixin:
                     # 先获取现有的连接配置，保留用户手动添加的其他端点和其他配置
                     existing_conn = {}
                     existing_targets = []
+                    config_loaded = False
                     try:
                         res = await botshepherd_manager.get_connections()
                         conn = (res.get("connections") or {}).get(name)
                         if conn:
                             existing_conn = conn
                             existing_targets = list(conn.get("target_endpoints") or [])
+                            config_loaded = True
+                        else:
+                            # 连接不存在，这是首次创建，允许继续
+                            config_loaded = True
                     except Exception as e:
-                        logger.debug("获取现有 BS 连接配置失败: %s", e)
+                        logger.warning(
+                            "获取现有 BS 连接配置失败（可能 BS 未启动），跳过同步以防覆盖用户配置: %s",
+                            e,
+                        )
+                        return {"success": False, "error": f"无法获取现有配置: {e}"}
+
+                    if not config_loaded:
+                        logger.warning("BS 连接配置加载失败，跳过同步以防覆盖用户配置")
+                        return {"success": False, "error": "配置加载失败"}
 
                     # 合并 target_endpoints（保持原有顺序，去重）
                     merged_targets = [named_endpoint]
