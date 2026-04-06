@@ -144,7 +144,35 @@ def _clear_instance_data(name: str, scope: str, keep_config: bool = False) -> li
         except Exception as e:
             logger.debug("清理实例状态失败 [%s]: %s", name, e)
 
-        # 3. 异步清理 BotShepherd 连接配置
+        # 3. 清理登录缓存
+        try:
+            from services.docker_login import _login_cache
+
+            if name in _login_cache:
+                _login_cache.pop(name, None)
+                logger.info("已清理登录缓存: %s", name)
+        except Exception as e:
+            logger.debug("清理登录缓存失败 [%s]: %s", name, e)
+
+        # 4. 清理 NapCat WS 服务注册表
+        try:
+            from services.napcat_ws_service import napcat_ws_service
+
+            # 清理 WS 连接注册表
+            if name in napcat_ws_service._table:
+                napcat_ws_service._table.pop(name, None)
+                logger.info("已清理 WS 连接注册表: %s", name)
+
+            # 清理 API 代理
+            if name in napcat_ws_service._proxies:
+                proxy = napcat_ws_service._proxies.pop(name, None)
+                if proxy:
+                    proxy.close()
+                logger.info("已清理 API 代理: %s", name)
+        except Exception as e:
+            logger.debug("清理 WS 服务注册表失败 [%s]: %s", name, e)
+
+        # 5. 异步清理 BotShepherd 连接配置
         try:
             import asyncio
             from services.botshepherd import botshepherd_manager
