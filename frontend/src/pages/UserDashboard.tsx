@@ -19,7 +19,7 @@ import { usePublicWebSocket } from '../hooks/usePublicWebSocket';
 import LazyQRImage from '../components/LazyQRImage';
 
 interface QRState {
-    status: 'logged_in' | 'loaded' | 'waiting' | 'error' | 'scan_confirmed' | 'inject_pending' | 'injected' | 'onebot_ready' | 'loading';
+    status: 'logged_in' | 'loaded' | 'waiting' | 'error' | 'scan_confirmed' | 'inject_pending' | 'injected' | 'onebot_ready' | 'loading' | 'expired';
     url?: string;
     uin?: string;
     reason?: string;
@@ -80,6 +80,8 @@ export default function UserDashboard() {
                     const url = item.type === 'file' ? item.url
                         : `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(item.url)}`;
                     next[name] = { status: 'loaded', url };
+                } else if (item.status === 'expired') {
+                    next[name] = { status: 'expired' };
                 } else {
                     next[name] = { status: 'waiting' };
                 }
@@ -168,6 +170,8 @@ export default function UserDashboard() {
                 const url = data.type === 'file' ? data.url
                     : `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(data.url)}`;
                 setQrCodes(prev => ({ ...prev, [name]: { status: 'loaded', url } }));
+            } else if (data.status === 'expired') {
+                setQrCodes(prev => ({ ...prev, [name]: { status: 'expired' } }));
             } else {
                 setQrCodes(prev => ({ ...prev, [name]: { status: 'waiting' } }));
             }
@@ -385,7 +389,15 @@ export default function UserDashboard() {
                                         ) : qr.status === 'logged_in' ? (
                                             <Typography variant="caption" sx={{ color: '#059669', fontWeight: 600, fontSize: '0.7rem' }}>{t('user.loggedIn')}</Typography>
                                         ) : qr.status === 'waiting' || qr.status === 'loading' ? (
-                                            <CircularProgress size={24} sx={{ color: '#94a3b8' }} />
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                                                <CircularProgress size={24} sx={{ color: '#94a3b8' }} />
+                                                <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem' }}>{t('user.waitingQr')}</Typography>
+                                            </Box>
+                                        ) : qr.status === 'expired' ? (
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                                                <CircularProgress size={24} sx={{ color: '#f59e0b' }} />
+                                                <Typography variant="caption" sx={{ color: '#f59e0b', fontSize: '0.65rem' }}>{t('user.qrExpired')}</Typography>
+                                            </Box>
                                         ) : (
                                             <Typography variant="caption" color="error" sx={{ fontSize: '0.7rem' }}>{t('user.loadFailed')}</Typography>
                                         )}

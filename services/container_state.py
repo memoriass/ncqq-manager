@@ -5,6 +5,7 @@
      → 写入 InstanceSubsystem；API 读内存快照，响应 <1ms。
 自适应刷新：事件活跃时 3s，长时间无变化逐步降频至 30s。
 """
+
 import asyncio
 import base64
 import os
@@ -27,6 +28,7 @@ def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
             return
 
         from services.docker_manager import docker_manager
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -42,14 +44,15 @@ def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
     except Exception as e:
         logger.debug("BS 注入调度异常 [%s]: %s", name, e)
 
+
 # ============ 常量 ============
 
-_REFRESH_INTERVAL_MIN = 3      # 事件活跃时的刷新间隔（秒）
-_REFRESH_INTERVAL_MAX = 30     # 长时间无事件时的最大兜底间隔
-_REFRESH_INTERVAL_STEP = 3     # 每次无事件时递增量
-_LOGIN_TTL_OK = 60             # 已登录容器的登录检测间隔
-_LOGIN_TTL_FAIL = 8            # 未登录容器的登录检测间隔
-_QR_MAX_AGE = 120              # QR 文件最大有效期（秒）
+_REFRESH_INTERVAL_MIN = 3  # 事件活跃时的刷新间隔（秒）
+_REFRESH_INTERVAL_MAX = 30  # 长时间无事件时的最大兜底间隔
+_REFRESH_INTERVAL_STEP = 3  # 每次无事件时递增量
+_LOGIN_TTL_OK = 60  # 已登录容器的登录检测间隔
+_LOGIN_TTL_FAIL = 8  # 未登录容器的登录检测间隔
+_QR_MAX_AGE = 120  # QR 文件最大有效期（秒）
 
 
 class ContainerStateEngine:
@@ -58,7 +61,7 @@ class ContainerStateEngine:
     def __init__(self):
         # ---- 内部状态 ----
         self._tick = 0
-        self._idle_interval = _REFRESH_INTERVAL_MIN    # 自适应刷新间隔
+        self._idle_interval = _REFRESH_INTERVAL_MIN  # 自适应刷新间隔
         self._running = False
         self._task: asyncio.Task | None = None
         self._force_event: asyncio.Event | None = None  # 操作/事件后立即触发刷新
@@ -66,9 +69,9 @@ class ContainerStateEngine:
         self._engine_initialized: bool = False
 
         # ---- 监控指标（§9 — 观测性） ----
-        self._last_tick_duration: float = 0.0   # 最近一次 tick 耗时（秒）
-        self._slow_tick_count: int = 0          # 慢 tick 累计次数（>5s）
-        self._container_count: int = 0          # 最近一次刷新的容器数
+        self._last_tick_duration: float = 0.0  # 最近一次 tick 耗时（秒）
+        self._slow_tick_count: int = 0  # 慢 tick 累计次数（>5s）
+        self._container_count: int = 0  # 最近一次刷新的容器数
 
     # ============ 公开读接口（委托给 instance_subsystem，零阻塞） ============
 
@@ -133,15 +136,20 @@ class ContainerStateEngine:
             self._last_tick_duration = elapsed
             if elapsed > 5.0:
                 self._slow_tick_count += 1
-                logger.warning("状态引擎 tick #%d 耗时 %.1fs（>5s），容器数=%d",
-                               self._tick, elapsed, self._container_count)
+                logger.warning(
+                    "状态引擎 tick #%d 耗时 %.1fs（>5s），容器数=%d",
+                    self._tick,
+                    elapsed,
+                    self._container_count,
+                )
 
             # 等待事件唤醒 或 自适应超时
             # 收到 Docker 事件 / 用户操作 → 立即刷新 + 重置为高频
             # 长时间无事件 → 逐渐降频（3s → 6s → ... → 30s）
             try:
                 await asyncio.wait_for(
-                    self._force_event.wait(), timeout=self._idle_interval)
+                    self._force_event.wait(), timeout=self._idle_interval
+                )
                 self._force_event.clear()
                 # 事件活跃 → 重置为高频
                 self._idle_interval = _REFRESH_INTERVAL_MIN
@@ -262,10 +270,15 @@ class ContainerStateEngine:
             self._engine_initialized = True
 
         # ---- 1.5 批量解析端口（运行中的本地容器）— aiodocker 纯异步 ⭐ ----
-        need_ports = [n for n in running_local_names
-                      if instance_subsystem.get(n)
-                      and (instance_subsystem.get(n).http_port == 0
-                           or instance_subsystem.get(n).webui_port == 0)]
+        need_ports = [
+            n
+            for n in running_local_names
+            if instance_subsystem.get(n)
+            and (
+                instance_subsystem.get(n).http_port == 0
+                or instance_subsystem.get(n).webui_port == 0
+            )
+        ]
         if need_ports:
             try:
                 port_map = await async_docker_manager.resolve_ports(need_ports)
@@ -280,6 +293,7 @@ class ContainerStateEngine:
 
         # ---- 2. 增量登录检测 — SDK WS 主路径 + BS/HTTP 兜底 ⭐ ----
         from services.napcat_ws_service import napcat_ws_service
+
         now = time.time()
         need_login_instances = []
         for name in running_local_names:
@@ -347,6 +361,7 @@ class ContainerStateEngine:
                 # 登录态丢失 — 异步推送通知
                 try:
                     from services.alert_manager import alert_manager
+
                     await alert_manager.notify_login_lost(name, old_uin, nid)
                 except Exception as e:
                     logger.debug("掉线扫码通知异常: %s", e)
@@ -358,18 +373,23 @@ class ContainerStateEngine:
             if not inst or inst.logged_in:
                 continue
             qr_data = None
+            is_expired = False
             try:
                 qr_path = os.path.join(data_dir, name, "cache", "qrcode.png")
                 exists = await asyncio.to_thread(os.path.exists, qr_path)
                 if exists:
                     age = now - await asyncio.to_thread(os.path.getmtime, qr_path)
                     if age < _QR_MAX_AGE:
-                        raw = await asyncio.to_thread(lambda: open(qr_path, "rb").read())
+                        raw = await asyncio.to_thread(
+                            lambda: open(qr_path, "rb").read()
+                        )
                         b64 = base64.b64encode(raw).decode("utf-8")
                         qr_data = f"data:image/png;base64,{b64}"
+                    else:
+                        is_expired = True
             except Exception as e:
                 logger.debug("QR 读取失败 [%s]: %s", name, e)
-            inst.update_qr(qr_data)
+            inst.update_qr(qr_data, expired=is_expired)
 
         # 记录本轮容器数（供 health_info 使用）
         self._container_count = len(containers)

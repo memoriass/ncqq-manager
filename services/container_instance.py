@@ -3,8 +3,9 @@
 
 缓存容器状态、登录信息、QR码、心跳、资源统计；查询零 Docker API 调用。
 """
+
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Optional
 
 
@@ -14,41 +15,44 @@ class ContainerInstance:
 
     # ---- 基础属性（来自 Docker API / cluster_manager） ----
     name: str
-    container_id: str = ""        # Docker short_id
-    status: str = "created"       # running / exited / created / ...
+    container_id: str = ""  # Docker short_id
+    status: str = "created"  # running / exited / created / ...
     image: str = ""
     node_id: str = "local"
     created: str = ""
 
     # ---- 端口映射（来自 Docker API inspect，供异步登录检测使用） ----
-    http_port: int = 0            # OneBot HTTP 端口 (3000/tcp 映射)
-    webui_port: int = 0           # NapCat WebUI 端口 (6099/tcp 映射)
+    http_port: int = 0  # OneBot HTTP 端口 (3000/tcp 映射)
+    webui_port: int = 0  # NapCat WebUI 端口 (6099/tcp 映射)
 
     # ---- 登录状态（来自 check_login_status） ----
     uin: str = ""
     logged_in: bool = False
-    login_ts: float = 0.0         # 上次登录检测时间戳
+    login_ts: float = 0.0  # 上次登录检测时间戳
     login_stage: str = "waiting"
     login_method: str = ""
     login_reason: str = ""
 
     # ---- QR 码状态（来自本地 qrcode.png 读取） ----
     qr_data: Optional[str] = None  # base64 data URL 或 None
-    qr_ts: float = 0.0            # 上次 QR 更新时间戳
+    qr_ts: float = 0.0  # 上次 QR 更新时间戳
+    qr_expired: bool = False  # QR 码是否已过期
 
     # ---- Bot 心跳状态（来自 OneBot WS 端点 meta_event.heartbeat） ----
-    bot_online: bool = False       # 最近一次心跳判定是否在线
+    bot_online: bool = False  # 最近一次心跳判定是否在线
     bot_heartbeat_ts: float = 0.0  # 最近一次心跳时间戳（0 = 未收到过）
 
     # ---- 资源统计（来自 docker stats API） ----
     cpu_percent: float = 0.0
-    mem_usage: float = 0.0        # MB — 字段名与 get_basic_stats() 保持一致
-    mem_limit: float = 0.0        # MB
-    stats_ts: float = 0.0         # 上次 stats 采集时间戳
+    mem_usage: float = 0.0  # MB — 字段名与 get_basic_stats() 保持一致
+    mem_limit: float = 0.0  # MB
+    stats_ts: float = 0.0  # 上次 stats 采集时间戳
 
     def to_public_dict(self) -> Dict:
         """容器列表 API 返回格式 — 兼容 state_engine.get_containers()。"""
-        uin_digits = "".join(ch for ch in str(self.uin) if ch.isdigit()) if self.uin else ""
+        uin_digits = (
+            "".join(ch for ch in str(self.uin) if ch.isdigit()) if self.uin else ""
+        )
         d: Dict = {
             "id": self.container_id,
             "name": self.name,
@@ -87,7 +91,12 @@ class ContainerInstance:
                 "method": self.login_method,
                 "reason": self.login_reason,
             }
-        if self.login_stage in {"scan_confirmed", "inject_pending", "injected", "onebot_ready"}:
+        if self.login_stage in {
+            "scan_confirmed",
+            "inject_pending",
+            "injected",
+            "onebot_ready",
+        }:
             return {
                 "status": self.login_stage,
                 "uin": self.uin,
@@ -96,7 +105,15 @@ class ContainerInstance:
                 "reason": self.login_reason,
             }
         if self.qr_data:
-            return {"status": "ok", "url": self.qr_data, "type": "file", "stage": "waiting"}
+            return {
+                "status": "ok",
+                "url": self.qr_data,
+                "type": "file",
+                "stage": "waiting",
+            }
+        # 区分"二维码已过期"和"等待生成"两种状态
+        if self.qr_expired:
+            return {"status": "expired", "stage": "expired"}
         return {"status": "waiting", "stage": self.login_stage or "waiting"}
 
     def update_login(self, logged_in: bool, uin: str = "", **kw) -> None:
@@ -112,18 +129,23 @@ class ContainerInstance:
             self.uin = ""
         self.login_ts = time.time()
 
-    def update_stats(self, cpu_percent: float = 0.0,
-                     mem_usage: float = 0.0, mem_limit: float = 0.0,
-                     **_kw) -> None:
+    def update_stats(
+        self,
+        cpu_percent: float = 0.0,
+        mem_usage: float = 0.0,
+        mem_limit: float = 0.0,
+        **_kw,
+    ) -> None:
         """更新资源统计。"""
         self.cpu_percent = cpu_percent
         self.mem_usage = mem_usage
         self.mem_limit = mem_limit
         self.stats_ts = time.time()
 
-    def update_qr(self, qr_data: Optional[str]) -> None:
+    def update_qr(self, qr_data: Optional[str], expired: bool = False) -> None:
         """更新 QR 码数据。"""
         self.qr_data = qr_data
+        self.qr_expired = expired
         self.qr_ts = time.time()
 
     def update_bot_heartbeat(self, online: bool) -> None:
@@ -139,9 +161,9 @@ class ContainerInstance:
         self.stats_ts = 0.0
         self.qr_data = None
         self.qr_ts = 0.0
+        self.qr_expired = False
         self.bot_online = False
         self.bot_heartbeat_ts = 0.0
         self.login_stage = "waiting"
         self.login_method = ""
         self.login_reason = ""
-
