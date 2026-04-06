@@ -322,11 +322,24 @@ class NapCatWsService:
         return self._table.get(name)
 
     def get_login_result(self, name: str) -> Dict:
-        """主路径：返回 check_login_status 兼容格式"""
+        """主路径：返回 check_login_status 兼容格式
+
+        修复：只有当 WS 连接存在且心跳显示在线时，才返回 logged_in=True。
+        如果心跳显示离线（hb_online=False），即使 WS 连接存在，也返回 logged_in=False。
+        """
         e = self._table.get(name)
         if not e or not e.uin:
             return {"logged_in": False, "stage": "waiting"}
         if e.is_alive():
+            # 如果收到过心跳且心跳显示离线，返回未登录状态
+            if e.hb_online is not None and not e.hb_online:
+                return {
+                    "logged_in": False,
+                    "uin": "",
+                    "stage": "waiting",
+                    "method": "sdk_ws",
+                    "reason": "heartbeat_offline",
+                }
             return {
                 "logged_in": True,
                 "uin": e.uin,

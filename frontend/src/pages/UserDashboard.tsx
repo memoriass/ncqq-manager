@@ -86,16 +86,6 @@ export default function UserDashboard() {
                     next[name] = { status: 'waiting' };
                 }
             }
-            // 同步容器列表中已有 uin 的（仅当 wsQrStates 中没有该容器状态，或者明确为未同步的 logged_in 时）
-            for (const c of containers) {
-                if (c.uin) {
-                    const qrStatus = next[c.name]?.status;
-                    // 如果 WS 推送了明确的未登录状态（等待、已加载、已过期），则不覆盖
-                    if (!qrStatus || qrStatus === 'logged_in') {
-                        next[c.name] = { status: 'logged_in', uin: c.uin };
-                    }
-                }
-            }
             return next;
         });
     }, [wsQrStates, containers]);
