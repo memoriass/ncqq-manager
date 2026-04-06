@@ -6,10 +6,11 @@ LifecycleMixin 提供给 DockerManager 使用，封装：
   - 登录检测完成回调 _on_login_detected（BS 注入 + 自动加群通知）
 需要 self.get_used_ports / self.find_available_port 方法由 DockerManager 提供。
 """
+
 import asyncio
 import json
 import os
-from typing import Dict
+from typing import Any, Dict
 
 from services.log import logger
 
@@ -72,6 +73,7 @@ class LifecycleMixin:
             return
 
         from services.config import app_config, get_data_dir
+
         data_dir_base = get_data_dir()
         config_dir = os.path.join(data_dir_base, name, "config")
         ws_enabled = app_config.get("init_ws_client_enabled", False)
@@ -85,7 +87,9 @@ class LifecycleMixin:
         #   此时标记已过期，需清除标记并重新注入
         # ★ P1 修复：即使标记已存在，步骤②（BS connection 同步）仍需执行，
         #   防止 BS 重启后 find_available_port 分配了新端口导致端口漂移失联。
-        config_file_exists = os.path.isfile(os.path.join(config_dir, f"onebot11_{uin}.json"))
+        config_file_exists = os.path.isfile(
+            os.path.join(config_dir, f"onebot11_{uin}.json")
+        )
         already_injected = self._bs_inject_done(data_dir_base, name, uin)
         if already_injected:
             if config_file_exists:
@@ -95,22 +99,38 @@ class LifecycleMixin:
                     if injected_url:
                         try:
                             from urllib.parse import urlparse
+
                             parsed = urlparse(injected_url)
                             bs_port = parsed.port
                             if bs_port:
-                                bs_bind_url_only = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
+                                bs_bind_url_only = (
+                                    f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
+                                )
                                 self._sync_bs_connection(
-                                    name, uin, nickname,
-                                    bs_bind_url_only, injected_url,
+                                    name,
+                                    uin,
+                                    nickname,
+                                    bs_bind_url_only,
+                                    injected_url,
                                 )
                         except Exception as e:
                             logger.warning("读取已注入 BS URL 失败，跳过同步: %s", e)
                     else:
-                        logger.debug("已注入配置中未找到 botshepherd URL，跳过 BS 同步: %s uin=%s", name, uin)
-                logger.debug("BS NapCat 注入已跳过（持久标记存在）: %s uin=%s", name, uin)
+                        logger.debug(
+                            "已注入配置中未找到 botshepherd URL，跳过 BS 同步: %s uin=%s",
+                            name,
+                            uin,
+                        )
+                logger.debug(
+                    "BS NapCat 注入已跳过（持久标记存在）: %s uin=%s", name, uin
+                )
                 return
             # 配置文件丢失（容器重建），清除过期标记并重新注入
-            logger.info("BS 持久标记存在但 onebot11_%s.json 丢失，清除标记重新注入: %s", uin, name)
+            logger.info(
+                "BS 持久标记存在但 onebot11_%s.json 丢失，清除标记重新注入: %s",
+                uin,
+                name,
+            )
             marker = self._bs_inject_marker_path(data_dir_base, name, uin)
             try:
                 os.remove(marker)
@@ -134,16 +154,25 @@ class LifecycleMixin:
 
         if ws_url:
             try:
-                from routers.container_crud_router import _generate_onebot11_config_with_ws_client
-                _generate_onebot11_config_with_ws_client(config_dir, ws_url, ws_token, uin)
+                from routers.container_crud_router import (
+                    _generate_onebot11_config_with_ws_client,
+                )
+
+                _generate_onebot11_config_with_ws_client(
+                    config_dir, ws_url, ws_token, uin
+                )
                 self._mark_bs_inject(data_dir_base, name, uin)
                 logger.info("BS/WS 注入完成并写入持久标记: %s uin=%s", name, uin)
                 # 重启前先写入 webui.json autoLoginAccount，NapCat 重启后可快速登录，无需再扫码。
                 try:
                     self._sync_webui_auto_login(name, uin)  # type: ignore[attr-defined]
-                    logger.info("已同步 webui.json autoLoginAccount: %s uin=%s", name, uin)
+                    logger.info(
+                        "已同步 webui.json autoLoginAccount: %s uin=%s", name, uin
+                    )
                 except Exception as we:
-                    logger.debug("同步 webui autoLoginAccount 失败（不影响注入）: %s", we)
+                    logger.debug(
+                        "同步 webui autoLoginAccount 失败（不影响注入）: %s", we
+                    )
                 # NapCat 不会热重载配置文件，注入后必须重启容器才能生效。
                 # 通过 fire-and-forget 异步调度重启，避免阻塞当前线程。
                 self._schedule_container_restart(name)
@@ -160,7 +189,9 @@ class LifecycleMixin:
 
         raw_groups = app_config.get("init_auto_join_groups", "[]")
         try:
-            auto_groups = json.loads(raw_groups) if isinstance(raw_groups, str) else raw_groups
+            auto_groups = (
+                json.loads(raw_groups) if isinstance(raw_groups, str) else raw_groups
+            )
             if not isinstance(auto_groups, list):
                 auto_groups = []
         except Exception:
@@ -179,10 +210,15 @@ class LifecycleMixin:
                         await _ws_svc.send_message(_name, "group", str(gid), notice)
                         logger.info("自动加群通知已发送: name=%s group=%s", _name, gid)
                     except Exception as exc:
-                        logger.debug("自动加群通知发送失败: name=%s group=%s: %s", _name, gid, exc)
+                        logger.debug(
+                            "自动加群通知发送失败: name=%s group=%s: %s",
+                            _name,
+                            gid,
+                            exc,
+                        )
 
             loop = _main_event_loop
-            if loop is not None and loop.is_running():#
+            if loop is not None and loop.is_running():  #
                 asyncio.run_coroutine_threadsafe(
                     _auto_notify_groups(name, uin, auto_groups), loop
                 )
@@ -206,6 +242,7 @@ class LifecycleMixin:
         try:
             from services.config import app_config
             from services.docker_manager import _main_event_loop
+
             raw = app_config.get("init_bs_targets", "[]")
             targets = json.loads(raw) if isinstance(raw, str) else raw
             if not isinstance(targets, list):
@@ -214,37 +251,72 @@ class LifecycleMixin:
             manager_port = int(app_config.get("manager_port", 8000))
             named_endpoint = f"ws://{manager_host}:{manager_port}/ws/napcat/{name}"
             compat_endpoint = f"ws://{manager_host}:{manager_port}/ws/onebot/v11/ws"
-            targets = [t for t in targets if t not in (named_endpoint, compat_endpoint)]
-            targets = [named_endpoint] + targets
-            logger.info("BS 自动注入管理器端点: %s", named_endpoint)
-            conn_config = {
-                "name": nickname or name,
-                "description": f"Auto [{uin}]",
-                "enabled": True,
-                "client_endpoint": bs_bind_url,
-                "target_endpoints": targets,
-                "keep_target_alive": True,  # 管理器端点独立保活，NapCat 断线不影响上传链路
-            }
+
+            logger.info("BS 自动注入/更新管理器端点: %s", named_endpoint)
+
             loop = _main_event_loop
             if loop is not None and loop.is_running():
                 from services.botshepherd import botshepherd_manager
+
+                async def _do_sync() -> Dict[str, Any]:
+                    # 先获取现有的连接配置，保留用户手动添加的其他端点和其他配置
+                    existing_conn = {}
+                    existing_targets = []
+                    try:
+                        res = await botshepherd_manager.get_connections()
+                        conn = (res.get("connections") or {}).get(name)
+                        if conn:
+                            existing_conn = conn
+                            existing_targets = list(conn.get("target_endpoints") or [])
+                    except Exception as e:
+                        logger.debug("获取现有 BS 连接配置失败: %s", e)
+
+                    # 合并 target_endpoints（保持原有顺序，去重）
+                    merged_targets = [named_endpoint]
+                    for t in existing_targets + targets:
+                        if t not in merged_targets and t != compat_endpoint:
+                            merged_targets.append(t)
+
+                    # 基础配置项，确保核心信息正确
+                    conn_config = {
+                        "name": nickname or name,
+                        "description": existing_conn.get(
+                            "description", f"Auto [{uin}]"
+                        ),
+                        "enabled": existing_conn.get("enabled", True),
+                        "client_endpoint": bs_bind_url,
+                        "target_endpoints": merged_targets,
+                        "keep_target_alive": True,
+                    }
+
+                    # 合并原有配置，防止用户自己配的 token 等丢失
+                    final_config = {**existing_conn, **conn_config}
+
+                    return await botshepherd_manager.update_connection(
+                        name, final_config
+                    )
 
                 def _on_done(fut: asyncio.Future, _name: str = name) -> None:
                     try:
                         r = fut.result()
                         if isinstance(r, dict) and not r.get("success", True):
-                            logger.warning("BS 连接同步结果: %s → %s", _name, r.get("error", r))
+                            logger.warning(
+                                "BS 连接同步结果: %s → %s", _name, r.get("error", r)
+                            )
                         else:
                             logger.info("BS 连接同步完成: %s → %s", _name, r)
                     except Exception as exc:
                         logger.error("BS 连接同步异常: %s → %s", _name, exc)
 
-                future = asyncio.run_coroutine_threadsafe(
-                    botshepherd_manager.update_connection(name, conn_config), loop
-                )
+                future = asyncio.run_coroutine_threadsafe(_do_sync(), loop)
                 future.add_done_callback(_on_done)
-                logger.info("已调度 BS 连接同步: %s bind=%s napcat=%s targets=%s",
-                            name, bs_bind_url, ws_url, targets)
+                logger.info(
+                    "已调度 BS 连接同步: %s bind=%s napcat=%s targets=%s",
+                    name,
+                    bs_bind_url,
+                    ws_url,
+                    targets,
+                )
             else:
                 logger.warning("事件循环未运行，跳过 BS 连接同步")
         except Exception as e:
@@ -260,13 +332,17 @@ class LifecycleMixin:
 
         async def _do_restart(_name: str) -> None:
             import asyncio as _asyncio
+
             await _asyncio.sleep(5)  # 等待 BS 注入异步任务完成
             try:
                 from services.docker_async import async_docker_manager
+
                 await async_docker_manager.restart_container(_name)
                 logger.info("注入后容器重启完成: %s（NapCat 将加载新 WS 配置）", _name)
             except Exception as exc:
-                logger.warning("注入后容器重启失败 %s: %s（手动重启可恢复）", _name, exc)
+                logger.warning(
+                    "注入后容器重启失败 %s: %s（手动重启可恢复）", _name, exc
+                )
 
         loop = _main_event_loop
         if loop is not None and loop.is_running():

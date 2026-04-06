@@ -4,6 +4,7 @@
 LoginMixin 提供给 DockerManager 使用，需要 self.client 和 self.resolve_host_port。
 全局登录缓存（_login_cache）在本模块维护，由 read_login_cache 公开只读访问。
 """
+
 import json
 import os
 import time
@@ -22,8 +23,8 @@ from services.config import get_data_dir
 # 全局登录缓存（由此模块集中管理）
 # ---------------------------------------------------------------------------
 _login_cache: Dict[str, Dict] = {}
-_LOGIN_CACHE_TTL = 30       # 秒，已登录容器无需频繁检查
-_LOGIN_CACHE_TTL_FAIL = 8   # 秒，未登录容器短缓存（快速发现状态变化）
+_LOGIN_CACHE_TTL = 30  # 秒，已登录容器无需频繁检查
+_LOGIN_CACHE_TTL_FAIL = 8  # 秒，未登录容器短缓存（快速发现状态变化）
 
 
 def read_login_cache(name: str) -> Dict:
@@ -33,12 +34,13 @@ def read_login_cache(name: str) -> Dict:
 
 def _normalize_uin(raw: str) -> str:
     """归一化 QQ 号：仅保留数字，去除 protocol_ 等前缀。"""
-    return ''.join(ch for ch in str(raw) if ch.isdigit())
+    return "".join(ch for ch in str(raw) if ch.isdigit())
 
 
 # ---------------------------------------------------------------------------
 # LoginMixin — 混入 DockerManager，需要 self.client / self.resolve_host_port
 # ---------------------------------------------------------------------------
+
 
 class LoginMixin:
     """登录状态检测方法集合，混入 DockerManager 使用。"""
@@ -133,8 +135,18 @@ class LoginMixin:
                 qr_data = f_qr.result(timeout=2)
             except Exception:
                 qr_data = None
-            if qr_data and qr_data.get("url"):
-                return {"logged_in": False}  # 有二维码 → 确认未登录
+
+            if qr_data:
+                # 兼容返回结构 {"code": 0, "data": {"bstate": 1, "url": "..."}}
+                # 以及直接返回 {"bstate": 1, "url": "..."} 的情况
+                data = qr_data.get("data", qr_data) if isinstance(qr_data, dict) else {}
+                if isinstance(data, dict):
+                    bstate = data.get("bstate")
+                    url = data.get("url")
+                    # bstate: 1(待扫码), 2(待确认), 3(已失效/到期), 4(登录中?) 等等
+                    # 或者有明确的 url，都说明需要扫码，即未登录
+                    if url or bstate in (1, 2, 3, 4):
+                        return {"logged_in": False}
 
             napcat_alive = False
             try:
@@ -178,7 +190,8 @@ class LoginMixin:
             if not os.path.exists(config_dir):
                 return ""
             ob_files = [
-                f for f in os.listdir(config_dir)
+                f
+                for f in os.listdir(config_dir)
                 if f.startswith("onebot11_") and f.endswith(".json")
             ]
             if ob_files:
@@ -189,8 +202,10 @@ class LoginMixin:
                 raw = latest.replace("onebot11_", "").replace(".json", "")
                 return _normalize_uin(raw)
             napcat_files = [
-                f for f in os.listdir(config_dir)
-                if f.startswith("napcat_") and f.endswith(".json")
+                f
+                for f in os.listdir(config_dir)
+                if f.startswith("napcat_")
+                and f.endswith(".json")
                 and not f.startswith("napcat_protocol_")
             ]
             if napcat_files:
@@ -268,13 +283,16 @@ class LoginMixin:
         _login_cache[name] = result
         return result
 
-    def batch_check_login(self, names: List[str], timeout: float = 6.0) -> Dict[str, Dict]:
+    def batch_check_login(
+        self, names: List[str], timeout: float = 6.0
+    ) -> Dict[str, Dict]:
         """批量并行检测多个容器的登录状态。
 
         双层缓存 TTL：已登录 30s / 未登录 8s。
         缓存命中的直接返回，未命中的并行 API 探测（线程池）。
         """
         from services.docker_manager import _docker_pool
+
         results: Dict[str, Dict] = {}
         need_check: List[str] = []
         now = time.time()
@@ -323,10 +341,10 @@ class LoginMixin:
             _login_cache[name] = new_entry
             # 懒加载避免循环导入
             from services.docker_manager import docker_manager as _dm
+
             _dm._on_login_detected(name, new_entry, prev)
         elif event.get("event") == "logout":
             _login_cache[name] = {
                 "logged_in": False,
                 "ts": time.time(),
             }
-

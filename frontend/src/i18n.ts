@@ -278,6 +278,7 @@ export const translations = {
             refreshStatus: '刷新状态',
             refreshing: '刷新中...',
             waitingQr: '等待生成...',
+            qrExpired: '二维码已过期',
             offline: '离线',
             notLoggedIn: '未登录',
             loggedIn: '登录成功',
@@ -934,7 +935,8 @@ export const translations = {
         user: {
             title: 'NapCat User Dashboard',
             adminLogin: 'ADMIN LOGIN',
-            waitingQr: 'Waiting for QR code...',
+            waitingQr: 'Waiting for QR...',
+            qrExpired: 'QR Expired',
             activeLogged: 'Starting or Logged In',
             offline: 'Instance Offline',
             notLoggedIn: 'Not Logged In',
