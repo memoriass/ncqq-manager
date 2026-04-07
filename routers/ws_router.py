@@ -39,6 +39,7 @@ def _build_snapshot(containers: list) -> dict:
             "status": c.get("status", ""),
             "uin": c.get("uin", ""),
             "node_id": c.get("node_id", "local"),
+            "bot_online": c.get("bot_online", False),
         }
     return snap
 

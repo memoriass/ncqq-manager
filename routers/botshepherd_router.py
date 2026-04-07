@@ -218,12 +218,13 @@ class RemoveEndpointRequest(BaseModel):
 async def remove_endpoint_from_connection(
     connection_id: str, body: RemoveEndpointRequest, _user=Depends(require_admin)
 ):
-    """从指定 BS 连接的 target_endpoints 中移除管理器自身端点。
+    """从指定 BS 连接的 target_endpoints 中移除已知端点。
 
-    安全限制：只允许删除管理器自身注册的端点（/ws/napcat/*），
-    拒绝删除用户手动配置的第三方端点（包括其他 OneBot 端点），避免误操作。
+    安全限制：只允许删除以下两类端点，拒绝删除用户手动配置的未知第三方端点：
+      1. 管理器自身端点（/ws/napcat/*）
+      2. Bot 雷达端点库中的已知端点（config/bot_radar_endpoints.json）
 
-    用途：清理管理器自身注册的端点，例如容器删除后清理残留端点。
+    用途：清理管理器注册的端点或 Bot 雷达注入的端点。
 
     示例：
       POST /api/botshepherd/connections/conn_miya/remove-endpoint

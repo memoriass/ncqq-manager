@@ -64,10 +64,10 @@ class ContainerInstance:
             "bot_heartbeat_ts": self.bot_heartbeat_ts,
             "login_stage": self.login_stage,
             "login_method": self.login_method,
-            # 头像 URL — 本地代理缓存（无需认证）；未登录时为空字符串
+            # 头像 URL — 本地代理缓存（无需认证）；有 uin 就显示，即使目前 logged_in=False
             "bot_avatar": f"/api/resource/avatar/{uin_digits}" if uin_digits else "",
         }
-        if self.logged_in and self.uin:
+        if self.uin:
             d["uin"] = self.uin
         return d
 

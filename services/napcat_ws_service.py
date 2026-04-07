@@ -188,6 +188,11 @@ class NapCatWsService:
         e.connect_ts = time.time()
         e.last_seen = e.connect_ts
         e.disconnect_ts = 0.0
+
+        # ★ 修复 1：新连接建立时，清理旧连接残留的心跳状态
+        e.hb_online = None
+        e.last_hb_ts = 0.0
+
         e.ws_ref = ws  # 绑定 WS 实例
         logger.info(
             "NapCat WS 连接注册: name=%s uin=%s nickname=%s", name, uin, nickname
@@ -225,6 +230,11 @@ class NapCatWsService:
             # 注册表中无条目（on_connect 因 header_sid=0 被跳过），补注册
             self.on_connect(name, uin, ws=ws)
             return
+
+        # ★ 修复 4：如果 WS 已经不在存活期，不应再用旧号事件刷新 uin
+        if not e.is_alive():
+            return
+
         if not e.uin or e.uin != uin:
             old = e.uin
             e.uin = uin
@@ -326,16 +336,19 @@ class NapCatWsService:
 
         修复：只有当 WS 连接存在且心跳显示在线时，才返回 logged_in=True。
         如果心跳显示离线（hb_online=False），即使 WS 连接存在，也返回 logged_in=False。
+
+        注意：心跳离线 / WS 断开宽限期过后，保留已知 uin 用于 UI 展示（避免抖动），
+        但 logged_in=False 已足够让 container_state 降级到轮询确认。
         """
         e = self._table.get(name)
         if not e or not e.uin:
             return {"logged_in": False, "stage": "waiting"}
         if e.is_alive():
-            # 如果收到过心跳且心跳显示离线，返回未登录状态
+            # 如果收到过心跳且心跳显示离线，返回未登录状态（保留 uin 避免 UI 抖动）
             if e.hb_online is not None and not e.hb_online:
                 return {
                     "logged_in": False,
-                    "uin": "",
+                    "uin": e.uin,
                     "stage": "waiting",
                     "method": "sdk_ws",
                     "reason": "heartbeat_offline",
@@ -348,11 +361,18 @@ class NapCatWsService:
                 "method": "sdk_ws",
                 "reason": "ws_connected" if e.connected else "ws_grace",
             }
+
+        # ★ 修复 2：如果 WS 已彻底死亡（超出宽限期），不应再返回旧的 uin 导致误判
+        # 清理内部残留的 uin 和 hb_online，防止新连接复用
+        e.uin = ""
+        e.hb_online = None
+
         return {
             "logged_in": False,
-            "uin": "",  # 掉线后不返回旧 UIN，确保 update_login 清空 inst.uin
+            "uin": "",
             "stage": "waiting",
             "method": "sdk_ws",
+            "reason": "ws_dead",
         }
 
     def _resolve_known_uin(self, name: str) -> str:
@@ -451,6 +471,40 @@ class NapCatWsService:
 
     def all_names(self) -> list:
         return list(self._table.keys())
+
+    def get_entry_snapshot(self, name: str) -> Optional[Dict[str, Any]]:
+        """公开接口：获取指定容器的连接条目快照（只读副本），供 router 层使用。
+
+        返回 dict 或 None（未找到时）。
+        """
+        e = self._table.get(name)
+        if e is None:
+            return None
+        return {
+            "uin": e.uin,
+            "nickname": e.nickname,
+            "connected": e.is_alive(),
+            "last_seen": e.last_seen,
+        }
+
+    def cleanup(self, name: str) -> None:
+        """公开接口：清理指定容器的全部内部状态（注册表 + API 代理）。
+
+        用于容器删除/数据清理场景，避免外部直接操作私有属性。
+        """
+        # 清理连接注册表
+        removed_entry = self._table.pop(name, None)
+        if removed_entry:
+            logger.info("已清理 WS 连接注册表: %s", name)
+
+        # 清理 API 代理
+        proxy = self._proxies.pop(name, None)
+        if proxy:
+            proxy.close()
+            logger.info("已清理 API 代理: %s", name)
+
+        # 清理 BS 辅助检测缓存
+        self._bs_cache.pop(name, None)
 
 
 # 全局单例

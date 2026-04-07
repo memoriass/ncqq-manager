@@ -32,6 +32,11 @@ def read_login_cache(name: str) -> Dict:
     return _login_cache.get(name, {})
 
 
+def clear_login_cache(name: str) -> bool:
+    """公开接口：清理指定容器的登录缓存，返回是否存在并已清理。"""
+    return _login_cache.pop(name, None) is not None
+
+
 def _normalize_uin(raw: str) -> str:
     """归一化 QQ 号：仅保留数字，去除 protocol_ 等前缀。"""
     return "".join(ch for ch in str(raw) if ch.isdigit())
@@ -184,22 +189,15 @@ class LoginMixin:
             uin = self._get_uin_from_config(name)  # type: ignore[attr-defined]
 
             # 最终判定逻辑：
-            # 如果我们没能从 API 获取到确切的状态 (qr_data is None)，
-            # 我们不能仅仅因为二维码文件过期 (qr_stale) 就认为登录成功了，因为这也可能是因为二维码过期且没刷新。
-            # 只有在明确知道不需要扫码的情况下才能判定为登录成功。
+            # NapCat 存活 + 二维码已过期 + 存在 UIN 配置文件 → 疑似已登录。
+            # 但如果之前明确处于"未登录"状态，仅凭兜底逻辑可能误判
+            # （二维码过期不等于扫码成功），此时需要 API 确认，不信任兜底。
             if napcat_alive and qr_stale and uin:
-                # 额外增加一层保护：检查最近的日志是否有登录成功的标志
-                # 或者直接依赖 websocket 的心跳（如果有的话）
-                # 这里我们通过检查本地缓存记录来防止误判
                 from services.instance_subsystem import instance_subsystem
 
                 inst = instance_subsystem.get(name)
-                # 如果容器之前是明确处于未登录（等待扫码或过期）状态，并且现在只凭兜底逻辑判断，那大概率是误判
-                # 只有在容器原本就是已登录状态，或者是刚启动无法获取状态时，才信任兜底逻辑
-                if inst and inst.logged_in is False:
-                    # 之前是未登录状态，必须有明确的 API 返回不再需要扫码，才允许变为已登录
-                    pass
-                else:
+                # 容器之前明确为未登录 → 不信任兜底，需等 API/WS 确认
+                if not inst or inst.logged_in is not False:
                     return {
                         "logged_in": True,
                         "uin": uin,

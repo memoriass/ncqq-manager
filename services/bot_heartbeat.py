@@ -117,13 +117,31 @@ class BotHeartbeatService:
     # ------------------------------------------------------------------
 
     def _sync_to_instance(self, key: str, online: bool) -> None:
-        """通过 uin 在 instance_subsystem 中找到对应容器实例并更新 bot_online。"""
+        """通过 uin 或 name 在 instance_subsystem 中找到对应容器实例并更新 bot_online。"""
         try:
             from services.instance_subsystem import instance_subsystem
+            from services.napcat_ws_service import napcat_ws_service
+
+            # 1. 尝试通过 uin 匹配（容器 logged_in 后会有 uin）
             for inst in instance_subsystem.get_all():
                 if inst.uin and inst.uin == key:
                     inst.update_bot_heartbeat(online)
+                    # ★ 修复 3：心跳离线时同步标记 logged_in=False，立即触发快速轮询
+                    if not online and inst.logged_in:
+                        inst.update_login(logged_in=False, uin=inst.uin, stage="waiting", reason="bot_offline")
                     return
+
+            # 2. 如果通过 uin 没找到，说明可能是刚扫码还没更新 uin 到 inst
+            # 尝试通过 WS 注册表中的 uin -> name 反查
+            for name, entry in napcat_ws_service._table.items():
+                if entry.uin == key:
+                    inst = instance_subsystem.get(name)
+                    if inst:
+                        inst.update_bot_heartbeat(online)
+                        if not online and inst.logged_in:
+                            inst.update_login(logged_in=False, uin=inst.uin, stage="waiting", reason="bot_offline")
+                        return
+
         except Exception as e:
             logger.debug("bot_heartbeat 回写 instance_subsystem 异常: %s", e)
 

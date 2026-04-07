@@ -285,7 +285,7 @@ export default function UserDashboard() {
                                     '&:hover': { borderColor: theme.palette.primary.main, boxShadow: `0 0 0 1px ${theme.palette.primary.main}22` }
                                 }}>
                                     {/* 头像虚化叠底 — 最底层，覆盖卡片左侧大部分 */}
-                                    {qr.status === 'logged_in' && avatarSrc && (
+                                    {avatarSrc && (
                                         <Box
                                             component="img"
                                             src={avatarSrc}
@@ -295,7 +295,7 @@ export default function UserDashboard() {
                                                 left: '-8%', top: '-15%',
                                                 width: '68%', height: '130%',
                                                 objectFit: 'cover',
-                                                filter: 'blur(4px) saturate(1.8)',
+                                                filter: qr.status !== 'logged_in' ? 'blur(4px) grayscale(100%) opacity(0.3)' : 'blur(4px) saturate(1.8)',
                                                 opacity: theme.palette.mode === 'dark' ? 0.55 : 0.62,
                                                 zIndex: 0,
                                                 pointerEvents: 'none',
@@ -314,12 +314,12 @@ export default function UserDashboard() {
                                             overflow: 'hidden', textOverflow: 'ellipsis',
                                             wordBreak: 'break-all', lineHeight: 1.35, minHeight: '2.4em',
                                         }}>{highlight(c.name)}</Typography>
-                                        {/* 头像 + QQ号（仅已登录才显示，居中） */}
-                                        {qr.status === 'logged_in' && uinDigits && (
+                                        {/* 头像 + QQ号（有 uin 就显示，居中） */}
+                                        {uinDigits && (
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 1, gap: 0.5 }}>
                                                 <Box component="img"
                                                     src={avatarSrc}
-                                                    sx={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover' }}
+                                                    sx={{ width: 32, height: 32, borderRadius: '50%', objectFit: 'cover', filter: qr.status !== 'logged_in' ? 'grayscale(100%) opacity(0.6)' : 'none' }}
                                                 />
                                                 <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>
                                                     QQ: {maskUin(uinDigits)}

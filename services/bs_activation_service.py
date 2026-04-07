@@ -1,11 +1,11 @@
 """
 BS 连接健康监控服务（BSActivationService）
 
-职责（修复后）：
+职责：
   - 定期轮询 BS connections API，检查每个连接的 target_endpoints
     是否包含管理器的 /ws/napcat/{name} 端点
   - 汇总连接健康概览：总数 / 已连接 / 缺失管理器端点 / 最后检查时间
-  - 当检测到连接缺失管理器端点时，自动注入修复
+  - 记录缺失端点信息并在前端展示，供管理员手动修复
   - 替代旧的"WS 客户端连出去"架构，不再需要手动填写外部 URL
 
 设计意图：
@@ -62,7 +62,7 @@ class BSActivationService:
         pass
 
     def _get_manager_endpoint_pattern(self) -> str:
-        """返回管理器 WS 端点的 URL 前缀，用于匹配 target_endpoints。"""
+        """返回管理器 WS 端点的 URL 前缀（基于当前配置），用于匹配 target_endpoints。"""
         try:
             from services.config import app_config
             host = str(app_config.get("manager_host", "127.0.0.1"))
@@ -72,7 +72,7 @@ class BSActivationService:
             return "ws://127.0.0.1:8000/ws/napcat/"
 
     def _get_compat_endpoint_pattern(self) -> str:
-        """返回兼容端点的 URL，用于匹配 target_endpoints。"""
+        """返回兼容端点的 URL（基于当前配置），用于匹配 target_endpoints。"""
         try:
             from services.config import app_config
             host = str(app_config.get("manager_host", "127.0.0.1"))
@@ -80,6 +80,37 @@ class BSActivationService:
             return f"ws://{host}:{port}/ws/onebot/v11/ws"
         except Exception:
             return "ws://127.0.0.1:8000/ws/onebot/v11/ws"
+
+    def _get_all_manager_prefixes(self) -> list[str]:
+        """返回管理器端点的所有可能 host 变体前缀。
+
+        除当前配置的 host 外，还包含常见本地变体（127.0.0.1 / localhost / 0.0.0.0），
+        解决管理器 host 配置变更后旧端点无法匹配的问题。
+        """
+        try:
+            from services.config import app_config
+            host = str(app_config.get("manager_host", "127.0.0.1"))
+            port = int(app_config.get("manager_port", 8000))
+        except Exception:
+            host, port = "127.0.0.1", 8000
+
+        hosts = {host, "127.0.0.1", "localhost", "0.0.0.0"}
+        prefixes: list[str] = []
+        for h in hosts:
+            prefixes.append(f"ws://{h}:{port}/ws/napcat/")
+        return prefixes
+
+    def _get_all_compat_endpoints(self) -> list[str]:
+        """返回兼容端点的所有可能 host 变体。"""
+        try:
+            from services.config import app_config
+            host = str(app_config.get("manager_host", "127.0.0.1"))
+            port = int(app_config.get("manager_port", 8000))
+        except Exception:
+            host, port = "127.0.0.1", 8000
+
+        hosts = {host, "127.0.0.1", "localhost", "0.0.0.0"}
+        return [f"ws://{h}:{port}/ws/onebot/v11/ws" for h in hosts]
 
     # ---- 公开 API ----
 
@@ -217,8 +248,8 @@ class BSActivationService:
         if not isinstance(connections, dict):
             connections = {}
 
-        mgr_prefix = self._get_manager_endpoint_pattern()
-        compat_endpoint = self._get_compat_endpoint_pattern()
+        mgr_prefixes = self._get_all_manager_prefixes()
+        compat_endpoints = set(self._get_all_compat_endpoints())
 
         total = 0
         managed = 0
@@ -239,7 +270,7 @@ class BSActivationService:
             if not isinstance(targets, list):
                 targets = []
             has_mgr = any(
-                t.startswith(mgr_prefix) or t == compat_endpoint
+                any(t.startswith(p) for p in mgr_prefixes) or t in compat_endpoints
                 for t in targets
             )
 

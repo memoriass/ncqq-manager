@@ -665,26 +665,42 @@ class BotShepherdManager:
 
         return {"success": False, "error": f"未知 target: {target}"}
 
+    def _is_known_endpoint(self, endpoint_url: str) -> bool:
+        """检查 URL 是否属于管理器自身端点或 Bot 雷达端点库中的已知端点。
+
+        白名单范围：
+          1. 管理器自身端点：URL 包含 /ws/napcat/
+          2. Bot 雷达端点库：URL 与 bot_radar_endpoints.json 中的某条记录匹配
+        """
+        if "/ws/napcat/" in endpoint_url:
+            return True
+        radar_urls = {ep.get("url", "") for ep in self.get_radar_endpoints()}
+        return endpoint_url in radar_urls
+
     async def remove_endpoint_from_bs(
         self, conn_id: str, endpoint_url: str
     ) -> Dict[str, Any]:
-        """从指定 BS 连接的 target_endpoints 中移除管理器自身端点。
+        """从指定 BS 连接的 target_endpoints 中移除已知端点。
 
-        安全限制：只允许删除管理器自身注册的端点（URL 包含 /ws/napcat/），
-        拒绝删除用户手动配置的第三方端点（包括其他 OneBot 端点），避免误操作。
+        安全限制：只允许删除以下两类端点，拒绝删除用户手动配置的未知第三方端点：
+          1. 管理器自身端点（URL 包含 /ws/napcat/）
+          2. Bot 雷达端点库中的端点（config/bot_radar_endpoints.json）
 
         Args:
             conn_id: BS 连接 ID
-            endpoint_url: 要移除的端点 URL（必须是管理器自身端点）
+            endpoint_url: 要移除的端点 URL
 
         Returns:
             {"success": bool, "message": str, "removed": bool}
         """
-        # 安全检查：只允许删除管理器自身的 /ws/napcat/* 端点
-        if "/ws/napcat/" not in endpoint_url:
+        # 安全检查：只允许删除管理器自身端点或雷达库中的已知端点
+        if not self._is_known_endpoint(endpoint_url):
             return {
                 "success": False,
-                "error": "安全限制：只能删除管理器自身端点（/ws/napcat/*），不能删除用户配置的第三方端点",
+                "error": (
+                    "安全限制：只能删除管理器自身端点（/ws/napcat/*）"
+                    "或 Bot 雷达端点库中的已知端点，不能删除用户配置的未知第三方端点"
+                ),
             }
 
         res = await self.get_connections()

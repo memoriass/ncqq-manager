@@ -101,6 +101,64 @@ def _instance_root_path(name: str) -> Path:
     return root
 
 
+def _cleanup_instance_services(name: str) -> None:
+    """统一清理与指定容器关联的内存态服务资源（实例状态 / 登录缓存 / WS 注册表）。
+
+    在容器删除或全量数据清理时调用，避免过期数据残留。
+    所有操作均为同步、幂等，失败不抛异常。
+    """
+    # 1. 清理 instance_subsystem 中的实例状态
+    try:
+        from services.instance_subsystem import instance_subsystem
+
+        instance_subsystem.remove(name)
+        logger.info("已清理实例状态: %s", name)
+    except Exception as e:
+        logger.debug("清理实例状态失败 [%s]: %s", name, e)
+
+    # 2. 清理登录缓存
+    try:
+        from services.docker_login import clear_login_cache
+
+        if clear_login_cache(name):
+            logger.info("已清理登录缓存: %s", name)
+    except Exception as e:
+        logger.debug("清理登录缓存失败 [%s]: %s", name, e)
+
+    # 3. 清理 NapCat WS 服务注册表 + API 代理
+    try:
+        from services.napcat_ws_service import napcat_ws_service
+
+        napcat_ws_service.cleanup(name)
+    except Exception as e:
+        logger.debug("清理 WS 服务注册表失败 [%s]: %s", name, e)
+
+
+def _schedule_bs_cleanup(name: str) -> None:
+    """调度异步清理 BotShepherd 连接配置（fire-and-forget）。
+
+    在有运行中的事件循环时创建异步任务；无事件循环时静默跳过。
+    """
+    try:
+        import asyncio
+        from services.botshepherd import botshepherd_manager
+
+        async def _cleanup_bs():
+            try:
+                await botshepherd_manager.delete_connection(name)
+                logger.info("已清理 BS 连接配置: %s", name)
+            except Exception as e:
+                logger.debug("清理 BS 连接配置失败 [%s]: %s", name, e)
+
+        try:
+            asyncio.get_running_loop()
+            asyncio.create_task(_cleanup_bs())
+        except RuntimeError:
+            pass
+    except Exception as e:
+        logger.debug("调度 BS 清理任务失败 [%s]: %s", name, e)
+
+
 def _clear_instance_data(name: str, scope: str, keep_config: bool = False) -> list[str]:
     root = _instance_root_path(name)
     if not root.exists():
@@ -135,63 +193,11 @@ def _clear_instance_data(name: str, scope: str, keep_config: bool = False) -> li
             shutil.rmtree(bs_marker_dir, ignore_errors=True)
             logger.info("已清理 BS 注入标记: %s", name)
 
-        # 2. 清理 instance_subsystem 中的实例状态
-        try:
-            from services.instance_subsystem import instance_subsystem
-
-            instance_subsystem.remove(name)
-            logger.info("已清理实例状态: %s", name)
-        except Exception as e:
-            logger.debug("清理实例状态失败 [%s]: %s", name, e)
-
-        # 3. 清理登录缓存
-        try:
-            from services.docker_login import _login_cache
-
-            if name in _login_cache:
-                _login_cache.pop(name, None)
-                logger.info("已清理登录缓存: %s", name)
-        except Exception as e:
-            logger.debug("清理登录缓存失败 [%s]: %s", name, e)
-
-        # 4. 清理 NapCat WS 服务注册表
-        try:
-            from services.napcat_ws_service import napcat_ws_service
-
-            # 清理 WS 连接注册表
-            if name in napcat_ws_service._table:
-                napcat_ws_service._table.pop(name, None)
-                logger.info("已清理 WS 连接注册表: %s", name)
-
-            # 清理 API 代理
-            if name in napcat_ws_service._proxies:
-                proxy = napcat_ws_service._proxies.pop(name, None)
-                if proxy:
-                    proxy.close()
-                logger.info("已清理 API 代理: %s", name)
-        except Exception as e:
-            logger.debug("清理 WS 服务注册表失败 [%s]: %s", name, e)
+        # 2-4. 统一清理内存态服务资源
+        _cleanup_instance_services(name)
 
         # 5. 异步清理 BotShepherd 连接配置
-        try:
-            import asyncio
-            from services.botshepherd import botshepherd_manager
-
-            async def _cleanup_bs():
-                try:
-                    await botshepherd_manager.delete_connection(name)
-                    logger.info("已清理 BS 连接配置: %s", name)
-                except Exception as e:
-                    logger.debug("清理 BS 连接配置失败 [%s]: %s", name, e)
-
-            try:
-                asyncio.get_running_loop()
-                asyncio.create_task(_cleanup_bs())
-            except RuntimeError:
-                # 没有运行中的事件循环，跳过
-                pass
-        except Exception as e:
-            logger.debug("调度 BS 清理任务失败 [%s]: %s", name, e)
+        _schedule_bs_cleanup(name)
 
     return cleared
 
@@ -563,14 +569,16 @@ async def api_container_action(
         raise HTTPException(status_code=500, detail="Action failed")
     state_engine.notify_change()
     if action_value == "delete" and node_id == "local":
+        # 统一清理内存态服务资源（登录缓存 / WS 注册表 / 实例状态）
+        _cleanup_instance_services(name)
+
         # 删除数据目录（仅勾选 delete_data 时）
         if delete_data:
-            import shutil
-
             data_dir = os.path.join(get_data_dir(), name)
             if os.path.exists(data_dir):
                 shutil.rmtree(data_dir, ignore_errors=True)
                 logger.info("已删除本地数据目录: %s", data_dir)
+
         # 删除 BS 连接配置（BS 已启用时），避免僵尸连接堆积
         from services.config import app_config as _cfg
 

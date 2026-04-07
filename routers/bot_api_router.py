@@ -53,9 +53,9 @@ async def list_bots(_user=Depends(get_current_user)):
     """列出所有已知 Bot。
 
     数据来源（优先级高→低）：
-      1. napcat_ws_service._table — 曾通过 WS 直连管理器的 Bot（含 nickname/uin）
-      2. instance_subsystem       — Docker 容器列表（WS 表无记录时兜底，确保哨兵配置
-                                   不受"Bot 是否曾直连管理器"限制）
+      1. napcat_ws_service 连接注册表 — 曾通过 WS 直连管理器的 Bot（含 nickname/uin）
+      2. instance_subsystem           — Docker 容器列表（WS 表无记录时兜底，确保哨兵配置
+                                       不受"Bot 是否曾直连管理器"限制）
     """
     from services.napcat_ws_service import napcat_ws_service
     from services.instance_subsystem import instance_subsystem
@@ -64,15 +64,15 @@ async def list_bots(_user=Depends(get_current_user)):
 
     # ── 1. WS 直连历史（数据最准，含 nickname/uin/在线状态）──────────────
     for name in napcat_ws_service.all_names():
-        entry = napcat_ws_service._table.get(name)
+        entry = napcat_ws_service.get_entry_snapshot(name)
         if entry is None:
             continue
         merged[name] = BotStatusItem(
             name=name,
-            uin=entry.uin or "",
-            nickname=entry.nickname or "",
-            connected=entry.is_alive() if hasattr(entry, "is_alive") else entry.connected,
-            last_seen=entry.last_seen,
+            uin=entry["uin"] or "",
+            nickname=entry["nickname"] or "",
+            connected=entry["connected"],
+            last_seen=entry["last_seen"],
         )
 
     # ── 2. Docker 容器兜底（WS 表未收录时补入，connected=false）────────────
@@ -97,15 +97,15 @@ async def list_bots(_user=Depends(get_current_user)):
 async def get_bot_status(name: str, _user=Depends(get_current_user)):
     """查询指定 Bot 的连接状态。"""
     from services.napcat_ws_service import napcat_ws_service
-    entry = napcat_ws_service._table.get(name)
+    entry = napcat_ws_service.get_entry_snapshot(name)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"Bot [{name}] 未知或从未连接")
     return BotStatusItem(
         name=name,
-        uin=entry.uin or "",
-        nickname=entry.nickname or "",
-        connected=entry.is_alive() if hasattr(entry, "is_alive") else entry.connected,
-        last_seen=entry.last_seen,
+        uin=entry["uin"] or "",
+        nickname=entry["nickname"] or "",
+        connected=entry["connected"],
+        last_seen=entry["last_seen"],
     )
 
 
