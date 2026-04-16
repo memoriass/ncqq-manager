@@ -21,10 +21,18 @@ from services.cluster_manager import cluster_manager
 from services.instance_subsystem import instance_subsystem
 from services.log import logger
 from services.container_state import state_engine
+from services.ob11_events import (
+    parse_ob11_event,
+    OB11Event,
+    HeartbeatEvent,
+    LifecycleEvent,
+    BotOfflineNotice,
+    MessageEvent,
+    GroupMessageEvent,
+    PrivateMessageEvent,
+)
 from middleware.auth import validate_token_value
 from middleware.rate_limiter import websocket_public_speed_limit
-
-# napcat-sdk 不可用；ws_router 使用手写 OneBot 事件分发（无外部依赖）
 
 router = APIRouter(tags=["websocket"])
 
@@ -238,72 +246,67 @@ def _handle_ob11_event(
     ws_ref: "WebSocket | None" = None,
 ) -> None:
     """
-    解析单条 OneBot 事件并分发至 bot_heartbeat / napcat_ws_service。
-    使用手写字段检查，无外部依赖。
+    解析单条 OneBot 事件并分发至 bot_heartbeat / napcat_ws_service / message_buffer。
+    使用 ob11_events 结构化解析，类型安全。
     name 为空字符串时退化为旧兼容模式（纯 bot_heartbeat）。
     """
     from services.bot_heartbeat import bot_heartbeat
     from services.napcat_ws_service import napcat_ws_service
 
-    raw_sid = event.get("self_id") or header_sid
-    if not raw_sid:
+    parsed = parse_ob11_event(event, fallback_sid=header_sid or "")
+    if parsed is None:
         return
-    sid = str(raw_sid)
-    # "0" 是 BS probe_target_endpoint 探测时携带的哑值，忽略避免污染心跳表
-    if sid == "0":
-        return
+    sid = parsed.self_id
     seen_sids.add(sid)
 
     # ★ 核心修复：事件中的 self_id 是真实 uin，补全到 WS 注册表
-    # 解决"扫码登录后 uin 未写入注册表 → 实例卡在待登录"问题
     if name:
         napcat_ws_service.ensure_uin(name, sid, ws=ws_ref)
 
-    post_type = event.get("post_type", "")
-    meta_type = event.get("meta_event_type", "")
-    notice_type = event.get("notice_type", "")
+    if isinstance(parsed, HeartbeatEvent):
+        bot_heartbeat.on_heartbeat(sid, parsed.interval, parsed.status)
+        if name:
+            napcat_ws_service.on_heartbeat(name, parsed.online)
+        logger.debug(
+            "Bot 心跳: name=%s self_id=%s online=%s", name or "?", sid, parsed.online
+        )
 
-    if post_type == "meta_event":
-        if meta_type == "heartbeat":
-            interval_ms = event.get("interval", 30000)
-            status_data = event.get("status", {})
-            online = bool(status_data.get("online", True))
-            bot_heartbeat.on_heartbeat(sid, interval_ms, status_data)
-            if name:
-                napcat_ws_service.on_heartbeat(name, online)
-            logger.debug(
-                "Bot 心跳: name=%s self_id=%s online=%s", name or "?", sid, online
+    elif isinstance(parsed, LifecycleEvent):
+        if parsed.sub_type == "connect":
+            bot_heartbeat.on_connect(sid)
+            logger.info(
+                "Bot lifecycle.connect: name=%s self_id=%s", name or "?", sid
+            )
+        elif parsed.sub_type == "disconnect":
+            bot_heartbeat.on_disconnect(sid)
+            logger.info(
+                "Bot lifecycle.disconnect: name=%s self_id=%s", name or "?", sid
             )
 
-        elif meta_type == "lifecycle":
-            sub_type = event.get("sub_type", "")
-            if sub_type == "connect":
-                bot_heartbeat.on_connect(sid)
-                logger.info(
-                    "Bot lifecycle.connect: name=%s self_id=%s", name or "?", sid
-                )
-            elif sub_type == "disconnect":
-                bot_heartbeat.on_disconnect(sid)
-                logger.info(
-                    "Bot lifecycle.disconnect: name=%s self_id=%s", name or "?", sid
-                )
-
-    elif post_type == "notice" and notice_type == "bot_offline":
-        # NapCat BotOfflineEvent：tag/message 字段记录掉线原因
-        tag = event.get("tag", "")
-        msg = event.get("message", "")
+    elif isinstance(parsed, BotOfflineNotice):
         bot_heartbeat.on_disconnect(sid)
         # ★ 关键修复：bot_offline 同步到 napcat_ws_service，设置 hb_online=False
-        # 防止 container_state 引擎根据过期心跳状态覆盖正确的离线判定
         if name:
             napcat_ws_service.on_heartbeat(name, False)
         logger.info(
             "Bot offline notice: name=%s self_id=%s tag=%s msg=%s",
-            name or "?",
-            sid,
-            tag,
-            msg,
+            name or "?", sid, parsed.tag, parsed.message,
         )
+
+    elif isinstance(parsed, MessageEvent):
+        # ★ 新增：消息事件写入监控缓冲区
+        if name:
+            napcat_ws_service.push_message(name, parsed)
+        if isinstance(parsed, GroupMessageEvent):
+            logger.debug(
+                "群消息: name=%s group=%s user=%s msg_id=%d",
+                name or "?", parsed.group_id, parsed.user_id, parsed.message_id,
+            )
+        elif isinstance(parsed, PrivateMessageEvent):
+            logger.debug(
+                "私聊消息: name=%s user=%s msg_id=%d",
+                name or "?", parsed.user_id, parsed.message_id,
+            )
 
 
 async def _ob11_recv_loop(ws: WebSocket, name: str, header_sid: str | None) -> None:

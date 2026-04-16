@@ -133,10 +133,12 @@ class AsyncLoginChecker:
 
     async def check_login_status(self, name: str,
                                   http_port: int, webui_port: int) -> Dict:
-        """四级级联检测：SDK WS → BS API → HTTP 兜底 → 文件系统兜底。
+        """五级级联检测：SDK WS 状态 → WS API 调用 → BS API → HTTP 兜底 → 文件系统兜底。
 
         优先级：
-          1. napcat_ws_service（零网络开销，WS 已连接时直接返回）
+          1. napcat_ws_service（零网络开销，WS 已连接且心跳在线时直接返回）
+          1.5 WS API 调用（WS 已连接但心跳未确认时，通过 WS 调用 get_login_info，
+              替代 HTTP 网络请求，延迟 <10ms vs HTTP ~2s）
           2. BS 账号 API（BS 运行时辅助检测，10s TTL 缓存）
           3. OneBot HTTP /get_login_info（兜底，仅 WS/BS 均无结果时请求）
           4. 文件系统检测（打破鸡蛋问题：通过 napcat_{uin}.json 文件名发现 uin，
@@ -144,11 +146,19 @@ class AsyncLoginChecker:
         """
         from services.napcat_ws_service import napcat_ws_service
 
-        # 1. SDK WS 直连（主路径）
+        # 1. SDK WS 直连（主路径：心跳在线 + 有 uin → 直接返回）
         r1 = napcat_ws_service.get_login_result(name)
         if r1["logged_in"]:
             logger.debug("登录检测[%s] WS主路径命中 uin=%s", name, r1.get("uin"))
             return r1
+
+        # 1.5 WS API 调用（WS 已连接但心跳未确认时，通过 WS 调用 get_login_info）
+        # 替代 Level 3 的 HTTP 请求，延迟从 ~2s 降至 <10ms
+        if napcat_ws_service.get_proxy(name) is not None:
+            r15 = await napcat_ws_service.check_login_via_ws(name)
+            if r15["logged_in"]:
+                logger.debug("登录检测[%s] WS API命中 uin=%s", name, r15.get("uin"))
+                return r15
 
         # 2. BS 账号 API 辅助（次路径）
         r2 = await napcat_ws_service.check_via_bs(name)

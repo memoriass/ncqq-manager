@@ -15,14 +15,16 @@ NapCat WS 连接注册表服务
 """
 
 import asyncio
+import collections
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from services.log import logger
 
 if TYPE_CHECKING:
     from fastapi import WebSocket
+    from services.ob11_events import MessageEvent
 
 # 重连宽限期（秒）：WS 断开后保留在线态，等 NapCat 重连
 _RECONNECT_GRACE = 15
@@ -30,6 +32,8 @@ _RECONNECT_GRACE = 15
 _BS_CACHE_TTL = 10
 # API 代理调用超时（秒）
 _API_PROXY_TIMEOUT = 10.0
+# 消息监控缓冲区大小（每容器）
+_MESSAGE_BUFFER_SIZE = 200
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +176,8 @@ class NapCatWsService:
         self._bs_cache: Dict[str, tuple] = {}
         # API 代理注册表：{name: NapCatApiProxy}
         self._proxies: Dict[str, NapCatApiProxy] = {}
+        # 消息监控缓冲区：{name: deque[dict]}
+        self._msg_buffers: Dict[str, collections.deque] = {}
 
     # ------------------------------------------------------------------
     # 写入（由 ws_router 调用）
@@ -469,6 +475,82 @@ class NapCatWsService:
             logger.debug("BS 辅助检测异常 [%s]: %s", name, exc)
             return {"logged_in": False, "stage": "waiting"}
 
+    # ------------------------------------------------------------------
+    # 消息监控缓冲区
+    # ------------------------------------------------------------------
+
+    def push_message(self, name: str, event: "MessageEvent") -> None:
+        """将消息事件写入环形缓冲区（由 ws_router 在收到 message 事件时调用）。"""
+        buf = self._msg_buffers.get(name)
+        if buf is None:
+            buf = collections.deque(maxlen=_MESSAGE_BUFFER_SIZE)
+            self._msg_buffers[name] = buf
+        buf.append({
+            "time": event.time,
+            "message_id": event.message_id,
+            "message_type": event.message_type,
+            "user_id": event.user_id,
+            "sender": event.sender,
+            "raw_message": event.raw_message,
+            "group_id": getattr(event, "group_id", ""),
+            "sub_type": getattr(event, "sub_type", ""),
+        })
+
+    def get_messages(self, name: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """获取指定容器最近 N 条消息（最新在前）。"""
+        buf = self._msg_buffers.get(name)
+        if not buf:
+            return []
+        items = list(buf)
+        items.reverse()
+        return items[:limit]
+
+    def get_all_messages(self, limit: int = 50) -> Dict[str, List[Dict[str, Any]]]:
+        """获取所有容器的最近消息（用于全局监控面板）。"""
+        result: Dict[str, List[Dict[str, Any]]] = {}
+        for name in self._msg_buffers:
+            msgs = self.get_messages(name, limit)
+            if msgs:
+                result[name] = msgs
+        return result
+
+    # ------------------------------------------------------------------
+    # WS 原生登录检测（通过已有 WS 连接调用 get_login_info）
+    # ------------------------------------------------------------------
+
+    async def check_login_via_ws(self, name: str) -> Dict:
+        """通过反向 WS 连接主动调用 get_login_info，替代 HTTP 探测。
+
+        适用场景：WS 已连接但 heartbeat 尚未确认登录状态（hb_online=None），
+        或需要获取最新 uin/nickname。
+
+        返回格式与 check_login_status 兼容。
+        """
+        proxy = self._proxies.get(name)
+        if not proxy:
+            return {"logged_in": False, "stage": "waiting"}
+        try:
+            data = await proxy.call_action("get_login_info", timeout=5.0)
+            uid = str(data.get("user_id", ""))
+            if uid and uid != "0":
+                nickname = data.get("nickname", "")
+                # 反写注册表
+                self.ensure_uin(name, uid)
+                e = self._table.get(name)
+                if e and nickname:
+                    e.nickname = nickname
+                return {
+                    "logged_in": True,
+                    "uin": uid,
+                    "nickname": nickname,
+                    "method": "ws_api",
+                    "stage": "logged_in",
+                    "reason": "ws_get_login_info",
+                }
+        except Exception as exc:
+            logger.debug("WS 登录检测失败 [%s]: %s", name, exc)
+        return {"logged_in": False, "stage": "waiting"}
+
     def all_names(self) -> list:
         return list(self._table.keys())
 
@@ -488,7 +570,7 @@ class NapCatWsService:
         }
 
     def cleanup(self, name: str) -> None:
-        """公开接口：清理指定容器的全部内部状态（注册表 + API 代理）。
+        """公开接口：清理指定容器的全部内部状态（注册表 + API 代理 + 消息缓冲）。
 
         用于容器删除/数据清理场景，避免外部直接操作私有属性。
         """
@@ -505,6 +587,9 @@ class NapCatWsService:
 
         # 清理 BS 辅助检测缓存
         self._bs_cache.pop(name, None)
+
+        # 清理消息缓冲区
+        self._msg_buffers.pop(name, None)
 
 
 # 全局单例

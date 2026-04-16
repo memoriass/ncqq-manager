@@ -759,7 +759,45 @@ export interface BotStatusItem {
     last_seen: number;
 }
 
+export interface BotMessage {
+    time: number;
+    self_id: number;
+    post_type: string;
+    message_type?: string;
+    sub_type?: string;
+    sender?: { user_id?: number; nickname?: string; card?: string };
+    group_id?: number;
+    user_id?: number;
+    raw_message?: string;
+    message_id?: number;
+    [key: string]: unknown;
+}
+
 export const botApi = {
     /** 列出所有已知 Bot（含已断线历史），connected=true 表示当前在线 */
     list: () => request<BotStatusItem[]>('/bots'),
+
+    /** 查询指定 Bot 的连接状态 */
+    getStatus: (name: string) =>
+        request<BotStatusItem>(`/bots/${name}/status`),
+
+    /** 代理调用 OneBot API（透传 action/params） */
+    call: (name: string, action: string, params: Record<string, unknown> = {}, timeout = 10) =>
+        request<{ status: string; data: unknown }>(`/bots/${name}/call`, {
+            method: 'POST',
+            body: JSON.stringify({ action, params, timeout }),
+        }),
+
+    /** 便捷发消息（私聊/群聊） */
+    send: (name: string, msgType: 'private' | 'group', targetId: string, message: string) =>
+        request<{ status: string; message_id: number }>(`/bots/${name}/send`, {
+            method: 'POST',
+            body: JSON.stringify({ msg_type: msgType, target_id: targetId, message }),
+        }),
+
+    /** 获取指定 Bot 最近收到的消息 */
+    getMessages: (name: string, limit = 50) =>
+        request<{ status: string; name: string; count: number; messages: BotMessage[] }>(
+            `/bots/${name}/messages?limit=${limit}`
+        ),
 };

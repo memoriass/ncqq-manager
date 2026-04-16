@@ -156,3 +156,29 @@ async def send_bot_message(
                 name, body.msg_type, body.target_id, msg_id)
     return {"status": "ok", "message_id": msg_id}
 
+
+# ─── 消息监控端点 ─────────────────────────────────────────────────────────────
+
+
+@router.get("/{name}/messages")
+async def get_bot_messages(
+    name: str,
+    limit: int = 50,
+    _user=Depends(get_current_user),
+) -> Dict[str, Any]:
+    """获取指定 Bot 最近收到的消息（环形缓冲区，最新在前）。"""
+    from services.napcat_ws_service import napcat_ws_service
+    messages = napcat_ws_service.get_messages(name, min(limit, 200))
+    return {"status": "ok", "name": name, "count": len(messages), "messages": messages}
+
+
+@router.get("/messages/all")
+async def get_all_bot_messages(
+    limit: int = 50,
+    _user=Depends(get_current_user),
+) -> Dict[str, Any]:
+    """获取所有 Bot 最近收到的消息（全局监控面板）。"""
+    from services.napcat_ws_service import napcat_ws_service
+    all_msgs = napcat_ws_service.get_all_messages(min(limit, 200))
+    return {"status": "ok", "bots": all_msgs}
+
