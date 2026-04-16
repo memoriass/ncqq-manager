@@ -403,6 +403,9 @@ class DockerManager(LoginMixin, LifecycleMixin):
 
         if login.get("logged_in") and login.get("uin"):
             napcat["uin"] = login["uin"]
+        elif not login.get("logged_in"):
+            # ★ 修复：login 判定未登录时，显式清理 napcat 中由并行竞态残留的旧 uin
+            napcat["uin"] = "未登录 / Not Logged In"
         return {**basic, **napcat}
 
     # ============ 端口解析 ============

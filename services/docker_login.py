@@ -37,6 +37,13 @@ def clear_login_cache(name: str) -> bool:
     return _login_cache.pop(name, None) is not None
 
 
+def invalidate_login_cache(name: str) -> None:
+    """由 WS 离线检测调用：将登录缓存标记为未登录，防止陈旧数据导致误判。"""
+    prev = _login_cache.get(name)
+    if prev and prev.get("logged_in"):
+        _login_cache[name] = {"logged_in": False, "ts": time.time()}
+
+
 def _normalize_uin(raw: str) -> str:
     """归一化 QQ 号：仅保留数字，去除 protocol_ 等前缀。"""
     return "".join(ch for ch in str(raw) if ch.isdigit())

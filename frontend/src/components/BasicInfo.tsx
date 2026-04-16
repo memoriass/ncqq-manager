@@ -144,27 +144,47 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         fetchStats();
         fetchQrcode();
 
-        let si: ReturnType<typeof setInterval>;
-        let qi: ReturnType<typeof setInterval>;
+        let statsTimer: ReturnType<typeof setTimeout>;
+        let qrTimer: ReturnType<typeof setTimeout>;
+        let stopped = false;
 
-        const startPolling = () => {
-            clearInterval(si);
-            clearInterval(qi);
-            // 已登录：60s（对齐后端 TTL_OK），未登录：15s
-            si = setInterval(fetchStats, isLoggedInRef.current ? 60000 : 15000);
-            // 未登录时额外 8s 轮询 QR（对齐后端 TTL_FAIL）
-            if (!isLoggedInRef.current) {
-                qi = setInterval(fetchQrcode, 8000);
-            }
+        // ★ 修复：使用 setTimeout 链替代 setInterval，每次轮询后重新评估间隔
+        // 登录状态变化时自动切换频率，无需等待 visibility change
+        const scheduleStats = () => {
+            if (stopped) return;
+            const interval = isLoggedInRef.current ? 60000 : 15000;
+            statsTimer = setTimeout(async () => {
+                if (stopped) return;
+                await fetchStats();
+                scheduleStats();
+            }, interval);
         };
+        const scheduleQr = () => {
+            if (stopped) return;
+            // 已登录时 30s 慢速检查（及时发现离线），未登录时 8s 快速轮询
+            const interval = isLoggedInRef.current ? 30000 : 8000;
+            qrTimer = setTimeout(async () => {
+                if (stopped) return;
+                await fetchQrcode();
+                scheduleQr();
+            }, interval);
+        };
+
         const stopPolling = () => {
-            clearInterval(si);
-            clearInterval(qi);
+            stopped = true;
+            clearTimeout(statsTimer);
+            clearTimeout(qrTimer);
+        };
+        const startPolling = () => {
+            stopped = false;
+            scheduleStats();
+            scheduleQr();
         };
         const handleVisibility = () => {
             if (document.visibilityState === 'visible') {
                 fetchStats();
                 fetchQrcode();
+                stopPolling();
                 startPolling();
             } else {
                 stopPolling();

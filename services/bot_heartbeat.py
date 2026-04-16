@@ -129,6 +129,9 @@ class BotHeartbeatService:
                     # ★ 修复 3：心跳离线时同步标记 logged_in=False，立即触发快速轮询
                     if not online and inst.logged_in:
                         inst.update_login(logged_in=False, uin=inst.uin, stage="waiting", reason="bot_offline")
+                        # ★ 同步失效 _login_cache，防止 HTTP 接口返回过期的已登录状态
+                        from services.docker_login import invalidate_login_cache
+                        invalidate_login_cache(inst.name)
                     return
 
             # 2. 如果通过 uin 没找到，说明可能是刚扫码还没更新 uin 到 inst
@@ -140,6 +143,9 @@ class BotHeartbeatService:
                         inst.update_bot_heartbeat(online)
                         if not online and inst.logged_in:
                             inst.update_login(logged_in=False, uin=inst.uin, stage="waiting", reason="bot_offline")
+                            # ★ 同步失效 _login_cache
+                            from services.docker_login import invalidate_login_cache
+                            invalidate_login_cache(name)
                         return
 
         except Exception as e:

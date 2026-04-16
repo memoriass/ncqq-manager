@@ -293,6 +293,10 @@ def _handle_ob11_event(
         tag = event.get("tag", "")
         msg = event.get("message", "")
         bot_heartbeat.on_disconnect(sid)
+        # ★ 关键修复：bot_offline 同步到 napcat_ws_service，设置 hb_online=False
+        # 防止 container_state 引擎根据过期心跳状态覆盖正确的离线判定
+        if name:
+            napcat_ws_service.on_heartbeat(name, False)
         logger.info(
             "Bot offline notice: name=%s self_id=%s tag=%s msg=%s",
             name or "?",

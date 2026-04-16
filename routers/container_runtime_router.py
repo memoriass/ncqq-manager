@@ -27,7 +27,7 @@ from services.cluster_manager import cluster_manager
 from services.config import app_config, get_data_dir
 from services.container_state import state_engine
 from services.docker_async import async_docker_manager
-from services.docker_manager import docker_manager, read_login_cache
+from services.docker_manager import docker_manager
 from services.log import logger
 from services.operation_log_context import build_operator_payload
 from services.operation_logger import operation_logger
@@ -668,9 +668,12 @@ async def get_qr_code(name: str, node_id: str = "local"):
     if node_id != "local":
         result = await cluster_manager.get_qr_status_async(node_id, name)
         return result or {"status": "waiting"}
-    cached = read_login_cache(name)
-    if cached.get("logged_in"):
-        return {"status": "logged_in", "uin": cached.get("uin", "")}
+    # ★ 修复：优先读 instance_subsystem（WS 实时状态），替代过期的 _login_cache
+    from services.instance_subsystem import instance_subsystem
+    inst = instance_subsystem.get(name)
+    if inst and inst.logged_in:
+        return {"status": "logged_in", "uin": inst.uin}
+    # 兜底：instance_subsystem 判定未登录时，不再信任 _login_cache 的旧状态
     _QR_MAX_AGE = 120
     qr_file_fresh = False
     try:
