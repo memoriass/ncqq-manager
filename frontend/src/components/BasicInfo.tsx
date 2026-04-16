@@ -388,6 +388,12 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                             <InfoRow label={t('basicInfo.platform')} value={stats.platform || '-'} />
                             <InfoRow label={t('basicInfo.uptime')} value={stats.uptime_formatted || '-'} />
                             <InfoRow label={t('basicInfo.webuiPort')} value={stats.webui_port ? String(stats.webui_port) : '-'} />
+                            <InfoRow label={t('basicInfo.wsConnection')} value={
+                                stats.bot_ws_connected === undefined ? '-'
+                                : stats.bot_ws_connected ? t('basicInfo.wsOnline') : t('basicInfo.wsOffline')
+                            } />
+                            {stats.bot_nickname && <InfoRow label={t('basicInfo.botNickname')} value={stats.bot_nickname} />}
+                            {stats.bot_last_seen ? <InfoRow label={t('basicInfo.lastSeen')} value={new Date(stats.bot_last_seen * 1000).toLocaleString()} /> : null}
                         </Box>
                     </Grid>
 

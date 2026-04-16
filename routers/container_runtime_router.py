@@ -620,6 +620,16 @@ async def get_container_stats(
 
         last = docker_event_watcher.get_last_event(name)
         stats["last_event"] = last
+
+        # ── 运行状态透传：将 WS 连接层的 Bot 状态注入 stats ──
+        from services.napcat_ws_service import napcat_ws_service
+
+        entry = napcat_ws_service.get_entry_snapshot(name)
+        if entry is not None:
+            stats["bot_ws_connected"] = entry["connected"]
+            stats["bot_nickname"] = entry.get("nickname") or ""
+            stats["bot_ws_uin"] = entry.get("uin") or ""
+            stats["bot_last_seen"] = entry.get("last_seen", 0)
     return stats
 
 

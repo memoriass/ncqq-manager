@@ -95,7 +95,7 @@ th { background: var(--code-bg); font-weight: 600; }
 <!-- HEADER -->
 <div class="header">
     <button class="btn-menu" onclick="toggleSidebar()" aria-label="菜单">☰</button>
-    <div class="header-logo">NapCat Manager <span>v2.2 使用手册</span></div>
+    <div class="header-logo">NapCat Manager <span>v2.3 使用手册</span></div>
     <div class="header-actions">
         <button class="btn-theme" onclick="toggleTheme()" id="themeBtn">🌙 暗色</button>
     </div>
@@ -121,6 +121,7 @@ th { background: var(--code-bg); font-weight: 600; }
         <a class="sidebar-link" href="#" onclick="showSection('backup')">💾 备份恢复</a>
         <a class="sidebar-link" href="#" onclick="showSection('scheduler')">⏰ 定时任务</a>
         <a class="sidebar-link" href="#" onclick="showSection('images')">🐋 镜像管理</a>
+        <a class="sidebar-link" href="#" onclick="showSection('botmanager')">🤖 Bot 管理</a>
         <a class="sidebar-link" href="#" onclick="showSection('botshepherd')">🐑 BotShepherd</a>
     </div>
     <div class="sidebar-group">
@@ -153,6 +154,7 @@ th { background: var(--code-bg); font-weight: 600; }
 <li><strong>备份恢复</strong> — 数据库一键备份与恢复</li>
 <li><strong>定时任务</strong> — 容器自动重启等定时操作</li>
 <li><strong>操作日志</strong> — 全链路操作审计记录</li>
+<li><strong>Bot 管理</strong> — 消息监控、消息发送、群管理与运行状态透传</li>
 <li><strong>安全防护</strong> — CSRF/SSRF 防护、IP 封禁、随机初始密码</li>
 <li><strong>中英双语</strong> — 完整的国际化支持</li>
 <li><strong>镜像管理</strong> — 列出/拉取/删除本地 Docker 镜像</li>
@@ -349,6 +351,7 @@ python start.py --dev</code></pre>
 <li><strong>网络配置</strong> — OneBot 11 HTTP/WebSocket/SSE 端点管理</li>
 <li><strong>文件管理</strong> — 在线浏览和编辑容器配置文件</li>
 <li><strong>日志查看</strong> — 实时查看容器运行日志</li>
+<li><strong>Bot 管理</strong> — 消息监控、消息发送、群管理与运行状态查看（详见 <a href="#" onclick="showSection('botmanager')">Bot 管理</a> 章节）</li>
 </ul>
 
 <h2>数据目录结构</h2>
@@ -690,6 +693,60 @@ python start.py --dev</code></pre>
 <div class="warning">删除正在被容器使用的镜像需要先停止并删除相关容器，或使用强制删除选项。</div>
 </div>
 
+<!-- ====== Bot 管理 ====== -->
+<div class="section" id="sec-botmanager">
+<h1>Bot 管理</h1>
+<p>Bot 管理是实例详情页的第五个标签栏，提供对已连接 Bot 的消息监控、消息发送、群管理与运行状态查看功能。所有操作通过管理器的反向 WebSocket 连接代理到目标 Bot 的 OneBot API。</p>
+
+<div class="card">
+<h3>✨ 功能概览</h3>
+<ul>
+<li><strong>消息监控</strong> — 实时查看 Bot 收到的群聊/私聊消息，支持自动刷新</li>
+<li><strong>消息发送</strong> — 通过 Bot 向指定群或好友发送消息</li>
+<li><strong>群管理</strong> — 查看 Bot 加入的所有群列表（群号、群名、成员数）</li>
+<li><strong>运行状态</strong> — 查看 Bot 的 WS 连接状态、OneBot 版本信息与登录信息</li>
+</ul>
+</div>
+
+<h2>消息监控</h2>
+<p>消息监控面板展示 Bot 最近收到的消息（环形缓冲区，最多 200 条），包含以下信息：</p>
+<table>
+<tr><th>列</th><th>说明</th></tr>
+<tr><td>时间</td><td>消息接收时间</td></tr>
+<tr><td>类型</td><td>群聊 / 私聊</td></tr>
+<tr><td>发送者</td><td>群名片或昵称</td></tr>
+<tr><td>来源</td><td>群号或 QQ 号</td></tr>
+<tr><td>内容</td><td>原始消息文本</td></tr>
+</table>
+<div class="tip">默认每 5 秒自动刷新消息列表，可手动切换自动/手动模式。消息数据存储在管理器内存中，重启后清空。</div>
+
+<h2>消息发送</h2>
+<p>选择消息类型（群聊/私聊）和目标（群号/QQ号），输入消息内容后发送。消息通过 OneBot <code>send_msg</code> API 代理转发。</p>
+<div class="warning">请确保 Bot 当前在线（WS 已连接），否则发送将失败。发送频率受管理器速率限制保护。</div>
+
+<h2>群管理</h2>
+<p>通过 OneBot <code>get_group_list</code> API 获取 Bot 加入的所有群信息，包括群号、群名称、当前成员数与最大成员数。</p>
+
+<h2>运行状态透传</h2>
+<p>运行状态面板展示两组信息：</p>
+<ul>
+<li><strong>连接信息</strong> — Bot 名称、UIN、昵称、WS 连接状态、最后在线时间（来自管理器 WS 服务层）</li>
+<li><strong>版本信息</strong> — 通过 <code>get_version_info</code> API 获取 NapCat 版本、协议版本等运行时信息</li>
+<li><strong>登录信息</strong> — 通过 <code>get_login_info</code> API 获取当前登录的 QQ 号与昵称</li>
+</ul>
+<div class="tip">容器统计接口 <code>/api/containers/{name}/stats</code> 现已包含 <code>bot_ws_connected</code>、<code>bot_nickname</code>、<code>bot_ws_uin</code>、<code>bot_last_seen</code> 字段，可用于外部系统集成或状态监控。</div>
+
+<h2>Bot API 端点</h2>
+<table>
+<tr><th>方法</th><th>路径</th><th>说明</th></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots</code></td><td>列出所有已知 Bot</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots/{name}/status</code></td><td>查询单个 Bot 连接状态</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/bots/{name}/call</code></td><td>代理调用任意 OneBot API</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/bots/{name}/send</code></td><td>便捷发消息（私聊/群聊）</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots/{name}/messages</code></td><td>获取最近消息（环形缓冲区）</td></tr>
+</table>
+</div>
+
 <!-- ====== BotShepherd ====== -->
 <div class="section" id="sec-botshepherd">
 <h1>BotShepherd 集成</h1>
@@ -779,6 +836,11 @@ curl http://localhost:8000/api/containers?apikey=YOUR_API_KEY</code></pre>
 <tr><td><code>GET</code></td><td><code>/api/images</code></td><td>本地 Docker 镜像列表</td><td>管理员</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/images/pull</code></td><td>拉取 Docker 镜像</td><td>管理员</td></tr>
 <tr><td><code>DELETE</code></td><td><code>/api/images/{image_id}</code></td><td>删除本地镜像</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots</code></td><td>列出所有已知 Bot（WS + 容器合并）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots/{name}/status</code></td><td>查询单个 Bot 连接状态</td><td>登录</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/bots/{name}/call</code></td><td>代理调用 OneBot API（透传 action/params）</td><td>登录</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/bots/{name}/send</code></td><td>便捷发消息（私聊/群聊）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots/{name}/messages</code></td><td>获取 Bot 最近消息（环形缓冲区）</td><td>登录</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/botshepherd/status</code></td><td>BotShepherd 运行状态</td><td>管理员</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/botshepherd/setup</code></td><td>初始化 BotShepherd</td><td>管理员</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/botshepherd/start</code></td><td>启动 BotShepherd</td><td>管理员</td></tr>

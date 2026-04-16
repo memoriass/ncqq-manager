@@ -8,11 +8,13 @@ import InfoRoundedIcon from '@mui/icons-material/InfoRounded';
 import HubRoundedIcon from '@mui/icons-material/HubRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded';
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
 import { useTranslate } from '../i18n';
 import { BasicInfo } from '../components/BasicInfo';
 import { NetworkConfig } from '../components/NetworkConfig';
 import FileManager from '../components/FileManager';
 import { NapcatLogs } from '../components/NapcatLogs';
+import { BotManager } from '../components/BotManager';
 
 export default function ConfigEditor() {
     const { name, node_id } = useParams();
@@ -85,6 +87,7 @@ export default function ConfigEditor() {
                     <Tab icon={<HubRoundedIcon fontSize="small" />} iconPosition="start" label={t('config.networkConfig')} />
                     <Tab icon={<FolderRoundedIcon fontSize="small" />} iconPosition="start" label={t('config.fileManager')} />
                     <Tab icon={<TerminalRoundedIcon fontSize="small" />} iconPosition="start" label={t('config.napcatLogs')} />
+                    <Tab icon={<TuneRoundedIcon fontSize="small" />} iconPosition="start" label={t('config.botManager')} />
                 </Tabs>
             </Box>
 
@@ -95,6 +98,7 @@ export default function ConfigEditor() {
                     {activeTab === 1 && <NetworkConfig name={name as string} node_id={node_id as string} />}
                     {activeTab === 2 && <FileManager name={name as string} node_id={node_id as string} />}
                     {activeTab === 3 && <NapcatLogs name={name as string} node_id={node_id as string} />}
+                    {activeTab === 4 && <BotManager name={name as string} node_id={node_id as string} />}
                 </Box>
             </Box>
         </Box>

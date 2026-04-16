@@ -35,6 +35,11 @@ export interface ContainerStats {
         http_client: number;
         ws_client: number;
     };
+    // WS 运行状态透传
+    bot_ws_connected?: boolean;
+    bot_nickname?: string;
+    bot_ws_uin?: string;
+    bot_last_seen?: number;
 }
 
 export interface Node {
