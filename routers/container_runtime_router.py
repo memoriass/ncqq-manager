@@ -116,14 +116,7 @@ def _cleanup_instance_services(name: str) -> None:
     except Exception as e:
         logger.debug("清理实例状态失败 [%s]: %s", name, e)
 
-    # 2. 清理登录缓存
-    try:
-        from services.docker_login import clear_login_cache
-
-        if clear_login_cache(name):
-            logger.info("已清理登录缓存: %s", name)
-    except Exception as e:
-        logger.debug("清理登录缓存失败 [%s]: %s", name, e)
+    # 2. (已移除 _login_cache，跳过)
 
     # 3. 清理 NapCat WS 服务注册表 + API 代理
     try:

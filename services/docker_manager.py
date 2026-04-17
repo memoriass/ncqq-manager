@@ -22,7 +22,7 @@ from typing import List, Dict, Optional, Any
 
 from services.log import logger
 from services.config import get_data_dir
-from services.docker_login import LoginMixin, _login_cache, _LOGIN_CACHE_TTL, _LOGIN_CACHE_TTL_FAIL, _normalize_uin, read_login_cache  # noqa: F401
+from services.docker_login import LoginMixin, _normalize_uin  # noqa: F401
 from services.docker_lifecycle import LifecycleMixin
 
 # 主事件循环引用（由 main.py lifespan 在启动时注入，供线程池回调使用）
@@ -327,11 +327,12 @@ class DockerManager(LoginMixin, LifecycleMixin):
         except (json.JSONDecodeError, OSError):
             pass
 
-        # UIN — 只读内存缓存（由 get_stats 定期写入，不在此触发 API 调用）
-        cached = _login_cache.get(name, {})
-        if cached.get("logged_in") and cached.get("uin"):
-            info["uin"] = cached["uin"]
-            self._sync_webui_auto_login(name, cached["uin"])
+        # UIN — 从 instance_subsystem 读取（状态引擎已维护）
+        from services.instance_subsystem import instance_subsystem as _is
+        _inst = _is.get(name)
+        if _inst and _inst.logged_in and _inst.uin:
+            info["uin"] = _inst.uin
+            self._sync_webui_auto_login(name, _inst.uin)
 
         # NapCat API info
         try:

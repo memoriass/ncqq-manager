@@ -629,6 +629,7 @@ class NapCatWsService:
                     if nickname:
                         e.nickname = nickname
                     e.last_hb_ts = time.time()  # 刷新心跳时间戳
+                    e.hb_online = True  # ★ 同步心跳状态，防止状态引擎唤醒时读到旧值覆写
 
                 logger.debug("主动健康检测 [%s]: get_login_info 确认在线 uin=%s", name, uid)
                 return {

@@ -1,10 +1,9 @@
 """
-登录状态缓存管理 + 配置同步 Mixin
+登录状态辅助 Mixin
 
-★ 大修：同步登录检测方法已全部移除，登录检测统一由 AsyncLoginChecker +
-container_state 状态引擎承担。本模块仅保留：
-  - 全局登录缓存（_login_cache）管理
-  - LoginMixin 辅助方法（配置同步、插件事件接口）
+★ 大修：同步检测 + _login_cache 已全部移除。
+登录检测统一由 AsyncLoginChecker + container_state 状态引擎承担。
+本模块仅保留 LoginMixin（配置同步、插件事件接口）和容器清理辅助函数。
 """
 
 import json
@@ -15,29 +14,10 @@ from typing import Dict
 from services.log import logger
 from services.config import get_data_dir
 
+
 # ---------------------------------------------------------------------------
-# 全局登录缓存（由此模块集中管理）
+# 公开辅助函数（容器删除/清理时调用）
 # ---------------------------------------------------------------------------
-_login_cache: Dict[str, Dict] = {}
-_LOGIN_CACHE_TTL = 30  # 秒，已登录容器无需频繁检查
-_LOGIN_CACHE_TTL_FAIL = 8  # 秒，未登录容器短缓存（快速发现状态变化）
-
-
-def read_login_cache(name: str) -> Dict:
-    """公开接口：只读访问登录状态缓存（供 router 层使用，零阻塞）。"""
-    return _login_cache.get(name, {})
-
-
-def clear_login_cache(name: str) -> bool:
-    """公开接口：清理指定容器的登录缓存，返回是否存在并已清理。"""
-    return _login_cache.pop(name, None) is not None
-
-
-def invalidate_login_cache(name: str) -> None:
-    """由 WS 离线检测调用：将登录缓存标记为未登录，防止陈旧数据导致误判。"""
-    prev = _login_cache.get(name)
-    if prev and prev.get("logged_in"):
-        _login_cache[name] = {"logged_in": False, "ts": time.time()}
 
 
 def _normalize_uin(raw: str) -> str:
@@ -129,26 +109,36 @@ class LoginMixin:
 
     @staticmethod
     def update_login_cache(name: str, event: Dict) -> None:
-        """方案 C 预留：插件事件直接更新缓存。
+        """插件事件更新登录状态（由 /internal/login-event 调用）。
+
+        ★ 大修：不再写 _login_cache，直接更新 instance_subsystem 并触发 BS 注入。
         event 格式: {event: 'login'|'logout', uin, nickname}
         """
-        prev = _login_cache.get(name, {})
+        from services.instance_subsystem import instance_subsystem
+
+        inst = instance_subsystem.get(name)
+        if not inst:
+            return
+
         if event.get("event") == "login" and event.get("uin"):
             uin = str(event["uin"])
-            new_entry = {
+            prev = {"logged_in": inst.logged_in, "uin": inst.uin}
+            result = {
                 "logged_in": True,
                 "uin": uin,
                 "nickname": event.get("nickname", ""),
                 "method": "plugin",
-                "ts": time.time(),
+                "stage": "logged_in",
+                "reason": "plugin_login_event",
             }
-            _login_cache[name] = new_entry
-            # 懒加载避免循环导入
+            inst.update_login(
+                logged_in=True, uin=uin,
+                stage="logged_in", method="plugin", reason="plugin_login_event",
+            )
             from services.docker_manager import docker_manager as _dm
-
-            _dm._on_login_detected(name, new_entry, prev)
+            _dm._on_login_detected(name, result, prev)
         elif event.get("event") == "logout":
-            _login_cache[name] = {
-                "logged_in": False,
-                "ts": time.time(),
-            }
+            inst.update_login(
+                logged_in=False, uin=inst.uin,
+                stage="waiting", method="plugin", reason="plugin_logout_event",
+            )
