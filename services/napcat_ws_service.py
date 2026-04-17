@@ -388,6 +388,19 @@ class NapCatWsService:
                     "method": "sdk_ws",
                     "reason": "heartbeat_offline",
                 }
+            # ★ 修复：从未收到心跳（hb_online=None）且连接已超过 45s
+            # 不应假设在线 — BS 保活可能维持了一个 NapCat 已断连的 WS
+            if e.hb_online is None and e.last_hb_ts == 0:
+                import time as _t
+                ws_age = _t.time() - e.connect_ts if e.connect_ts > 0 else 0
+                if ws_age > 45:
+                    return {
+                        "logged_in": False,
+                        "uin": e.uin,
+                        "stage": "waiting",
+                        "method": "sdk_ws",
+                        "reason": "no_heartbeat",
+                    }
             return {
                 "logged_in": True,
                 "uin": e.uin,

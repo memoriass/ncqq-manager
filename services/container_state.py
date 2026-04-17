@@ -340,6 +340,15 @@ class ContainerStateEngine:
                             logger.debug(
                                 "心跳过期 [%s]: %.0fs 未收到心跳，加入健康检测队列", name, hb_age
                             )
+                    else:
+                        # ★ 修复：从未收到心跳（last_hb_ts==0），WS 连接超过 45s
+                        # BS 保活可能维持了空壳 WS，需要主动确认
+                        ws_age = now - entry.connect_ts if entry.connect_ts > 0 else 0
+                        if ws_age > _HB_STALE_THRESHOLD:
+                            should_health_check = True
+                            logger.debug(
+                                "无心跳记录 [%s]: WS 已连接 %.0fs 但从未收到心跳，加入健康检测队列", name, ws_age
+                            )
                     # 条件 2：定期验证（即使心跳正常，定期确认 QQ 仍然在线）
                     # NapCat 心跳的 status.online 仅反映进程状态，QQ 掉线后仍报 online=True
                     if not should_health_check and now - inst.login_ts >= _LOGIN_VERIFY_INTERVAL:
