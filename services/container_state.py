@@ -296,6 +296,15 @@ class ContainerStateEngine:
 
         now = time.time()
         need_login_instances = []
+        # 需要主动健康检测的容器（WS 在线但心跳过期 OR 定期验证）
+        need_health_check: list = []
+        # 心跳过期阈值（秒）：超过此时间未收到心跳，触发主动检测
+        _HB_STALE_THRESHOLD = 45
+        # 定期登录验证间隔（秒）：即使心跳正常也定期验证 QQ 登录状态
+        # BS 已在代理层每 60s 做 get_login_info 检测并覆写心跳 online 字段，
+        # Manager 侧仅作为兜底，间隔可大幅放宽
+        _LOGIN_VERIFY_INTERVAL = 300
+
         for name in running_local_names:
             inst = instance_subsystem.get(name)
             if not inst:
@@ -318,14 +327,66 @@ class ContainerStateEngine:
                 )
                 if new_uin and (not was_logged or old_uin != new_uin):
                     _trigger_bs_inject(name, ws_result, prev_login_state)
+
+                # ★ 主动健康检测：两种触发条件
+                entry = napcat_ws_service.get_entry(name)
+                should_health_check = False
+                if entry:
+                    if entry.last_hb_ts > 0:
+                        hb_age = now - entry.last_hb_ts
+                        if hb_age > _HB_STALE_THRESHOLD:
+                            # 条件 1：心跳过期（NapCat 可能挂死）
+                            should_health_check = True
+                            logger.debug(
+                                "心跳过期 [%s]: %.0fs 未收到心跳，加入健康检测队列", name, hb_age
+                            )
+                    # 条件 2：定期验证（即使心跳正常，定期确认 QQ 仍然在线）
+                    # NapCat 心跳的 status.online 仅反映进程状态，QQ 掉线后仍报 online=True
+                    if not should_health_check and now - inst.login_ts >= _LOGIN_VERIFY_INTERVAL:
+                        should_health_check = True
+                        logger.debug(
+                            "定期登录验证 [%s]: %.0fs 未验证，加入健康检测队列", name, now - inst.login_ts
+                        )
+
+                if should_health_check:
+                    need_health_check.append((name, inst))
                 continue
 
             ttl = _LOGIN_TTL_OK if inst.logged_in else _LOGIN_TTL_FAIL
             if now - inst.login_ts >= ttl:
                 need_login_instances.append(inst)
 
-        # 记录检测前的登录状态（用于掉线扫码通知）
+        # ---- 2.1 主动健康检测 — WS 在线但心跳过期时主动确认 ----
+        # 记录检测前的登录状态（用于掉线扫码通知）— 提前初始化供健康检测使用
         prev_login: Dict[str, tuple] = {}
+        if need_health_check:
+            for hc_name, hc_inst in need_health_check:
+                try:
+                    hc_result = await asyncio.wait_for(
+                        napcat_ws_service.active_health_check(hc_name),
+                        timeout=6,
+                    )
+                    if not hc_result.get("logged_in"):
+                        # 主动检测确认离线 → 更新实例状态
+                        was_logged = hc_inst.logged_in
+                        old_uin = hc_inst.uin
+                        hc_inst.update_login(
+                            logged_in=False,
+                            uin=hc_result.get("uin", old_uin),
+                            stage="waiting",
+                            method=hc_result.get("method", "ws_api"),
+                            reason=hc_result.get("reason", "health_check_offline"),
+                        )
+                        if was_logged:
+                            logger.warning(
+                                "主动健康检测发现离线 [%s]: uin=%s reason=%s",
+                                hc_name, old_uin, hc_result.get("reason"),
+                            )
+                            # 记录到掉线通知表
+                            prev_login[hc_name] = (True, old_uin, hc_inst.node_id)
+                except (asyncio.TimeoutError, Exception) as e:
+                    logger.debug("主动健康检测异常 [%s]: %s", hc_name, e)
+
         for inst in need_login_instances:
             prev_login[inst.name] = (inst.logged_in, inst.uin, inst.node_id)
 

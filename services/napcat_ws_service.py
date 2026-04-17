@@ -180,6 +180,19 @@ class NapCatWsService:
         self._msg_buffers: Dict[str, collections.deque] = {}
 
     # ------------------------------------------------------------------
+    # 内部辅助
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _wake_state_engine() -> None:
+        """唤醒容器状态引擎立即刷新（状态变化时调用）。"""
+        try:
+            from services.container_state import state_engine
+            state_engine.notify_change()
+        except Exception:
+            pass
+
+    # ------------------------------------------------------------------
     # 写入（由 ws_router 调用）
     # ------------------------------------------------------------------
 
@@ -209,6 +222,7 @@ class NapCatWsService:
 
         修复：当同一 name 存在多个并发 WS 连接时（如 BS 探测连接 + 正常连接），
         只有绑定的 WS 实例断开才更新状态，防止探测连接断开覆盖正常连接状态。
+        断开时唤醒状态引擎，触发即时检测。
         """
         e = self._table.get(name)
         if e:
@@ -220,6 +234,8 @@ class NapCatWsService:
             e.disconnect_ts = time.time()
             e.last_seen = e.disconnect_ts
             e.ws_ref = None
+            # WS 断开时唤醒状态引擎，触发即时检测（宽限期后状态可能降级）
+            self._wake_state_engine()
         logger.info("NapCat WS 连接断开（宽限期保活）: name=%s", name)
 
     def ensure_uin(self, name: str, uin: str, ws: "WebSocket | None" = None) -> None:
@@ -247,11 +263,24 @@ class NapCatWsService:
             logger.info("WS 事件补全 uin: name=%s old=%s new=%s", name, old, uin)
 
     def on_heartbeat(self, name: str, online: bool) -> None:
-        """来自 WS 心跳事件"""
+        """来自 WS 心跳事件。
+
+        当状态从 online→offline 变化时，主动唤醒状态引擎立即刷新，
+        避免等待下一个轮询周期（最长 30s）才发现掉线。
+        """
         e = self._table.get(name)
         if e:
+            prev_online = e.hb_online
             e.last_hb_ts = time.time()
             e.hb_online = online
+            # 状态翻转（在线→离线 或 离线→在线）时唤醒状态引擎
+            if prev_online is not None and prev_online != online:
+                logger.info(
+                    "NapCat 心跳状态变化: name=%s %s→%s，唤醒状态引擎",
+                    name, "online" if prev_online else "offline",
+                    "online" if online else "offline",
+                )
+                self._wake_state_engine()
 
     # ------------------------------------------------------------------
     # API 代理注册（由 ws_router 在连接建立/断开时调用）
@@ -568,6 +597,64 @@ class NapCatWsService:
             "connected": e.is_alive(),
             "last_seen": e.last_seen,
         }
+
+    async def active_health_check(self, name: str) -> Dict:
+        """主动健康检测：通过 WS 代理调用 get_login_info 验证 QQ 登录状态。
+
+        适用场景：WS 连接存在且心跳显示在线，但心跳长时间未更新，
+        需要主动确认 Bot 是否仍然登录。
+
+        ★ 重要：不依赖 get_status.online（该字段反映 NapCat 进程健康，
+        不是 QQ 登录状态——QQ 掉线后 NapCat 照样报 online=True）。
+        也不依赖 BS check_account_online_status（底层同样是 get_status，假阳性）。
+        唯一可靠方式：get_login_info 返回空/0 uin = QQ 未登录。
+
+        返回格式与 check_login_status 兼容。
+        """
+        proxy = self._proxies.get(name)
+        if not proxy:
+            return {"logged_in": False, "stage": "waiting", "reason": "no_proxy"}
+
+        try:
+            data = await proxy.call_action("get_login_info", timeout=5.0)
+            uid = str(data.get("user_id", ""))
+            nickname = data.get("nickname", "")
+            if uid and uid != "0":
+                # get_login_info 返回了有效 uin — 确认在线
+                self.ensure_uin(name, uid)
+                e = self._table.get(name)
+                if e:
+                    if nickname:
+                        e.nickname = nickname
+                    e.last_hb_ts = time.time()  # 刷新心跳时间戳
+
+                logger.debug("主动健康检测 [%s]: get_login_info 确认在线 uin=%s", name, uid)
+                return {
+                    "logged_in": True,
+                    "uin": uid,
+                    "nickname": nickname,
+                    "method": "ws_api",
+                    "stage": "logged_in",
+                    "reason": "active_get_login_info",
+                }
+            else:
+                # get_login_info 返回空/0 → QQ 未登录
+                logger.info("主动健康检测 [%s]: get_login_info 返回空uin，确认离线", name)
+                e = self._table.get(name)
+                if e:
+                    e.hb_online = False
+                self._wake_state_engine()
+                return {
+                    "logged_in": False,
+                    "uin": e.uin if e else "",
+                    "stage": "waiting",
+                    "method": "ws_api",
+                    "reason": "get_login_info_no_uin",
+                }
+        except Exception as exc:
+            logger.debug("主动健康检测异常 [%s]: %s", name, exc)
+            # WS 代理调用失败 → 连接可能已断开
+            return {"logged_in": False, "stage": "waiting", "reason": "health_check_error"}
 
     def cleanup(self, name: str) -> None:
         """公开接口：清理指定容器的全部内部状态（注册表 + API 代理 + 消息缓冲）。

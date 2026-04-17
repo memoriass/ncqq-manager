@@ -279,6 +279,9 @@ def _handle_ob11_event(
             )
         elif parsed.sub_type == "disconnect":
             bot_heartbeat.on_disconnect(sid)
+            # ★ 同步到 napcat_ws_service，标记 hb_online=False
+            if name:
+                napcat_ws_service.on_heartbeat(name, False)
             logger.info(
                 "Bot lifecycle.disconnect: name=%s self_id=%s", name or "?", sid
             )
