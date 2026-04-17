@@ -377,12 +377,15 @@ class DockerManager(LoginMixin, LifecycleMixin):
     def get_stats(self, name: str) -> Dict:
         """获取完整统计 (基础资源 + NapCat 信息 + 登录状态)。
 
-        三个子任务并行执行，各自有超时保护，单个子任务失败不阻塞其他。
+        ★ 大修：登录状态改从 instance_subsystem 内存态读取，
+        不再调用同步 check_login_status 级联探测。
+        两个子任务并行执行，各自有超时保护，单个子任务失败不阻塞其他。
         """
-        # 并行提交三个子任务
+        from services.instance_subsystem import instance_subsystem
+
+        # 并行提交两个子任务（登录状态直接从内存读取）
         f_basic = _docker_pool.submit(self.get_basic_stats, name)
         f_napcat = _docker_pool.submit(self.get_napcat_info, name)
-        f_login = _docker_pool.submit(self.check_login_status, name)
 
         try:
             basic = f_basic.result(timeout=_DOCKER_STATS_TIMEOUT + 1)
@@ -396,15 +399,11 @@ class DockerManager(LoginMixin, LifecycleMixin):
         except Exception:
             napcat = {}
 
-        try:
-            login = f_login.result(timeout=4)
-        except Exception:
-            login = {}
-
-        if login.get("logged_in") and login.get("uin"):
-            napcat["uin"] = login["uin"]
-        elif not login.get("logged_in"):
-            # ★ 修复：login 判定未登录时，显式清理 napcat 中由并行竞态残留的旧 uin
+        # 登录状态从状态引擎内存读取（零阻塞）
+        inst = instance_subsystem.get(name)
+        if inst and inst.logged_in and inst.uin:
+            napcat["uin"] = inst.uin
+        elif not inst or not inst.logged_in:
             napcat["uin"] = "未登录 / Not Logged In"
         return {**basic, **napcat}
 

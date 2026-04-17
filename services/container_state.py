@@ -291,29 +291,28 @@ class ContainerStateEngine:
                     inst.http_port = ports.get("http_port", 0)
                     inst.webui_port = ports.get("webui_port", 0)
 
-        # ---- 2. 增量登录检测 — SDK WS 主路径 + BS/HTTP 兜底 ⭐ ----
+        # ---- 2. 增量登录检测 — BS 修正心跳为主路径，状态引擎唯一写入源 ⭐ ----
+        # ★ 大修：登录状态仅由此状态引擎写入 inst.update_login()，
+        # bot_heartbeat / ws_router 等只更新 _ConnEntry 并唤醒此引擎。
         from services.napcat_ws_service import napcat_ws_service
 
         now = time.time()
         need_login_instances = []
-        # 需要主动健康检测的容器（WS 在线但心跳过期 OR 定期验证）
         need_health_check: list = []
-        # 心跳过期阈值（秒）：超过此时间未收到心跳，触发主动检测
-        _HB_STALE_THRESHOLD = 45
-        # 定期登录验证间隔（秒）：即使心跳正常也定期验证 QQ 登录状态
-        # BS 已在代理层每 60s 做 get_login_info 检测并覆写心跳 online 字段，
-        # Manager 侧仅作为兜底，间隔可大幅放宽
+        # 掉线扫码通知表：{name: (was_logged_in, old_uin, node_id)}
+        prev_login: Dict[str, tuple] = {}
+        # 定期登录验证间隔：BS 已做 60s 轮询，Manager 侧仅兜底
         _LOGIN_VERIFY_INTERVAL = 300
 
         for name in running_local_names:
             inst = instance_subsystem.get(name)
             if not inst:
                 continue
-            # WS 已连接时快速命中，跳过轮询 TTL 检查（实时更新）
+
             ws_result = napcat_ws_service.get_login_result(name)
 
-            # ★ 修复 4：只在 WS 没有给出明确信息时才降级，信任 WS 的 is_alive + hb_online 结果
             if ws_result["logged_in"]:
+                # ── WS 主路径在线 ──
                 old_uin = inst.uin
                 new_uin = ws_result.get("uin", "")
                 was_logged = inst.logged_in
@@ -328,46 +327,46 @@ class ContainerStateEngine:
                 if new_uin and (not was_logged or old_uin != new_uin):
                     _trigger_bs_inject(name, ws_result, prev_login_state)
 
-                # ★ 主动健康检测：两种触发条件
-                entry = napcat_ws_service.get_entry(name)
-                should_health_check = False
-                if entry:
-                    if entry.last_hb_ts > 0:
-                        hb_age = now - entry.last_hb_ts
-                        if hb_age > _HB_STALE_THRESHOLD:
-                            # 条件 1：心跳过期（NapCat 可能挂死）
-                            should_health_check = True
-                            logger.debug(
-                                "心跳过期 [%s]: %.0fs 未收到心跳，加入健康检测队列", name, hb_age
-                            )
-                    else:
-                        # ★ 修复：从未收到心跳（last_hb_ts==0），WS 连接超过 45s
-                        # BS 保活可能维持了空壳 WS，需要主动确认
-                        ws_age = now - entry.connect_ts if entry.connect_ts > 0 else 0
-                        if ws_age > _HB_STALE_THRESHOLD:
-                            should_health_check = True
-                            logger.debug(
-                                "无心跳记录 [%s]: WS 已连接 %.0fs 但从未收到心跳，加入健康检测队列", name, ws_age
-                            )
-                    # 条件 2：定期验证（即使心跳正常，定期确认 QQ 仍然在线）
-                    # NapCat 心跳的 status.online 仅反映进程状态，QQ 掉线后仍报 online=True
-                    if not should_health_check and now - inst.login_ts >= _LOGIN_VERIFY_INTERVAL:
-                        should_health_check = True
-                        logger.debug(
-                            "定期登录验证 [%s]: %.0fs 未验证，加入健康检测队列", name, now - inst.login_ts
-                        )
-
-                if should_health_check:
+                # 定期验证（BS 做主检测，Manager 仅兜底确认）
+                if now - inst.login_ts >= _LOGIN_VERIFY_INTERVAL:
                     need_health_check.append((name, inst))
+                    logger.debug("定期登录验证 [%s]: %.0fs 未验证", name, now - inst.login_ts)
                 continue
 
+            # ── WS 路径返回离线 ──
+            ws_reason = ws_result.get("reason", "")
+
+            # WS 有明确离线信号（heartbeat_offline / no_heartbeat / ws_dead）
+            # → 立即同步到实例状态
+            if ws_reason in ("heartbeat_offline", "no_heartbeat", "ws_dead"):
+                if inst.logged_in:
+                    # 状态翻转：登录 → 离线
+                    prev_login[name] = (True, inst.uin, inst.node_id)
+                    inst.update_login(
+                        logged_in=False,
+                        uin=ws_result.get("uin", inst.uin),
+                        stage="waiting",
+                        method="sdk_ws",
+                        reason=ws_reason,
+                    )
+                    logger.info("WS 确认离线 [%s]: reason=%s uin=%s", name, ws_reason, inst.uin)
+                else:
+                    # 已经是离线状态，刷新时间戳
+                    inst.update_login(
+                        logged_in=False,
+                        uin=ws_result.get("uin", inst.uin),
+                        stage="waiting",
+                        method="sdk_ws",
+                        reason=ws_reason,
+                    )
+                continue
+
+            # WS 无明确信号（waiting / 无连接）→ TTL 慢路径
             ttl = _LOGIN_TTL_OK if inst.logged_in else _LOGIN_TTL_FAIL
             if now - inst.login_ts >= ttl:
                 need_login_instances.append(inst)
 
-        # ---- 2.1 主动健康检测 — WS 在线但心跳过期时主动确认 ----
-        # 记录检测前的登录状态（用于掉线扫码通知）— 提前初始化供健康检测使用
-        prev_login: Dict[str, tuple] = {}
+        # ---- 2.1 主动健康检测 — 定期验证确认 QQ 仍然在线 ----
         if need_health_check:
             for hc_name, hc_inst in need_health_check:
                 try:

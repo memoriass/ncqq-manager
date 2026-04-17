@@ -117,7 +117,12 @@ class BotHeartbeatService:
     # ------------------------------------------------------------------
 
     def _sync_to_instance(self, key: str, online: bool) -> None:
-        """通过 uin 或 name 在 instance_subsystem 中找到对应容器实例并更新 bot_online。"""
+        """通过 uin 或 name 在 instance_subsystem 中找到对应容器实例并更新 bot_online。
+
+        ★ 大修：仅更新 bot_heartbeat 字段（bot_online / bot_heartbeat_ts），
+        不再直接写 inst.update_login() — 登录状态由 container_state 状态引擎统一管理。
+        napcat_ws_service.on_heartbeat() 已在状态变化时唤醒状态引擎。
+        """
         try:
             from services.instance_subsystem import instance_subsystem
             from services.napcat_ws_service import napcat_ws_service
@@ -126,26 +131,14 @@ class BotHeartbeatService:
             for inst in instance_subsystem.get_all():
                 if inst.uin and inst.uin == key:
                     inst.update_bot_heartbeat(online)
-                    # ★ 修复 3：心跳离线时同步标记 logged_in=False，立即触发快速轮询
-                    if not online and inst.logged_in:
-                        inst.update_login(logged_in=False, uin=inst.uin, stage="waiting", reason="bot_offline")
-                        # ★ 同步失效 _login_cache，防止 HTTP 接口返回过期的已登录状态
-                        from services.docker_login import invalidate_login_cache
-                        invalidate_login_cache(inst.name)
                     return
 
-            # 2. 如果通过 uin 没找到，说明可能是刚扫码还没更新 uin 到 inst
-            # 尝试通过 WS 注册表中的 uin -> name 反查
+            # 2. 如果通过 uin 没找到，尝试通过 WS 注册表 uin → name 反查
             for name, entry in napcat_ws_service._table.items():
                 if entry.uin == key:
                     inst = instance_subsystem.get(name)
                     if inst:
                         inst.update_bot_heartbeat(online)
-                        if not online and inst.logged_in:
-                            inst.update_login(logged_in=False, uin=inst.uin, stage="waiting", reason="bot_offline")
-                            # ★ 同步失效 _login_cache
-                            from services.docker_login import invalidate_login_cache
-                            invalidate_login_cache(name)
                         return
 
         except Exception as e:

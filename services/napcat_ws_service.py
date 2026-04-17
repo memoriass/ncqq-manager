@@ -3,15 +3,16 @@ NapCat WS 连接注册表服务
 
 职责：
   - 接收来自 ws_router /ws/napcat/{name} 的 NapCat 反向 WS 连接
-  - 维护 {name: {uin, connected, last_seen, nickname}} 连接表
-  - 提供给 container_state 用于替代 HTTP 轮询的主路径登录判定
+  - 维护 {name: {uin, connected, last_seen, nickname, hb_online}} 连接表
+  - 提供给 container_state 用于主路径登录判定（BS 修正后的心跳可信赖）
   - BS 辅助检测：当 WS 未连接时调用 BS /api/accounts 做兜底
   - NapCatApiProxy：复用反向 WS 连接主动发 OneBot API 调用
+  - active_health_check：通过 WS 代理调用 get_login_info 验证 QQ 登录
 
-连接优先级（主→兜底）：
-  1. WS 直连在线（NapCat 已连入本端点）
-  2. BS 账号 API 在线（BS 接管，WS 尚未重连）
-  3. 无信号 → waiting
+数据流（★ 大修）：
+  BS 代理层 → 修正心跳 status.online → WS 转发到 Manager
+  → napcat_ws_service 记录 hb_online → container_state 状态引擎读取
+  → 状态引擎作为唯一写入源更新 inst.update_login()
 """
 
 import asyncio
@@ -367,86 +368,74 @@ class NapCatWsService:
         return self._table.get(name)
 
     def get_login_result(self, name: str) -> Dict:
-        """主路径：返回 check_login_status 兼容格式
+        """主路径：从 WS 注册表返回登录状态（BS 修正后的心跳可信赖）。
 
-        修复：只有当 WS 连接存在且心跳显示在线时，才返回 logged_in=True。
-        如果心跳显示离线（hb_online=False），即使 WS 连接存在，也返回 logged_in=False。
+        ★ 大修：简化分支逻辑，信任 BS 修正后的 heartbeat.status.online 字段。
+        BS 代理层每 60s 调用 get_login_info 确认 QQ 登录状态，并覆写心跳
+        status.online 为实际 QQ 登录态。因此 hb_online 字段是可靠的。
 
-        注意：心跳离线 / WS 断开宽限期过后，保留已知 uin 用于 UI 展示（避免抖动），
-        但 logged_in=False 已足够让 container_state 降级到轮询确认。
+        分支树：
+          WS 已死 → 清理残留，返回 offline
+          hb_online=False → 离线（BS 确认 or 心跳直接上报）
+          hb_online=True → 在线（BS 修正后可信）
+          hb_online=None + 未超时 → 初始连接期，暂假定在线
+          hb_online=None + 超时(>45s) → 安全网：可能 ghost WS，返回 offline
         """
+        _HB_WAIT_TIMEOUT = 45  # 等待首次心跳的最长时间
+
         e = self._table.get(name)
         if not e or not e.uin:
             return {"logged_in": False, "stage": "waiting"}
-        if e.is_alive():
-            # 如果收到过心跳且心跳显示离线，返回未登录状态（保留 uin 避免 UI 抖动）
-            if e.hb_online is not None and not e.hb_online:
-                return {
-                    "logged_in": False,
-                    "uin": e.uin,
-                    "stage": "waiting",
-                    "method": "sdk_ws",
-                    "reason": "heartbeat_offline",
-                }
-            # ★ 修复：从未收到心跳（hb_online=None）且连接已超过 45s
-            # 不应假设在线 — BS 保活可能维持了一个 NapCat 已断连的 WS
-            if e.hb_online is None and e.last_hb_ts == 0:
-                import time as _t
-                ws_age = _t.time() - e.connect_ts if e.connect_ts > 0 else 0
-                if ws_age > 45:
-                    return {
-                        "logged_in": False,
-                        "uin": e.uin,
-                        "stage": "waiting",
-                        "method": "sdk_ws",
-                        "reason": "no_heartbeat",
-                    }
+
+        # WS 已彻底死亡（超出宽限期）→ 清理残留
+        if not e.is_alive():
+            e.uin = ""
+            e.hb_online = None
+            return {"logged_in": False, "stage": "waiting", "method": "sdk_ws", "reason": "ws_dead"}
+
+        # 心跳明确离线（BS 修正后可信赖）
+        if e.hb_online is False:
             return {
-                "logged_in": True,
-                "uin": e.uin,
-                "nickname": e.nickname,
-                "stage": "logged_in",
-                "method": "sdk_ws",
+                "logged_in": False, "uin": e.uin, "stage": "waiting",
+                "method": "sdk_ws", "reason": "heartbeat_offline",
+            }
+
+        # 心跳明确在线（BS 修正后可信赖）
+        if e.hb_online is True:
+            return {
+                "logged_in": True, "uin": e.uin, "nickname": e.nickname,
+                "stage": "logged_in", "method": "sdk_ws",
                 "reason": "ws_connected" if e.connected else "ws_grace",
             }
 
-        # ★ 修复 2：如果 WS 已彻底死亡（超出宽限期），不应再返回旧的 uin 导致误判
-        # 清理内部残留的 uin 和 hb_online，防止新连接复用
-        e.uin = ""
-        e.hb_online = None
+        # hb_online=None — 尚未收到心跳（新连接初始阶段）
+        ws_age = time.time() - e.connect_ts if e.connect_ts > 0 else 0
+        if ws_age > _HB_WAIT_TIMEOUT:
+            # 安全网：BS 保活可能维持了 NapCat 已断连的 ghost WS
+            return {
+                "logged_in": False, "uin": e.uin, "stage": "waiting",
+                "method": "sdk_ws", "reason": "no_heartbeat",
+            }
 
+        # 初始连接期（<45s），暂假定在线等待心跳到达
         return {
-            "logged_in": False,
-            "uin": "",
-            "stage": "waiting",
-            "method": "sdk_ws",
-            "reason": "ws_dead",
+            "logged_in": True, "uin": e.uin, "nickname": e.nickname,
+            "stage": "logged_in", "method": "sdk_ws", "reason": "ws_initial",
         }
 
     def _resolve_known_uin(self, name: str) -> str:
-        """解析实例可用 uin（WS注册表 → instance_subsystem → login_cache）。"""
+        """解析实例可用 uin（WS注册表 → instance_subsystem）。"""
         e = self._table.get(name)
         if e and e.uin:
             return str(e.uin)
 
-        # 兜底1：容器状态引擎内存态（可能由 HTTP 检测更新）
+        # 兜底：容器状态引擎内存态
         try:
             from services.instance_subsystem import instance_subsystem
 
             inst = instance_subsystem.get(name)
             if inst and inst.uin:
                 return str(inst.uin)
-        except Exception:
-            pass
-
-        # 兜底2：历史登录缓存（兼容旧链路）
-        try:
-            from services.docker_login import read_login_cache
-
-            c = read_login_cache(name) or {}
-            uin = c.get("uin", "")
-            if uin:
-                return str(uin)
         except Exception:
             pass
 

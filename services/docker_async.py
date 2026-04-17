@@ -1,12 +1,11 @@
 """
 异步 Docker 管理 + 登录检测器
 
-AsyncLoginChecker  — aiohttp 并发登录探测（OneBot HTTP / WebUI 双路）
+AsyncLoginChecker  — aiohttp 并发登录探测（OneBot HTTP 单路，BS 修正后无需文件系统兜底）
 AsyncDockerManager — aiodocker 替代 docker-py 热路径，零线程池开销
 """
 import asyncio
 import json
-import os
 import time
 from typing import Dict, List, Optional
 
@@ -14,11 +13,9 @@ import aiohttp
 import aiodocker
 
 from services.log import logger
-from services.config import get_data_dir
 
 
 _LOGIN_TIMEOUT = aiohttp.ClientTimeout(total=2, connect=1)
-_INFO_TIMEOUT = aiohttp.ClientTimeout(total=1.5, connect=0.8)
 _MAX_CONCURRENCY = 30  # 同时最多 30 个 HTTP 探测
 
 
@@ -71,89 +68,29 @@ class AsyncLoginChecker:
             pass
         return {"logged_in": False, "stage": "waiting"}
 
-    async def _check_login_via_filesystem(self, name: str, webui_port: int) -> Dict:
-        """文件系统兜底检测（第4级）：打破"循环依赖"鸡蛋问题。
-
-        不依赖 WS/BS/HTTP 连接，仅通过：
-          1. NapCat WebUI 根路径可达 → 确认进程在线
-          2. napcat_{uin}.json / onebot11_{uin}.json 文件名 → 发现 uin
-          3. qrcode.png mtime > 60s 或不存在 → 确认不在等待扫码
-
-        适用场景：首次启动、容器重建后 WS 未建立时，
-        能检测到登录状态并触发 _on_login_detected → 注入 + 重启。
-        """
-        from services.config import get_data_dir
-        if not webui_port or not self._session:
-            return {"logged_in": False, "stage": "waiting"}
-        try:
-            # 1. 确认 NapCat WebUI 进程在线（用根页面或 /auth/check，不需认证）
-            webui_alive = False
-            try:
-                async with self._session.get(
-                    f"http://127.0.0.1:{webui_port}/webui/",
-                    timeout=_INFO_TIMEOUT,
-                    allow_redirects=False,
-                ) as resp:
-                    # 200 或 3xx 都说明 WebUI 进程在线
-                    webui_alive = resp.status < 500
-            except (aiohttp.ClientError, asyncio.TimeoutError):
-                pass
-
-            if not webui_alive:
-                return {"logged_in": False, "stage": "waiting"}
-
-            # 2. 从文件名发现 uin（不读取文件内容）
-            uin = await asyncio.to_thread(self._get_uin_from_config, name)
-            if not uin:
-                return {"logged_in": False, "stage": "waiting"}
-
-            # 3. qrcode.png 是否停止刷新（> 60s 或不存在 → 已登录）
-            qr_stale = True
-            try:
-                qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
-                exists = await asyncio.to_thread(os.path.exists, qr_path)
-                if exists:
-                    mtime = await asyncio.to_thread(os.path.getmtime, qr_path)
-                    qr_stale = (time.time() - mtime) > 60
-            except OSError:
-                pass
-
-            if webui_alive and qr_stale and uin:
-                return {
-                    "logged_in": True,
-                    "uin": uin,
-                    "nickname": "",
-                    "method": "filesystem",
-                    "stage": "logged_in",
-                    "reason": "webui_alive_qr_stale_uin_in_config",
-                }
-        except Exception:
-            pass
-        return {"logged_in": False, "stage": "waiting"}
-
     async def check_login_status(self, name: str,
                                   http_port: int, webui_port: int) -> Dict:
-        """五级级联检测：SDK WS 状态 → WS API 调用 → BS API → HTTP 兜底 → 文件系统兜底。
+        """四级级联检测：SDK WS 状态 → WS API 调用 → BS API → HTTP OneBot 兜底。
+
+        ★ 大修：移除原 Level 4 文件系统兜底检测（通过 config 文件名 + qrcode.png
+        判定登录为 ghost WS 误判的根源，假阳性率高）。
+        冷启动引导由 HTTP OneBot API 承担（BS 尚未注入时仍可直连 NapCat 探测）。
 
         优先级：
-          1. napcat_ws_service（零网络开销，WS 已连接且心跳在线时直接返回）
-          1.5 WS API 调用（WS 已连接但心跳未确认时，通过 WS 调用 get_login_info，
-              替代 HTTP 网络请求，延迟 <10ms vs HTTP ~2s）
+          1. napcat_ws_service（零网络开销，BS 已修正心跳 status.online 字段）
+          1.5 WS API 调用（WS 已连接但心跳未确认时，通过 WS 调用 get_login_info）
           2. BS 账号 API（BS 运行时辅助检测，10s TTL 缓存）
-          3. OneBot HTTP /get_login_info（兜底，仅 WS/BS 均无结果时请求）
-          4. 文件系统检测（打破鸡蛋问题：通过 napcat_{uin}.json 文件名发现 uin，
-             结合 NapCat WebUI 可达性确认进程在线，qrcode.png 老旧确认已登录）
+          3. OneBot HTTP /get_login_info（兜底，冷启动引导 + WS/BS 均不可用时）
         """
         from services.napcat_ws_service import napcat_ws_service
 
-        # 1. SDK WS 直连（主路径：心跳在线 + 有 uin → 直接返回）
+        # 1. SDK WS 直连（主路径：BS 修正后的心跳 + 有 uin → 直接返回）
         r1 = napcat_ws_service.get_login_result(name)
         if r1["logged_in"]:
             logger.debug("登录检测[%s] WS主路径命中 uin=%s", name, r1.get("uin"))
             return r1
 
         # 1.5 WS API 调用（WS 已连接但心跳未确认时，通过 WS 调用 get_login_info）
-        # 替代 Level 3 的 HTTP 请求，延迟从 ~2s 降至 <10ms
         if napcat_ws_service.get_proxy(name) is not None:
             r15 = await napcat_ws_service.check_login_via_ws(name)
             if r15["logged_in"]:
@@ -166,39 +103,17 @@ class AsyncLoginChecker:
             logger.debug("登录检测[%s] BS辅助命中 uin=%s", name, r2.get("uin"))
             return r2
 
-        # 3. OneBot HTTP 兜底（仅 WS 未连接 + BS 无信号时）
+        # 3. OneBot HTTP 兜底（冷启动引导：BS 尚未注入，NapCat 仅有 HTTP 端口可达）
         if http_port:
             r3 = await self.check_login_onebot(http_port)
             if r3["logged_in"]:
-                # ★ HTTP 兜底命中也反写 WS 注册表
                 r3_uin = r3.get("uin", "")
                 if r3_uin:
                     napcat_ws_service.ensure_uin(name, r3_uin)
                 logger.debug("登录检测[%s] HTTP兜底命中 uin=%s", name, r3.get("uin"))
                 return r3
 
-        # 4. 文件系统兜底（打破鸡蛋问题）
-        # 通过 napcat_{uin}.json / onebot11_{uin}.json 文件名发现 uin，
-        # 结合 WebUI 可达性 + qrcode.png 停止刷新，判定已登录。
-        if webui_port:
-            r4 = await self._check_login_via_filesystem(name, webui_port)
-            if r4["logged_in"]:
-                # ★ 反写 WS 注册表：让 Level 1 下次能直接命中，
-                # 打破「每 60s 重复走到 Level 4」的循环
-                r4_uin = r4.get("uin", "")
-                if r4_uin:
-                    napcat_ws_service.ensure_uin(name, r4_uin)
-                logger.info(
-                    "登录检测[%s] 文件系统兜底命中 uin=%s"
-                    " (ws=%s bs_reason=%s http_port=%d webui_port=%d)",
-                    name, r4.get("uin"),
-                    napcat_ws_service.is_connected(name),
-                    r2.get("reason", ""),
-                    http_port, webui_port,
-                )
-                return r4
-
-        # 均无信号：保留最佳 stage（优先取有 uin 的结果）
+        # 均无信号
         stage = r1.get("stage") or r2.get("stage") or "waiting"
         return {"logged_in": False, "stage": stage}
 
@@ -245,40 +160,6 @@ class AsyncLoginChecker:
         except (aiohttp.ClientError, asyncio.TimeoutError,
                 json.JSONDecodeError, ValueError):
             return None
-
-    @staticmethod
-    def _get_uin_from_config(name: str) -> str:
-        """从本地 onebot11_*.json 文件名提取 uin。"""
-        try:
-            config_dir = os.path.join(get_data_dir(), name, "config")
-            if not os.path.exists(config_dir):
-                return ""
-            ob_files = [
-                f for f in os.listdir(config_dir)
-                if f.startswith("onebot11_") and f.endswith(".json")
-            ]
-            if ob_files:
-                latest = max(
-                    ob_files,
-                    key=lambda fn: os.path.getmtime(os.path.join(config_dir, fn)),
-                )
-                raw = latest.replace("onebot11_", "").replace(".json", "")
-                return ''.join(ch for ch in str(raw) if ch.isdigit())
-            napcat_files = [
-                f for f in os.listdir(config_dir)
-                if f.startswith("napcat_") and f.endswith(".json")
-                and not f.startswith("napcat_protocol_")
-            ]
-            if napcat_files:
-                latest = max(
-                    napcat_files,
-                    key=lambda fn: os.path.getmtime(os.path.join(config_dir, fn)),
-                )
-                raw = latest.replace("napcat_", "").replace(".json", "")
-                return ''.join(ch for ch in str(raw) if ch.isdigit())
-        except OSError:
-            pass
-        return ""
 
 
 # ============ 单例 — 登录检测 ============
