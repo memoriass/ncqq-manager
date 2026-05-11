@@ -151,6 +151,8 @@ class LifecycleMixin:
             ws_url = f"ws://{bs_host}:{bs_port}/onebot/v11/ws"
         elif ws_enabled:
             ws_url = str(app_config.get("init_ws_client_url", ""))
+            if "{name}" in ws_url:
+                ws_url = ws_url.replace("{name}", name)
 
         if ws_url:
             try:
