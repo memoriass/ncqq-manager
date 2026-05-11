@@ -140,6 +140,24 @@ export interface AlertRule {
     created_at: number;
 }
 
+
+export interface AlertSettings {
+    status: string;
+    allow_local_webhook: boolean;
+    webhook_base_url: string;
+    smtp_enabled: boolean;
+    smtp_host: string;
+    smtp_port: number;
+    smtp_username: string;
+    smtp_password_set: boolean;
+    smtp_sender: string;
+    smtp_sender_name: string;
+    smtp_recipients: string;
+    smtp_use_ssl: boolean;
+    smtp_use_tls: boolean;
+    smtp_subject_prefix: string;
+}
+
 export interface AlertHistory {
     id: number;
     rule_id: string;
@@ -443,11 +461,17 @@ export const alertApi = {
         request<{ status: string; history: AlertHistory[] }>(`/alerts/history?limit=${limit}`),
 
     getSettings: () =>
-        request<{ status: string; allow_local_webhook: boolean }>('/alerts/settings'),
+        request<AlertSettings>('/alerts/settings'),
 
-    updateSettings: (data: { allow_local_webhook: boolean }) =>
+    updateSettings: (data: Partial<Omit<AlertSettings, 'status' | 'smtp_password_set'>> & { smtp_password?: string }) =>
         request<{ status: string }>('/alerts/settings', {
             method: 'PUT',
+            body: JSON.stringify(data),
+        }),
+
+    testSmtp: (data: { recipients: string; subject?: string; message?: string }) =>
+        request<{ status: string; message?: string }>('/alerts/smtp/test', {
+            method: 'POST',
             body: JSON.stringify(data),
         }),
 };
