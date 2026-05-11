@@ -5,6 +5,7 @@
 import json
 import os
 import re
+import shutil
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -57,6 +58,21 @@ def _parse_env_vars(env_vars: list[str]) -> dict[str, str]:
             raise HTTPException(status_code=400, detail=f"Blocked env key: {key}")
         env[key] = value
     return env
+
+
+_PLUGIN_SRC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "napcat-plugin")
+
+
+def _inject_manager_plugin(data_dir: str) -> None:
+    """将 Manager 互联插件复制到容器的 plugins 目录。"""
+    if not os.path.isdir(_PLUGIN_SRC_DIR):
+        logger.warning("互联插件源目录不存在: %s", _PLUGIN_SRC_DIR)
+        return
+    dest = os.path.join(data_dir, "plugins", "napcat-plugin-manager-link")
+    if os.path.exists(dest):
+        shutil.rmtree(dest, ignore_errors=True)
+    shutil.copytree(_PLUGIN_SRC_DIR, dest)
+    logger.info("已注入互联插件到: %s", dest)
 
 
 def _generate_onebot11_config_with_ws_client(config_dir: str, ws_client_url: str, ws_client_token: str = "", uin: str = "default") -> None:
@@ -115,13 +131,22 @@ async def api_create_container(req: CreateRequest, request: Request, session: di
     }
     for host_dir in volumes:
         os.makedirs(host_dir, exist_ok=True)
-    used_ports = await async_docker_manager.get_used_ports()
-    webui_port = req.webui_port if req.webui_port > 0 else async_docker_manager.find_available_port(app_config.get("webui_base_port", 6000), used_ports)
-    used_ports.add(webui_port)
-    http_port = req.http_port if req.http_port > 0 else async_docker_manager.find_available_port(app_config.get("http_base_port", 3000), used_ports)
-    used_ports.add(http_port)
-    ws_port = req.ws_port if req.ws_port > 0 else async_docker_manager.find_available_port(app_config.get("ws_base_port", 3001), used_ports)
-    cid = await async_docker_manager.create_container(name=req.name, image=req.docker_image or app_config.get("docker_image", "mlikiowa/napcat-docker:latest"), volumes=volumes, ports={"6099/tcp": webui_port, "3000/tcp": http_port, "3001/tcp": ws_port}, environment=_parse_env_vars(req.env_vars or []), restart_policy={"Name": req.restart_policy} if req.restart_policy and req.restart_policy != "no" else {"Name": "always"}, mem_limit=f"{req.memory_limit}m" if req.memory_limit > 0 else None, network_mode=req.network_mode if req.network_mode != "bridge" else None)
+    _inject_manager_plugin(data_dir)
+    webui_port = req.webui_port if req.webui_port > 0 else await async_docker_manager.allocate_port(app_config.get("webui_base_port", 6000))
+    http_port = req.http_port if req.http_port > 0 else await async_docker_manager.allocate_port(app_config.get("http_base_port", 3000))
+    ws_port = req.ws_port if req.ws_port > 0 else await async_docker_manager.allocate_port(app_config.get("ws_base_port", 3001))
+    env = _parse_env_vars(req.env_vars or [])
+    manager_host = app_config.get("manager_host", "127.0.0.1")
+    manager_port = app_config.get("manager_port", 8000)
+    internal_key = app_config.get("internal_api_key", "")
+    if manager_host:
+        env["NCQQ_MANAGER_URL"] = f"http://{manager_host}:{manager_port}"
+    if internal_key:
+        env["NCQQ_INTERNAL_KEY"] = internal_key
+    env["NCQQ_CONTAINER_NAME"] = req.name
+    cid = await async_docker_manager.create_container(name=req.name, image=req.docker_image or app_config.get("docker_image", "mlikiowa/napcat-docker:latest"), volumes=volumes, ports={"6099/tcp": webui_port, "3000/tcp": http_port, "3001/tcp": ws_port}, environment=env, restart_policy={"Name": req.restart_policy} if req.restart_policy and req.restart_policy != "no" else {"Name": "always"}, mem_limit=f"{req.memory_limit}m" if req.memory_limit > 0 else None, network_mode=req.network_mode if req.network_mode != "bridge" else None)
+    for p in (webui_port, http_port, ws_port):
+        async_docker_manager.release_port(p)
     if not cid:
         raise HTTPException(status_code=500, detail="Failed to create container")
     state_engine.notify_change()

@@ -433,25 +433,22 @@ async def api_recreate_container(
     for host_dir in volumes:
         os.makedirs(host_dir, exist_ok=True)
 
-    used_ports = await async_docker_manager.get_used_ports()
     webui_port = req.webui_port or int(snapshot.get("webui_port") or 0)
     if webui_port <= 0:
-        webui_port = async_docker_manager.find_available_port(
-            app_config.get("webui_base_port", 6000), used_ports
+        webui_port = await async_docker_manager.allocate_port(
+            app_config.get("webui_base_port", 6000)
         )
-    used_ports.add(webui_port)
 
     http_port = req.http_port or int(snapshot.get("http_port") or 0)
     if http_port <= 0:
-        http_port = async_docker_manager.find_available_port(
-            app_config.get("http_base_port", 3000), used_ports
+        http_port = await async_docker_manager.allocate_port(
+            app_config.get("http_base_port", 3000)
         )
-    used_ports.add(http_port)
 
     ws_port = req.ws_port or int(snapshot.get("ws_port") or 0)
     if ws_port <= 0:
-        ws_port = async_docker_manager.find_available_port(
-            app_config.get("ws_base_port", 3001), used_ports
+        ws_port = await async_docker_manager.allocate_port(
+            app_config.get("ws_base_port", 3001)
         )
 
     image = req.docker_image or str(
@@ -506,6 +503,8 @@ async def api_recreate_container(
         mem_limit=f"{memory_limit}m" if memory_limit > 0 else None,
         network_mode=network_mode_arg,
     )
+    for p in (webui_port, http_port, ws_port):
+        async_docker_manager.release_port(p)
     if not cid:
         return _build_error(
             500, "RECREATE_CREATE_FAILED", "failed to create new container", request_id
@@ -825,6 +824,30 @@ async def receive_login_event(request: Request):
     if not container_name:
         raise HTTPException(status_code=400, detail="Missing container name")
     docker_manager.update_login_cache(container_name, body)
+    return {"status": "ok"}
+
+
+@router.post("/internal/heartbeat")
+async def receive_heartbeat(request: Request):
+    internal_key = request.headers.get("x-internal-key", "")
+    expected_key = app_config.get("internal_api_key", "")
+    if not expected_key or internal_key != expected_key:
+        raise HTTPException(status_code=403, detail="Invalid internal key")
+    body = await request.json()
+    container_name = body.get("name", "")
+    if not container_name:
+        raise HTTPException(status_code=400, detail="Missing container name")
+    from services.instance_subsystem import instance_subsystem
+    import time as _time
+    inst = instance_subsystem.get(container_name)
+    if not inst:
+        return {"status": "ok", "ignored": True}
+    inst.bot_online = True
+    inst.bot_heartbeat_ts = _time.time()
+    if "message_sent" in body:
+        inst.message_sent = int(body["message_sent"])
+    if "message_received" in body:
+        inst.message_received = int(body["message_received"])
     return {"status": "ok"}
 
 

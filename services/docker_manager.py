@@ -13,6 +13,7 @@ import io
 import json
 import time
 import tarfile
+import threading
 import urllib.request
 import urllib.error
 import docker
@@ -52,6 +53,8 @@ _DOCKER_LOGS_TIMEOUT = 2    # 秒，c.logs() 超时
 
 class DockerManager(LoginMixin, LifecycleMixin):
     def __init__(self):
+        self._port_lock = threading.Lock()
+        self._reserved_ports: set = set()
         try:
             self.client = docker.from_env()
             logger.info("Docker 连接成功")
@@ -463,6 +466,19 @@ class DockerManager(LoginMixin, LifecycleMixin):
             if port > 65535:
                 raise ValueError(f"没有可用端口（从 {base} 开始，所有端口均被占用）")
         return port
+
+    def allocate_port(self, base: int) -> int:
+        """原子化端口分配：获取已用端口 + 查找可用 + 预留，防止竞态。"""
+        with self._port_lock:
+            used = self.get_used_ports()
+            used |= self._reserved_ports
+            port = self.find_available_port(base, used)
+            self._reserved_ports.add(port)
+            return port
+
+    def release_port(self, port: int) -> None:
+        """容器创建/绑定完成后释放预留。"""
+        self._reserved_ports.discard(port)
 
     # ============ 镜像管理 ============
 

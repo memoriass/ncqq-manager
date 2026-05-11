@@ -2,15 +2,18 @@
 登录代偿检测器（LoginCompensator）
 
 职责：
-  当不使用 BS 中间件接管时（init_bs_enabled=False），提供两项代偿能力：
+  提供两项代偿能力：
 
   1. 文件扫描注入：定期扫描容器 config 目录，检测 onebot11_{uin}.json 文件出现
      且尚未注入 WS 配置时，立即触发注入+重启，实现快速首次连接建立。
+     ★ 无论 BS 模式还是纯 WS 模式均生效，解决新容器首次登录时无网络配置
+       导致无法连接 BS 上报登录成功的死锁问题。
   2. 登录态验证：对已有 WS 连接的实例每 60s 调用 get_login_info，
      修正 hb_online 字段，模拟 BS 的 _check_qq_login 功能。
+     仅在 init_bs_enabled=False 时启用。
 
 启动条件：
-  init_bs_enabled=False 且 init_ws_client_enabled=True
+  init_bs_enabled=True 或 init_ws_client_enabled=True
 """
 
 import asyncio
@@ -24,7 +27,7 @@ _UIN_RE = re.compile(r"^onebot11_(\d{5,12})\.json$")
 
 
 class LoginCompensator:
-    """不使用 BS 时的登录状态代偿检测器（单例）"""
+    """登录代偿检测器（单例）— 文件扫描注入 + 登录态验证"""
 
     def __init__(self) -> None:
         self._verify_task: asyncio.Task | None = None
@@ -35,14 +38,20 @@ class LoginCompensator:
     def running(self) -> bool:
         return self._running
 
-    async def start(self) -> None:
-        """启动代偿检测循环。仅在 bs_enabled=False 时调用。"""
+    async def start(self, skip_verify: bool = False) -> None:
+        """启动代偿检测循环。
+
+        Args:
+            skip_verify: 为 True 时跳过登录态验证循环（BS 模式自带心跳检测）。
+        """
         if self._running:
             return
         self._running = True
-        self._verify_task = asyncio.create_task(self._verify_loop())
+        if not skip_verify:
+            self._verify_task = asyncio.create_task(self._verify_loop())
         self._scan_task = asyncio.create_task(self._scan_loop())
-        logger.info("登录代偿检测器已启动（BS 未启用，管理器侧主动验证 QQ 登录态 + 文件扫描注入）")
+        mode = "仅文件扫描注入" if skip_verify else "登录态验证 + 文件扫描注入"
+        logger.info("登录代偿检测器已启动（%s）", mode)
 
     async def stop(self) -> None:
         """停止代偿检测循环。"""
@@ -63,8 +72,8 @@ class LoginCompensator:
             from services.config import app_config
             bs_enabled = app_config.get("init_bs_enabled", False)
             ws_enabled = app_config.get("init_ws_client_enabled", False)
-            if not bs_enabled and ws_enabled:
-                await self.start()
+            if bs_enabled or ws_enabled:
+                await self.start(skip_verify=bs_enabled)
             else:
                 logger.debug(
                     "登录代偿检测器未启动: bs_enabled=%s ws_enabled=%s",
@@ -133,15 +142,26 @@ class LoginCompensator:
                 await asyncio.sleep(_SCAN_INTERVAL)
 
     async def _scan_configs(self) -> None:
-        """扫描所有实例的 config 目录，发现未注入的 onebot11_{uin}.json 时触发注入。"""
+        """扫描所有实例的 config 目录，发现未注入的 onebot11_{uin}.json 时触发注入。
+
+        同时适配 BS 模式和纯 WS 模式：
+        - BS 模式：分配端口，注入 BS 端点 URL，并同步 BS connection
+        - 纯 WS 模式：使用配置的 ws_client_url 模板注入
+        """
         from services.config import app_config, get_data_dir
         from services.instance_subsystem import instance_subsystem
 
         data_dir = get_data_dir()
-        ws_url_tpl = str(app_config.get("init_ws_client_url", ""))
+        bs_enabled = app_config.get("init_bs_enabled", False)
         ws_token = str(app_config.get("init_ws_client_token", ""))
-        if not ws_url_tpl:
-            return
+
+        # 至少需要一种模式的 URL 可用
+        if not bs_enabled:
+            ws_url_tpl = str(app_config.get("init_ws_client_url", ""))
+            if not ws_url_tpl:
+                return
+        else:
+            ws_url_tpl = ""  # BS 模式下动态生成
 
         for inst in instance_subsystem.get_all():
             name = inst.name
@@ -149,49 +169,71 @@ class LoginCompensator:
             if not os.path.isdir(config_dir):
                 continue
 
-            # 扫描 onebot11_{uin}.json 文件
             for fname in os.listdir(config_dir):
                 m = _UIN_RE.match(fname)
                 if not m:
                     continue
                 uin = m.group(1)
 
-                # 检查占位文件：已注入则跳过
-                marker = os.path.join(data_dir, name, ".bs_injected", f"{uin}.done")
-                if os.path.isfile(marker):
+                # 检查两个标记：scan 自身标记 或 bs 注入标记（任一存在即跳过）
+                scan_marker = os.path.join(data_dir, name, ".scan_injected", f"{uin}.done")
+                bs_marker = os.path.join(data_dir, name, ".bs_injected", f"{uin}.done")
+                if os.path.isfile(scan_marker) or os.path.isfile(bs_marker):
                     continue
 
-                # 未注入 → 触发注入
-                logger.info("代偿文件扫描发现未注入配置: name=%s uin=%s，触发注入", name, uin)
-                await self._inject(name, uin, config_dir, data_dir, ws_url_tpl, ws_token)
+                logger.info("文件扫描发现未注入配置: name=%s uin=%s，触发注入", name, uin)
+                await self._inject(name, uin, config_dir, data_dir, ws_url_tpl, ws_token, bs_enabled)
 
     async def _inject(
         self, name: str, uin: str, config_dir: str,
         data_dir: str, ws_url_tpl: str, ws_token: str,
+        bs_enabled: bool = False,
     ) -> None:
-        """注入 WS 客户端配置并重启容器。"""
+        """注入 WS 客户端配置并重启容器。支持 BS 和纯 WS 两种模式。"""
         from routers.container_crud_router import _generate_onebot11_config_with_ws_client
         from services.docker_async import async_docker_manager
 
-        ws_url = ws_url_tpl.replace("{name}", name) if "{name}" in ws_url_tpl else ws_url_tpl
-
         try:
+            if bs_enabled:
+                # BS 模式：分配端口，生成 BS 端点 URL
+                from services.config import app_config
+                bs_host = str(app_config.get("init_bs_napcat_host", "172.17.0.1"))
+                bs_base_port = int(app_config.get("init_bs_client_base_port", 6100))
+                bs_port = await async_docker_manager.allocate_port(bs_base_port)
+                ws_url = f"ws://{bs_host}:{bs_port}/onebot/v11/ws"
+                bs_bind_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
+            else:
+                ws_url = ws_url_tpl.replace("{name}", name) if "{name}" in ws_url_tpl else ws_url_tpl
+                bs_bind_url = ""
+
             _generate_onebot11_config_with_ws_client(config_dir, ws_url, ws_token, uin)
 
-            # 写入占位文件
-            marker_dir = os.path.join(data_dir, name, ".bs_injected")
-            os.makedirs(marker_dir, exist_ok=True)
-            with open(os.path.join(marker_dir, f"{uin}.done"), "w") as f:
-                f.write(uin)
+            # 写入占位文件：scan 自身标记 + bs 标记（防止 _on_login_detected 重复注入）
+            for marker_name in (".scan_injected", ".bs_injected"):
+                mdir = os.path.join(data_dir, name, marker_name)
+                os.makedirs(mdir, exist_ok=True)
+                with open(os.path.join(mdir, f"{uin}.done"), "w") as f:
+                    f.write(uin)
 
-            logger.info("代偿注入完成: name=%s uin=%s url=%s，5s 后重启容器", name, uin, ws_url)
+            logger.info("文件扫描注入完成: name=%s uin=%s url=%s，5s 后重启容器", name, uin, ws_url)
+            if bs_enabled:
+                async_docker_manager.release_port(bs_port)
 
-            # 延迟重启
+            # BS 模式：同步 connection 到 BS 进程
+            if bs_enabled and bs_bind_url:
+                try:
+                    from services.docker_manager import docker_manager
+                    docker_manager._sync_bs_connection(name, uin, "", bs_bind_url, ws_url)
+                except Exception as e:
+                    logger.warning("文件扫描注入后 BS 连接同步失败: %s", e)
+
             await asyncio.sleep(5)
             await async_docker_manager.restart_container(name)
-            logger.info("代偿注入后容器重启完成: %s", name)
+            logger.info("文件扫描注入后容器重启完成: %s", name)
         except Exception as e:
-            logger.warning("代偿注入失败: name=%s uin=%s: %s", name, uin, e)
+            if bs_enabled:
+                async_docker_manager.release_port(bs_port)
+            logger.warning("文件扫描注入失败: name=%s uin=%s: %s", name, uin, e)
 
 
 login_compensator = LoginCompensator()

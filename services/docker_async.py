@@ -187,6 +187,8 @@ class AsyncDockerManager:
 
     def __init__(self):
         self._docker: Optional[aiodocker.Docker] = None
+        self._port_lock = asyncio.Lock()
+        self._reserved_ports: set = set()
 
     async def start(self):
         """创建 aiodocker 连接（自动探测 Windows npipe / Linux socket）。"""
@@ -475,6 +477,19 @@ class AsyncDockerManager:
             if port > 65535:
                 raise ValueError(f"没有可用端口（从 {base} 开始，所有端口均被占用）")
         return port
+
+    async def allocate_port(self, base: int) -> int:
+        """原子化端口分配：获取已用端口 + 查找可用 + 预留，防止竞态。"""
+        async with self._port_lock:
+            used = await self.get_used_ports()
+            used |= self._reserved_ports
+            port = self.find_available_port(base, used)
+            self._reserved_ports.add(port)
+            return port
+
+    def release_port(self, port: int) -> None:
+        """容器创建/绑定完成后释放预留（端口已被 Docker 占用，无需继续预留）。"""
+        self._reserved_ports.discard(port)
 
     # ---- 内部辅助 ----
 

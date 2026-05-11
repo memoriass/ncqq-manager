@@ -172,7 +172,10 @@ class DockerEventWatcher:
                 except asyncio.QueueFull:
                     logger.debug("EventWatcher: 队列满，丢弃事件 name=%s action=%s", name, action)
 
-        self._loop.call_soon_threadsafe(_put_all)
+        try:
+            self._loop.call_soon_threadsafe(_put_all)
+        except RuntimeError:
+            pass
 
 
 # ============ 单例 ============

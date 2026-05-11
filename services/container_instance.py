@@ -38,9 +38,11 @@ class ContainerInstance:
     qr_ts: float = 0.0  # 上次 QR 更新时间戳
     qr_expired: bool = False  # QR 码是否已过期
 
-    # ---- Bot 心跳状态（来自 OneBot WS 端点 meta_event.heartbeat） ----
+    # ---- Bot 心跳状态（来自 OneBot WS 端点 meta_event.heartbeat 或插件上报） ----
     bot_online: bool = False  # 最近一次心跳判定是否在线
     bot_heartbeat_ts: float = 0.0  # 最近一次心跳时间戳（0 = 未收到过）
+    message_sent: int = 0  # 累计发送消息数（插件上报）
+    message_received: int = 0  # 累计接收消息数（插件上报）
 
     # ---- 资源统计（来自 docker stats API） ----
     cpu_percent: float = 0.0
@@ -62,6 +64,8 @@ class ContainerInstance:
             "node_id": self.node_id,
             "bot_online": self.bot_online,
             "bot_heartbeat_ts": self.bot_heartbeat_ts,
+            "message_sent": self.message_sent,
+            "message_received": self.message_received,
             "login_stage": self.login_stage,
             "login_method": self.login_method,
             # 头像 URL — 本地代理缓存（无需认证）；有 uin 就显示，即使目前 logged_in=False

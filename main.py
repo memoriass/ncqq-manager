@@ -147,7 +147,7 @@ async def lifespan(app: FastAPI):
     from services.bs_activation_service import bs_activation_service
     await bs_activation_service.auto_resume()
 
-    # 登录代偿检测器：BS 未启用时主动验证 QQ 登录态
+    # 登录代偿检测器：文件扫描注入（BS/WS 均生效）+ 登录态验证（仅非 BS 模式）
     from services.login_compensator import login_compensator
     await login_compensator.auto_start()
 

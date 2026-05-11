@@ -31,7 +31,7 @@ from services.ob11_events import (
     GroupMessageEvent,
     PrivateMessageEvent,
 )
-from middleware.auth import validate_token_value
+from middleware.auth import validate_token_value, check_instance_permission
 from middleware.rate_limiter import websocket_public_speed_limit
 
 router = APIRouter(tags=["websocket"])
@@ -115,6 +115,10 @@ async def ws_container_logs(
     session = validate_token_value(effective_token) if effective_token else None
     if not session:
         await ws.close(code=4001, reason="Unauthorized")
+        return
+
+    if not check_instance_permission(session, node_id, name):
+        await ws.close(code=4003, reason="No permission for this instance")
         return
 
     await ws.accept()

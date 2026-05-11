@@ -17,10 +17,12 @@ from services.instance_subsystem import instance_subsystem
 from services.docker_async import async_login_checker, async_docker_manager
 
 
+_bs_inject_locks: Dict[str, asyncio.Lock] = {}
+
+
 def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
-    """按登录判定结果触发 BS 注入（fire-and-forget）。"""
+    """按登录判定结果触发 BS 注入（fire-and-forget，per-name 串行）。"""
     try:
-        # 注入依赖登录判定：未登录或缺少 uin 时不触发
         if not result.get("logged_in"):
             return
         uin = str(result.get("uin", ""))
@@ -34,13 +36,21 @@ def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
         except RuntimeError:
             loop = None
         if loop is not None:
-            loop.run_in_executor(
-                None,
-                docker_manager._on_login_detected,
-                name,
-                result,
-                prev,
-            )
+            lock = _bs_inject_locks.setdefault(name, asyncio.Lock())
+
+            async def _guarded():
+                if lock.locked():
+                    return  # 已有注入在执行，跳过
+                async with lock:
+                    await loop.run_in_executor(
+                        None,
+                        docker_manager._on_login_detected,
+                        name,
+                        result,
+                        prev,
+                    )
+
+            loop.create_task(_guarded())
     except Exception as e:
         logger.debug("BS 注入调度异常 [%s]: %s", name, e)
 

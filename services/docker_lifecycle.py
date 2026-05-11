@@ -145,8 +145,7 @@ class LifecycleMixin:
         if bs_enabled:
             bs_host = str(app_config.get("init_bs_napcat_host", "172.17.0.1"))
             bs_base_port = int(app_config.get("init_bs_client_base_port", 6100))
-            used = self.get_used_ports()  # type: ignore[attr-defined]
-            bs_port = self.find_available_port(bs_base_port, used)  # type: ignore[attr-defined]
+            bs_port = self.allocate_port(bs_base_port)  # type: ignore[attr-defined]
             bs_bind_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
             ws_url = f"ws://{bs_host}:{bs_port}/onebot/v11/ws"
         elif ws_enabled:
@@ -164,6 +163,8 @@ class LifecycleMixin:
                     config_dir, ws_url, ws_token, uin
                 )
                 self._mark_bs_inject(data_dir_base, name, uin)
+                if bs_enabled:
+                    self.release_port(bs_port)  # type: ignore[attr-defined]
                 logger.info("BS/WS 注入完成并写入持久标记: %s uin=%s", name, uin)
                 # 重启前先写入 webui.json autoLoginAccount，NapCat 重启后可快速登录，无需再扫码。
                 try:
@@ -179,6 +180,8 @@ class LifecycleMixin:
                 # 通过 fire-and-forget 异步调度重启，避免阻塞当前线程。
                 self._schedule_container_restart(name)
             except Exception as e:
+                if bs_enabled:
+                    self.release_port(bs_port)  # type: ignore[attr-defined]
                 logger.error("登录后 WS 注入失败 (%s/%s): %s", name, uin, e)
 
         # ---- ② BS 中间件接管（异步 fire-and-forget）----

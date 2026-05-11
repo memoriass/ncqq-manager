@@ -1,5 +1,5 @@
 /**
- * BotManager 组件 - Bot 管理（消息监控 / 消息发送 / 群管理）
+ * BotManager 组件 - Bot 管理（聊天 / 群管理）
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
@@ -8,6 +8,7 @@ import {
     Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
     useTheme, InputLabel, FormControl, Tab, Tabs,
     Dialog, DialogTitle, DialogContent, DialogActions,
+    List, ListItemButton, ListItemText, ListItemIcon, InputAdornment,
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SendIcon from '@mui/icons-material/Send';
@@ -21,6 +22,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import LogoutIcon from '@mui/icons-material/Logout';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
+import AddCommentIcon from '@mui/icons-material/AddComment';
 import { useTranslate } from '../i18n';
 import { botApi, type BotMessage } from '../services/api';
 import { useToast } from './Toast';
@@ -30,10 +32,10 @@ interface BotManagerProps {
     node_id: string;
 }
 
-type SubTab = 'messages' | 'send' | 'groups';
+type SubTab = 'chat' | 'groups';
 
 export const BotManager = ({ name }: BotManagerProps) => {
-    const [subTab, setSubTab] = useState<SubTab>('messages');
+    const [subTab, setSubTab] = useState<SubTab>('chat');
     const theme = useTheme();
     const t = useTranslate();
     const isDark = theme.palette.mode === 'dark';
@@ -47,7 +49,6 @@ export const BotManager = ({ name }: BotManagerProps) => {
 
     return (
         <Box sx={{ mt: 1 }}>
-            {/* 子标签栏 */}
             <Box sx={{ ...glass, borderRadius: 3, p: 1.5, mb: 3 }}>
                 <Tabs
                     value={subTab}
@@ -67,194 +68,316 @@ export const BotManager = ({ name }: BotManagerProps) => {
                         '& .MuiTabs-indicator': { display: 'none' },
                     }}
                 >
-                    <Tab value="messages" icon={<ChatBubbleOutlineIcon sx={{ fontSize: 16 }} />}
-                        iconPosition="start" label={t('botManager.messages')} />
-                    <Tab value="send" icon={<SendIcon sx={{ fontSize: 16 }} />}
-                        iconPosition="start" label={t('botManager.sendMessage')} />
+                    <Tab value="chat" icon={<ChatBubbleOutlineIcon sx={{ fontSize: 16 }} />}
+                        iconPosition="start" label={t('botManager.chat')} />
                     <Tab value="groups" icon={<GroupIcon sx={{ fontSize: 16 }} />}
                         iconPosition="start" label={t('botManager.groupManage')} />
                 </Tabs>
             </Box>
 
-            {/* 子面板 */}
-            {subTab === 'messages' && <MessagesPanel name={name} glass={glass} />}
-            {subTab === 'send' && <SendPanel name={name} glass={glass} />}
+            {subTab === 'chat' && <ChatPanel name={name} glass={glass} />}
             {subTab === 'groups' && <GroupsPanel name={name} glass={glass} />}
         </Box>
     );
 };
 
-// ─── 消息监控面板 ─────────────────────────────────────────
+// ─── 聊天面板 ─────────────────────────────────────────
 
-function MessagesPanel({ name, glass }: { name: string; glass: Record<string, unknown> }) {
+interface Conversation {
+    id: string;
+    type: 'group' | 'private';
+    name: string;
+    lastMsg: string;
+    lastTime: number;
+}
+
+function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknown> }) {
+    const [conversations, setConversations] = useState<Conversation[]>([]);
+    const [activeConv, setActiveConv] = useState<Conversation | null>(null);
     const [messages, setMessages] = useState<BotMessage[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [autoRefresh, setAutoRefresh] = useState(true);
-    const bottomRef = useRef<HTMLDivElement>(null);
+    const [input, setInput] = useState('');
+    const [sending, setSending] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [newQQ, setNewQQ] = useState('');
+    const [showNewChat, setShowNewChat] = useState(false);
+    const messagesEndRef = useRef<HTMLDivElement>(null);
     const t = useTranslate();
     const toast = useToast();
     const theme = useTheme();
+    const isDark = theme.palette.mode === 'dark';
 
-    const fetchMessages = useCallback(async () => {
-        try {
-            const data = await botApi.getMessages(name, 100);
-            setMessages(data.messages || []);
-        } catch {
-            // 静默，避免 Bot 离线时反复弹错
-        }
+    // 加载群列表作为会话
+    useEffect(() => {
+        (async () => {
+            try {
+                const res = await botApi.call(name, 'get_group_list');
+                if (Array.isArray(res.data)) {
+                    const groupConvs: Conversation[] = (res.data as Array<{ group_id: number; group_name: string }>).map(g => ({
+                        id: String(g.group_id),
+                        type: 'group',
+                        name: g.group_name || String(g.group_id),
+                        lastMsg: '',
+                        lastTime: 0,
+                    }));
+                    setConversations(prev => {
+                        const privates = prev.filter(c => c.type === 'private');
+                        return [...groupConvs, ...privates];
+                    });
+                }
+            } catch { /* bot offline */ }
+        })();
     }, [name]);
 
+    // 拉取缓存消息并按会话分组更新 lastMsg
     useEffect(() => {
-        setLoading(true);
-        fetchMessages().finally(() => setLoading(false));
-        let timer: ReturnType<typeof setInterval>;
-        if (autoRefresh) timer = setInterval(fetchMessages, 5000);
-        return () => { if (timer) clearInterval(timer); };
-    }, [name, autoRefresh, fetchMessages]);
+        const fetchCached = async () => {
+            try {
+                const data = await botApi.getMessages(name, 200);
+                const msgs = data.messages || [];
+                setConversations(prev => {
+                    const updated = [...prev];
+                    for (const msg of msgs) {
+                        const convId = msg.message_type === 'group' ? String(msg.group_id) : String(msg.user_id);
+                        const conv = updated.find(c => c.id === convId);
+                        if (conv && msg.time > conv.lastTime) {
+                            conv.lastMsg = msg.raw_message?.slice(0, 30) || '';
+                            conv.lastTime = msg.time;
+                        } else if (!conv && msg.message_type === 'private' && msg.user_id) {
+                            updated.push({
+                                id: String(msg.user_id),
+                                type: 'private',
+                                name: msg.sender?.nickname || String(msg.user_id),
+                                lastMsg: msg.raw_message?.slice(0, 30) || '',
+                                lastTime: msg.time,
+                            });
+                        }
+                    }
+                    return updated.sort((a, b) => b.lastTime - a.lastTime);
+                });
+            } catch { /* ignore */ }
+        };
+        fetchCached();
+        const timer = setInterval(fetchCached, 5000);
+        return () => clearInterval(timer);
+    }, [name]);
 
-    const formatTime = (ts: number) => {
-        if (!ts) return '-';
-        const d = new Date(ts * 1000);
-        return d.toLocaleTimeString();
-    };
+    // 切换会话时加载消息
+    useEffect(() => {
+        if (!activeConv) { setMessages([]); return; }
+        const fetchMsgs = async () => {
+            try {
+                const data = await botApi.getMessages(name, 200);
+                const filtered = (data.messages || []).filter(m => {
+                    if (activeConv.type === 'group') return String(m.group_id) === activeConv.id;
+                    return m.message_type === 'private' && (String(m.user_id) === activeConv.id || String(m.self_id) === activeConv.id);
+                });
+                setMessages(filtered);
+            } catch { /* ignore */ }
+        };
+        fetchMsgs();
+        const timer = setInterval(fetchMsgs, 5000);
+        return () => clearInterval(timer);
+    }, [name, activeConv?.id, activeConv?.type]);
 
-    const getSenderName = (msg: BotMessage) =>
-        msg.sender?.card || msg.sender?.nickname || String(msg.sender?.user_id || msg.user_id || '');
-
-    return (
-        <Box>
-            <Box sx={{ ...glass, borderRadius: 3, p: 2, mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                    {t('botManager.recentMessages')}
-                    <Chip label={messages.length} size="small" sx={{ ml: 1, height: 20, fontSize: '0.7rem' }} />
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                    <Button size="small" variant={autoRefresh ? 'contained' : 'outlined'} onClick={() => setAutoRefresh(!autoRefresh)}
-                        sx={{ textTransform: 'none', fontSize: '0.75rem', height: 28 }}>
-                        {autoRefresh ? t('botManager.autoRefreshOn') : t('botManager.autoRefreshOff')}
-                    </Button>
-                    <IconButton size="small" onClick={() => { setLoading(true); fetchMessages().finally(() => setLoading(false)); }}>
-                        {loading ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
-                    </IconButton>
-                </Box>
-            </Box>
-
-            <TableContainer component={Paper} sx={{ ...glass, borderRadius: 3, maxHeight: 520 }}>
-                <Table size="small" stickyHeader>
-                    <TableHead>
-                        <TableRow>
-                            <TableCell sx={{ fontWeight: 600, width: 80 }}>{t('botManager.time')}</TableCell>
-                            <TableCell sx={{ fontWeight: 600, width: 70 }}>{t('botManager.type')}</TableCell>
-                            <TableCell sx={{ fontWeight: 600, width: 120 }}>{t('botManager.sender')}</TableCell>
-                            <TableCell sx={{ fontWeight: 600, width: 100 }}>{t('botManager.source')}</TableCell>
-                            <TableCell sx={{ fontWeight: 600 }}>{t('botManager.content')}</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {messages.length === 0 ? (
-                            <TableRow>
-                                <TableCell colSpan={5} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                                    {t('botManager.noMessages')}
-                                </TableCell>
-                            </TableRow>
-                        ) : messages.map((msg, i) => (
-                            <TableRow key={msg.message_id || i} hover>
-                                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{formatTime(msg.time)}</TableCell>
-                                <TableCell>
-                                    <Chip
-                                        icon={msg.message_type === 'group' ? <GroupIcon sx={{ fontSize: 12 }} /> : <PersonIcon sx={{ fontSize: 12 }} />}
-                                        label={msg.message_type === 'group' ? t('botManager.group') : t('botManager.private')}
-                                        size="small"
-                                        sx={{ height: 20, fontSize: '0.68rem',
-                                            bgcolor: msg.message_type === 'group' ? 'rgba(99,102,241,0.1)' : 'rgba(16,185,129,0.1)',
-                                            color: msg.message_type === 'group' ? '#6366f1' : '#10b981',
-                                        }}
-                                    />
-                                </TableCell>
-                                <TableCell sx={{ fontSize: '0.8rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {getSenderName(msg)}
-                                </TableCell>
-                                <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>
-                                    {msg.group_id ? `${t('botManager.group')} ${msg.group_id}` : (msg.user_id ? `QQ ${msg.user_id}` : '-')}
-                                </TableCell>
-                                <TableCell sx={{
-                                    fontSize: '0.8rem', maxWidth: 300, overflow: 'hidden',
-                                    textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                }}>
-                                    {msg.raw_message || '-'}
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </TableContainer>
-            <div ref={bottomRef} />
-        </Box>
-    );
-}
-
-// ─── 消息发送面板 ─────────────────────────────────────────
-
-function SendPanel({ name, glass }: { name: string; glass: Record<string, unknown> }) {
-    const [msgType, setMsgType] = useState<'group' | 'private'>('group');
-    const [targetId, setTargetId] = useState('');
-    const [message, setMessage] = useState('');
-    const [sending, setSending] = useState(false);
-    const t = useTranslate();
-    const toast = useToast();
+    useEffect(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }, [messages]);
 
     const handleSend = async () => {
-        if (!targetId.trim() || !message.trim()) {
-            toast.error(t('botManager.fillRequired'));
-            return;
-        }
+        if (!input.trim() || !activeConv) return;
         setSending(true);
         try {
-            const res = await botApi.send(name, msgType, targetId.trim(), message);
-            toast.success(`${t('botManager.sendSuccess')} (ID: ${res.message_id})`);
-            setMessage('');
-        } catch (e) {
+            await botApi.send(name, activeConv.type, activeConv.id, input.trim());
+            setInput('');
+        } catch {
             toast.error(t('botManager.sendFailed'));
         } finally {
             setSending(false);
         }
     };
 
-    return (
-        <Box sx={{ ...glass, borderRadius: 3, p: 3 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 2 }}>{t('botManager.sendMessage')}</Typography>
+    const handleLoadMore = async () => {
+        if (!activeConv || activeConv.type !== 'group') return;
+        setLoadingMore(true);
+        try {
+            const oldest = messages[0];
+            const res = await botApi.call(name, 'get_group_msg_history', {
+                group_id: Number(activeConv.id),
+                message_seq: oldest?.message_id || 0,
+                count: 20,
+            });
+            if (res.data && Array.isArray((res.data as { messages?: unknown[] }).messages)) {
+                const hist = (res.data as { messages: BotMessage[] }).messages;
+                setMessages(prev => [...hist, ...prev]);
+            }
+        } catch {
+            toast.error(t('botManager.operationFailed'));
+        } finally {
+            setLoadingMore(false);
+        }
+    };
 
-            <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
-                <FormControl size="small" sx={{ minWidth: 130 }}>
-                    <InputLabel>{t('botManager.msgType')}</InputLabel>
-                    <Select value={msgType} label={t('botManager.msgType')} onChange={(e) => setMsgType(e.target.value as 'group' | 'private')}>
-                        <MenuItem value="group">{t('botManager.group')}</MenuItem>
-                        <MenuItem value="private">{t('botManager.private')}</MenuItem>
-                    </Select>
-                </FormControl>
-                <TextField
-                    size="small" label={msgType === 'group' ? t('botManager.groupId') : t('botManager.userId')}
-                    value={targetId} onChange={(e) => setTargetId(e.target.value)}
-                    sx={{ width: 180 }}
-                    placeholder={msgType === 'group' ? '123456789' : '10001'}
-                />
+    const addPrivateChat = () => {
+        const qq = newQQ.trim();
+        if (!qq) return;
+        if (conversations.find(c => c.id === qq && c.type === 'private')) {
+            setActiveConv(conversations.find(c => c.id === qq && c.type === 'private')!);
+        } else {
+            const conv: Conversation = { id: qq, type: 'private', name: `QQ ${qq}`, lastMsg: '', lastTime: 0 };
+            setConversations(prev => [conv, ...prev]);
+            setActiveConv(conv);
+        }
+        setNewQQ('');
+        setShowNewChat(false);
+    };
+
+    const formatTime = (ts: number) => {
+        if (!ts) return '';
+        const d = new Date(ts * 1000);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    return (
+        <Box sx={{ ...glass, borderRadius: 3, display: 'flex', height: 560, overflow: 'hidden' }}>
+            {/* 左侧会话列表 */}
+            <Box sx={{ width: 260, borderRight: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', flexDirection: 'column' }}>
+                <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>{t('botManager.chat')}</Typography>
+                    <Tooltip title={t('botManager.newPrivateChat')}>
+                        <IconButton size="small" onClick={() => setShowNewChat(!showNewChat)}>
+                            <AddCommentIcon sx={{ fontSize: 18 }} />
+                        </IconButton>
+                    </Tooltip>
+                </Box>
+                {showNewChat && (
+                    <Box sx={{ px: 1.5, pb: 1 }}>
+                        <TextField
+                            size="small" fullWidth
+                            placeholder={t('botManager.inputQQ')}
+                            value={newQQ}
+                            onChange={e => setNewQQ(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') addPrivateChat(); }}
+                            InputProps={{
+                                endAdornment: (
+                                    <InputAdornment position="end">
+                                        <IconButton size="small" onClick={addPrivateChat}><SendIcon sx={{ fontSize: 14 }} /></IconButton>
+                                    </InputAdornment>
+                                ),
+                            }}
+                            sx={{ '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                        />
+                    </Box>
+                )}
+                <List sx={{ flex: 1, overflow: 'auto', py: 0 }}>
+                    {conversations.map(conv => (
+                        <ListItemButton
+                            key={`${conv.type}-${conv.id}`}
+                            selected={activeConv?.id === conv.id && activeConv?.type === conv.type}
+                            onClick={() => setActiveConv(conv)}
+                            sx={{ py: 1, px: 1.5, borderRadius: 1, mx: 0.5, mb: 0.3 }}
+                        >
+                            <ListItemIcon sx={{ minWidth: 32 }}>
+                                {conv.type === 'group'
+                                    ? <GroupIcon sx={{ fontSize: 18, color: '#6366f1' }} />
+                                    : <PersonIcon sx={{ fontSize: 18, color: '#10b981' }} />}
+                            </ListItemIcon>
+                            <ListItemText
+                                primary={conv.name}
+                                secondary={conv.lastMsg || undefined}
+                                primaryTypographyProps={{ fontSize: '0.82rem', fontWeight: 500, noWrap: true }}
+                                secondaryTypographyProps={{ fontSize: '0.7rem', noWrap: true }}
+                            />
+                            {conv.lastTime > 0 && (
+                                <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'text.secondary', ml: 0.5 }}>
+                                    {formatTime(conv.lastTime)}
+                                </Typography>
+                            )}
+                        </ListItemButton>
+                    ))}
+                </List>
             </Box>
 
-            <TextField
-                fullWidth multiline rows={4} size="small"
-                label={t('botManager.messageContent')}
-                value={message} onChange={(e) => setMessage(e.target.value)}
-                placeholder={t('botManager.messagePlaceholder')}
-                sx={{ mb: 2 }}
-            />
+            {/* 右侧聊天区域 */}
+            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                {!activeConv ? (
+                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Typography color="text.secondary" fontSize="0.85rem">{t('botManager.noConversation')}</Typography>
+                    </Box>
+                ) : (
+                    <>
+                        {/* 头部 */}
+                        <Box sx={{ p: 1.5, borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', gap: 1 }}>
+                            {activeConv.type === 'group'
+                                ? <GroupIcon sx={{ fontSize: 18, color: '#6366f1' }} />
+                                : <PersonIcon sx={{ fontSize: 18, color: '#10b981' }} />}
+                            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{activeConv.name}</Typography>
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{activeConv.id}</Typography>
+                        </Box>
 
-            <Button
-                variant="contained" startIcon={sending ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
-                onClick={handleSend} disabled={sending}
-                sx={{ textTransform: 'none' }}
-            >
-                {t('botManager.send')}
-            </Button>
+                        {/* 消息区域 */}
+                        <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                            {activeConv.type === 'group' && (
+                                <Box sx={{ textAlign: 'center', mb: 1 }}>
+                                    <Button size="small" onClick={handleLoadMore} disabled={loadingMore}
+                                        sx={{ fontSize: '0.7rem', textTransform: 'none' }}>
+                                        {loadingMore ? <CircularProgress size={12} sx={{ mr: 0.5 }} /> : null}
+                                        {t('botManager.loadMore')}
+                                    </Button>
+                                </Box>
+                            )}
+                            {messages.map((msg, i) => {
+                                const isSelf = msg.user_id === msg.self_id;
+                                return (
+                                    <Box key={msg.message_id || i} sx={{ display: 'flex', flexDirection: isSelf ? 'row-reverse' : 'row', gap: 1, alignItems: 'flex-end' }}>
+                                        <Box sx={{
+                                            maxWidth: '70%', px: 1.5, py: 0.8, borderRadius: 2,
+                                            bgcolor: isSelf
+                                                ? (isDark ? 'rgba(59,130,246,0.25)' : '#dbeafe')
+                                                : (isDark ? 'rgba(255,255,255,0.08)' : '#f3f4f6'),
+                                        }}>
+                                            {!isSelf && activeConv.type === 'group' && (
+                                                <Typography sx={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 600, mb: 0.2 }}>
+                                                    {msg.sender?.card || msg.sender?.nickname || msg.user_id}
+                                                </Typography>
+                                            )}
+                                            <Typography sx={{ fontSize: '0.82rem', wordBreak: 'break-word' }}>
+                                                {msg.raw_message || ''}
+                                            </Typography>
+                                            <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', mt: 0.3, textAlign: isSelf ? 'left' : 'right' }}>
+                                                {formatTime(msg.time)}
+                                            </Typography>
+                                        </Box>
+                                    </Box>
+                                );
+                            })}
+                            <div ref={messagesEndRef} />
+                        </Box>
+
+                        {/* 输入区域 */}
+                        <Box sx={{ p: 1.5, borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', gap: 1 }}>
+                            <TextField
+                                fullWidth size="small" multiline maxRows={3}
+                                placeholder={t('botManager.messagePlaceholder')}
+                                value={input}
+                                onChange={e => setInput(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
+                                        e.preventDefault();
+                                        handleSend();
+                                    }
+                                }}
+                                sx={{ '& .MuiInputBase-root': { fontSize: '0.85rem' } }}
+                            />
+                            <Button
+                                variant="contained" onClick={handleSend} disabled={sending || !input.trim()}
+                                sx={{ minWidth: 40, px: 1.5 }}
+                            >
+                                {sending ? <CircularProgress size={16} color="inherit" /> : <SendIcon sx={{ fontSize: 18 }} />}
+                            </Button>
+                        </Box>
+                    </>
+                )}
+            </Box>
         </Box>
     );
 }
@@ -283,16 +406,12 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
     const [selectedGroup, setSelectedGroup] = useState<GroupItem | null>(null);
     const t = useTranslate();
     const toast = useToast();
-    const theme = useTheme();
-    const isDark = theme.palette.mode === 'dark';
 
     const fetchGroups = useCallback(async () => {
         setLoading(true);
         try {
             const res = await botApi.call(name, 'get_group_list');
-            if (Array.isArray(res.data)) {
-                setGroups(res.data as GroupItem[]);
-            }
+            if (Array.isArray(res.data)) setGroups(res.data as GroupItem[]);
         } catch {
             toast.error(t('botManager.fetchGroupsFailed'));
         } finally {
@@ -302,7 +421,6 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
 
     useEffect(() => { fetchGroups(); }, [fetchGroups]);
 
-    // 全员禁言
     const handleGroupBan = async (group_id: number, enable: boolean) => {
         try {
             await botApi.call(name, 'set_group_whole_ban', { group_id, enable });
@@ -310,7 +428,6 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
         } catch { toast.error(t('botManager.operationFailed')); }
     };
 
-    // 退群
     const handleLeaveGroup = async (group_id: number) => {
         try {
             await botApi.call(name, 'set_group_leave', { group_id });
@@ -320,10 +437,7 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
     };
 
     if (selectedGroup) {
-        return <GroupMembersView
-            name={name} group={selectedGroup} glass={glass}
-            onBack={() => setSelectedGroup(null)}
-        />;
+        return <GroupMembersView name={name} group={selectedGroup} glass={glass} onBack={() => setSelectedGroup(null)} />;
     }
 
     return (
@@ -440,20 +554,16 @@ function GroupMembersView({ name, group, glass, onBack }: {
         return <Chip label={conf.label} size="small" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600, color: conf.color, bgcolor: conf.bg }} />;
     };
 
-    // 禁言
     const handleMute = async () => {
         try {
             await botApi.call(name, 'set_group_ban', {
-                group_id: group.group_id,
-                user_id: muteDialog.userId,
-                duration: parseInt(muteDuration) || 600,
+                group_id: group.group_id, user_id: muteDialog.userId, duration: parseInt(muteDuration) || 600,
             });
             toast.success(t('botManager.muteSuccess'));
         } catch { toast.error(t('botManager.operationFailed')); }
         setMuteDialog({ open: false, userId: 0, nickname: '' });
     };
 
-    // 解除禁言
     const handleUnmute = async (userId: number) => {
         try {
             await botApi.call(name, 'set_group_ban', { group_id: group.group_id, user_id: userId, duration: 0 });
@@ -461,7 +571,6 @@ function GroupMembersView({ name, group, glass, onBack }: {
         } catch { toast.error(t('botManager.operationFailed')); }
     };
 
-    // 踢人
     const handleKick = async (userId: number) => {
         try {
             await botApi.call(name, 'set_group_kick', { group_id: group.group_id, user_id: userId });
@@ -470,7 +579,6 @@ function GroupMembersView({ name, group, glass, onBack }: {
         } catch { toast.error(t('botManager.operationFailed')); }
     };
 
-    // 设置管理员
     const handleSetAdmin = async (userId: number, enable: boolean) => {
         try {
             await botApi.call(name, 'set_group_admin', { group_id: group.group_id, user_id: userId, enable });
@@ -479,14 +587,9 @@ function GroupMembersView({ name, group, glass, onBack }: {
         } catch { toast.error(t('botManager.operationFailed')); }
     };
 
-    // 修改群名片
     const handleSetCard = async () => {
         try {
-            await botApi.call(name, 'set_group_card', {
-                group_id: group.group_id,
-                user_id: cardDialog.userId,
-                card: newCard,
-            });
+            await botApi.call(name, 'set_group_card', { group_id: group.group_id, user_id: cardDialog.userId, card: newCard });
             toast.success(t('botManager.setCardSuccess'));
             fetchMembers();
         } catch { toast.error(t('botManager.operationFailed')); }
@@ -495,12 +598,9 @@ function GroupMembersView({ name, group, glass, onBack }: {
 
     return (
         <Box>
-            {/* 顶栏 */}
             <Box sx={{ ...glass, borderRadius: 3, p: 2, mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                    <IconButton size="small" onClick={onBack}>
-                        <ArrowBackIcon fontSize="small" />
-                    </IconButton>
+                    <IconButton size="small" onClick={onBack}><ArrowBackIcon fontSize="small" /></IconButton>
                     <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
                         {group.group_name}
                         <Typography component="span" variant="caption" sx={{ ml: 1, fontFamily: 'monospace', color: 'text.secondary' }}>
@@ -514,7 +614,6 @@ function GroupMembersView({ name, group, glass, onBack }: {
                 </IconButton>
             </Box>
 
-            {/* 成员列表 */}
             <TableContainer component={Paper} sx={{ ...glass, borderRadius: 3, maxHeight: 520 }}>
                 <Table size="small" stickyHeader>
                     <TableHead>
@@ -537,12 +636,8 @@ function GroupMembersView({ name, group, glass, onBack }: {
                         ) : members.map((m) => (
                             <TableRow key={m.user_id} hover>
                                 <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{m.user_id}</TableCell>
-                                <TableCell sx={{ fontSize: '0.85rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {m.nickname}
-                                </TableCell>
-                                <TableCell sx={{ fontSize: '0.85rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {m.card || '-'}
-                                </TableCell>
+                                <TableCell sx={{ fontSize: '0.85rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.nickname}</TableCell>
+                                <TableCell sx={{ fontSize: '0.85rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.card || '-'}</TableCell>
                                 <TableCell>{roleChip(m.role)}</TableCell>
                                 <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>
                                     {m.last_sent_time ? new Date(m.last_sent_time * 1000).toLocaleDateString() : '-'}
@@ -551,18 +646,12 @@ function GroupMembersView({ name, group, glass, onBack }: {
                                     {m.role !== 'owner' && (
                                         <Box sx={{ display: 'flex', gap: 0.5 }}>
                                             <Tooltip title={t('botManager.editCard')}>
-                                                <IconButton size="small" onClick={() => {
-                                                    setCardDialog({ open: true, userId: m.user_id, nickname: m.nickname, card: m.card });
-                                                    setNewCard(m.card || '');
-                                                }}>
+                                                <IconButton size="small" onClick={() => { setCardDialog({ open: true, userId: m.user_id, nickname: m.nickname, card: m.card }); setNewCard(m.card || ''); }}>
                                                     <EditIcon sx={{ fontSize: 15 }} />
                                                 </IconButton>
                                             </Tooltip>
                                             <Tooltip title={t('botManager.mute')}>
-                                                <IconButton size="small" onClick={() => {
-                                                    setMuteDialog({ open: true, userId: m.user_id, nickname: m.nickname });
-                                                    setMuteDuration('600');
-                                                }}>
+                                                <IconButton size="small" onClick={() => { setMuteDialog({ open: true, userId: m.user_id, nickname: m.nickname }); setMuteDuration('600'); }}>
                                                     <VolumeOffIcon sx={{ fontSize: 15 }} />
                                                 </IconButton>
                                             </Tooltip>
@@ -619,12 +708,8 @@ function GroupMembersView({ name, group, glass, onBack }: {
                     </FormControl>
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
-                    <Button onClick={() => setMuteDialog({ open: false, userId: 0, nickname: '' })} color="inherit" sx={{ borderRadius: 2 }}>
-                        {t('botManager.cancel')}
-                    </Button>
-                    <Button onClick={handleMute} variant="contained" sx={{ borderRadius: 2 }}>
-                        {t('botManager.confirmMute')}
-                    </Button>
+                    <Button onClick={() => setMuteDialog({ open: false, userId: 0, nickname: '' })} color="inherit" sx={{ borderRadius: 2 }}>{t('botManager.cancel')}</Button>
+                    <Button onClick={handleMute} variant="contained" sx={{ borderRadius: 2 }}>{t('botManager.confirmMute')}</Button>
                 </DialogActions>
             </Dialog>
 
@@ -643,12 +728,8 @@ function GroupMembersView({ name, group, glass, onBack }: {
                     />
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
-                    <Button onClick={() => setCardDialog({ open: false, userId: 0, nickname: '', card: '' })} color="inherit" sx={{ borderRadius: 2 }}>
-                        {t('botManager.cancel')}
-                    </Button>
-                    <Button onClick={handleSetCard} variant="contained" sx={{ borderRadius: 2 }}>
-                        {t('botManager.save')}
-                    </Button>
+                    <Button onClick={() => setCardDialog({ open: false, userId: 0, nickname: '', card: '' })} color="inherit" sx={{ borderRadius: 2 }}>{t('botManager.cancel')}</Button>
+                    <Button onClick={handleSetCard} variant="contained" sx={{ borderRadius: 2 }}>{t('botManager.save')}</Button>
                 </DialogActions>
             </Dialog>
         </Box>

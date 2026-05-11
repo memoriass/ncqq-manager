@@ -17,10 +17,19 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from middleware.auth import get_current_user
+from middleware.auth import get_current_user, check_instance_permission
 from services.log import logger
 
 router = APIRouter(prefix="/api/bots", tags=["bot-api"])
+
+
+def _check_bot_permission(session: dict, name: str) -> None:
+    """检查用户对指定 Bot 实例的权限，无权限则抛 403。"""
+    from services.instance_subsystem import instance_subsystem
+    inst = instance_subsystem.get(name)
+    node_id = inst.node_id if inst else "local"
+    if not check_instance_permission(session, node_id, name):
+        raise HTTPException(status_code=403, detail="No permission for this instance")
 
 # ─── 请求/响应模型 ────────────────────────────────────────────────────────────
 
@@ -96,6 +105,7 @@ async def list_bots(_user=Depends(get_current_user)):
 @router.get("/{name}/status", response_model=BotStatusItem)
 async def get_bot_status(name: str, _user=Depends(get_current_user)):
     """查询指定 Bot 的连接状态。"""
+    _check_bot_permission(_user, name)
     from services.napcat_ws_service import napcat_ws_service
     entry = napcat_ws_service.get_entry_snapshot(name)
     if entry is None:
@@ -120,6 +130,7 @@ async def call_bot_api(
     Bot 必须当前在线（已连接到 /ws/napcat/{name}）。
     返回 OneBot 响应的 data 字段。
     """
+    _check_bot_permission(_user, name)
     from services.napcat_ws_service import napcat_ws_service
     if not napcat_ws_service.is_connected(name):
         raise HTTPException(status_code=503, detail=f"Bot [{name}] 当前未连接")
@@ -144,6 +155,7 @@ async def send_bot_message(
     msg_type: "private" | "group"
     target_id: QQ 号（私聊）或群号（群聊）
     """
+    _check_bot_permission(_user, name)
     from services.napcat_ws_service import napcat_ws_service
     if not napcat_ws_service.is_connected(name):
         raise HTTPException(status_code=503, detail=f"Bot [{name}] 当前未连接")
@@ -167,6 +179,7 @@ async def get_bot_messages(
     _user=Depends(get_current_user),
 ) -> Dict[str, Any]:
     """获取指定 Bot 最近收到的消息（环形缓冲区，最新在前）。"""
+    _check_bot_permission(_user, name)
     from services.napcat_ws_service import napcat_ws_service
     messages = napcat_ws_service.get_messages(name, min(limit, 200))
     return {"status": "ok", "name": name, "count": len(messages), "messages": messages}
