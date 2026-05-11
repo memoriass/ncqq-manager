@@ -21,7 +21,8 @@ _EVENT_FILTERS = {
     "type": ["container"],
     "event": ["start", "stop", "die", "destroy", "create", "restart", "pause", "unpause"],
 }
-_RECONNECT_INTERVAL = 5   # 断线重连间隔（秒）
+_RECONNECT_INTERVAL = 5   # 断线重连初始间隔（秒）
+_RECONNECT_MAX = 60        # 最大重连间隔（秒）
 _QUEUE_MAXSIZE = 64        # 每条订阅队列最大积压事件数（防慢消费者撑爆内存）
 
 
@@ -113,12 +114,14 @@ class DockerEventWatcher:
     # ------------------------------------------------------------------ #
 
     def _watch_loop(self):
-        """后台线程主循环 — 断线自动重连。"""
+        """后台线程主循环 — 断线自动重连，指数退避。"""
+        backoff = _RECONNECT_INTERVAL
         while self._running:
             client = None
             try:
                 client = docker.from_env(timeout=10)
                 logger.info("Docker Events 已连接")
+                backoff = _RECONNECT_INTERVAL  # 成功连接，重置退避
                 self._consume_events(client)
             except docker.errors.DockerException as e:
                 logger.debug("Docker Events 连接失败: %s", e)
@@ -132,7 +135,8 @@ class DockerEventWatcher:
                         pass
 
             if self._running:
-                time.sleep(_RECONNECT_INTERVAL)
+                time.sleep(backoff)
+                backoff = min(backoff * 2, _RECONNECT_MAX)
 
     def _consume_events(self, client):
         """消费事件流（阻塞，直到断线或 stop）。"""
@@ -172,7 +176,10 @@ class DockerEventWatcher:
                 except asyncio.QueueFull:
                     logger.debug("EventWatcher: 队列满，丢弃事件 name=%s action=%s", name, action)
 
-        self._loop.call_soon_threadsafe(_put_all)
+        try:
+            self._loop.call_soon_threadsafe(_put_all)
+        except RuntimeError:
+            pass
 
 
 # ============ 单例 ============

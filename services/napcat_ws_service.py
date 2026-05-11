@@ -29,8 +29,9 @@ if TYPE_CHECKING:
 
 # 重连宽限期（秒）：WS 断开后保留在线态，等 NapCat 重连
 _RECONNECT_GRACE = 15
-# BS 辅助检测缓存 TTL（秒）
-_BS_CACHE_TTL = 10
+# BS 辅助检测缓存 TTL（秒）— 已登录实例降频，未登录保持高频
+_BS_CACHE_TTL_ONLINE = 60
+_BS_CACHE_TTL_OFFLINE = 10
 # API 代理调用超时（秒）
 _API_PROXY_TIMEOUT = 10.0
 # 消息监控缓冲区大小（每容器）
@@ -381,7 +382,7 @@ class NapCatWsService:
           hb_online=None + 未超时 → 初始连接期，暂假定在线
           hb_online=None + 超时(>45s) → 安全网：可能 ghost WS，返回 offline
         """
-        _HB_WAIT_TIMEOUT = 45  # 等待首次心跳的最长时间
+        _HB_WAIT_TIMEOUT = 20  # 等待首次心跳的最长时间（缩短以减少假在线窗口）
 
         e = self._table.get(name)
         if not e or not e.uin:
@@ -415,6 +416,13 @@ class NapCatWsService:
             return {
                 "logged_in": False, "uin": e.uin, "stage": "waiting",
                 "method": "sdk_ws", "reason": "no_heartbeat",
+            }
+
+        # 初始连接期（<20s）且有 proxy：主动调用 get_login_info 确认，避免盲目假定在线
+        if ws_age > 5 and self._proxies.get(name):
+            return {
+                "logged_in": False, "uin": e.uin, "stage": "waiting",
+                "method": "sdk_ws", "reason": "initial_needs_verify",
             }
 
         # 初始连接期（<45s），暂假定在线等待心跳到达
@@ -461,7 +469,8 @@ class NapCatWsService:
 
             # 缓存命中
             cached = self._bs_cache.get(name)
-            if cached and (time.time() - cached[0]) < _BS_CACHE_TTL:
+            cached_ttl = _BS_CACHE_TTL_ONLINE if (cached and cached[1].get("logged_in")) else _BS_CACHE_TTL_OFFLINE
+            if cached and (time.time() - cached[0]) < cached_ttl:
                 return cached[1]
 
             # ★ BS account_id = QQ号(uin)；优先使用可解析的已知 uin

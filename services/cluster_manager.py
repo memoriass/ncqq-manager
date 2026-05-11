@@ -11,7 +11,7 @@ import aiohttp
 
 from services.log import logger
 from services.config import CONFIG_FILE, APP_VERSION
-from services.docker_manager import docker_manager
+from services.docker_async import async_docker_manager
 import services.database as db
 
 
@@ -67,14 +67,14 @@ class ClusterManager:
         return db.rows_to_list(rows)
 
     def save_nodes(self, nodes: List[Dict]):
-        """兼容旧调用：全量覆盖（先删后插）"""
-        db.execute("DELETE FROM nodes")
-        for n in nodes:
-            db.execute(
-                "INSERT INTO nodes (id,name,address,api_key) VALUES (?,?,?,?)",
-                (n["id"], n["name"], n["address"], n.get("api_key", "")),
-            )
-        db.commit()
+        """兼容旧调用：全量覆盖（先删后插），原子事务保证。"""
+        with db.transaction() as tx:
+            tx.execute("DELETE FROM nodes")
+            for n in nodes:
+                tx.execute(
+                    "INSERT INTO nodes (id,name,address,api_key) VALUES (?,?,?,?)",
+                    (n["id"], n["name"], n["address"], n.get("api_key", "")),
+                )
 
     def _invalidate_cache(self):
         """节点增删改后清除状态缓存。"""
@@ -290,14 +290,14 @@ class ClusterManager:
 
     async def action_container_async(self, node_id: str, name: str, action: str) -> bool:
         if node_id == "local" or not node_id:
-            return docker_manager.action_container(name, action)
+            return await async_docker_manager.action_container(name, action)
         code, _, _ = await self.proxy_to_node_async(
             node_id, "POST", f"/api/containers/{name}/action?action={action}")
         return code == 200
 
     async def get_stats_async(self, node_id: str, name: str) -> Dict:
         if node_id == "local" or not node_id:
-            return docker_manager.get_stats(name)
+            return await async_docker_manager.get_stats(name)
         code, body, _ = await self.proxy_to_node_async(
             node_id, "GET", f"/api/containers/{name}/stats")
         if code == 200 and body:
@@ -308,7 +308,7 @@ class ClusterManager:
 
     async def get_logs_async(self, node_id: str, name: str, lines: int = 100) -> str:
         if node_id == "local" or not node_id:
-            return docker_manager.get_logs(name, lines)
+            return await async_docker_manager.get_logs(name, lines)
         code, body, _ = await self.proxy_to_node_async(
             node_id, "GET", f"/api/containers/{name}/logs?lines={lines}")
         if code == 200 and body:

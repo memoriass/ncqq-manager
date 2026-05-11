@@ -15,7 +15,6 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel
-from starlette.concurrency import run_in_threadpool
 
 from middleware.auth import (
     check_instance_permission,
@@ -27,7 +26,6 @@ from services.cluster_manager import cluster_manager
 from services.config import app_config, get_data_dir
 from services.container_state import state_engine
 from services.docker_async import async_docker_manager, async_login_checker as async_docker_manager_login
-from services.docker_manager import docker_manager
 from services.log import logger
 from services.operation_log_context import build_operator_payload
 from services.operation_logger import operation_logger
@@ -210,11 +208,10 @@ def _parse_env_list(env_vars: list[str] | None) -> dict[str, str]:
     return env
 
 
-def _snapshot_container(name: str) -> dict:
-    if not docker_manager.client:
+async def _snapshot_container(name: str) -> dict:
+    attrs = await async_docker_manager.inspect_container(name)
+    if not attrs:
         return {}
-    container = docker_manager.client.containers.get(name)
-    attrs = container.attrs or {}
     config = attrs.get("Config") or {}
     host_cfg = attrs.get("HostConfig") or {}
     port_bindings = host_cfg.get("PortBindings") or {}
@@ -397,7 +394,7 @@ async def api_recreate_container(
         return remote_data
 
     try:
-        snapshot = await run_in_threadpool(_snapshot_container, name)
+        snapshot = await _snapshot_container(name)
     except Exception:
         return _build_error(404, "NOT_FOUND", "container not found", request_id)
 
@@ -433,25 +430,22 @@ async def api_recreate_container(
     for host_dir in volumes:
         os.makedirs(host_dir, exist_ok=True)
 
-    used_ports = await async_docker_manager.get_used_ports()
     webui_port = req.webui_port or int(snapshot.get("webui_port") or 0)
     if webui_port <= 0:
-        webui_port = async_docker_manager.find_available_port(
-            app_config.get("webui_base_port", 6000), used_ports
+        webui_port = await async_docker_manager.allocate_port(
+            app_config.get("webui_base_port", 6000)
         )
-    used_ports.add(webui_port)
 
     http_port = req.http_port or int(snapshot.get("http_port") or 0)
     if http_port <= 0:
-        http_port = async_docker_manager.find_available_port(
-            app_config.get("http_base_port", 3000), used_ports
+        http_port = await async_docker_manager.allocate_port(
+            app_config.get("http_base_port", 3000)
         )
-    used_ports.add(http_port)
 
     ws_port = req.ws_port or int(snapshot.get("ws_port") or 0)
     if ws_port <= 0:
-        ws_port = async_docker_manager.find_available_port(
-            app_config.get("ws_base_port", 3001), used_ports
+        ws_port = await async_docker_manager.allocate_port(
+            app_config.get("ws_base_port", 3001)
         )
 
     image = req.docker_image or str(
@@ -506,6 +500,8 @@ async def api_recreate_container(
         mem_limit=f"{memory_limit}m" if memory_limit > 0 else None,
         network_mode=network_mode_arg,
     )
+    for p in (webui_port, http_port, ws_port):
+        async_docker_manager.release_port(p)
     if not cid:
         return _build_error(
             500, "RECREATE_CREATE_FAILED", "failed to create new container", request_id
@@ -609,9 +605,9 @@ async def get_container_stats(
         raise HTTPException(status_code=403, detail="No permission for this instance")
     stats = await cluster_manager.get_stats_async(node_id, name)
     if node_id == "local" and isinstance(stats, dict):
-        from services.docker_events import docker_event_watcher
+        from services.docker_async import async_docker_manager
 
-        last = docker_event_watcher.get_last_event(name)
+        last = async_docker_manager.get_last_event(name)
         stats["last_event"] = last
 
         # ── 运行状态透传：将 WS 连接层的 Bot 状态注入 stats ──
@@ -737,12 +733,9 @@ async def get_qr_code(name: str, node_id: str = "local"):
         except Exception:
             pass
     try:
-        if docker_manager.client:
-            container = docker_manager.client.containers.get(name)
-            if container.status != "running":
-                return {"status": "waiting"}
-            logs = container.logs(tail=50).decode("utf-8", errors="ignore")
-            qr_url_match = re.search(r"二维码解码URL:\s*(https://[^\s]+)", logs)
+        logs_text = await async_docker_manager.get_logs(name, 50)
+        if logs_text:
+            qr_url_match = re.search(r"二维码解码URL:\s*(https://[^\s]+)", logs_text)
             if qr_url_match:
                 return {"status": "ok", "url": qr_url_match.group(1), "type": "log"}
     except Exception as exc:
@@ -824,7 +817,32 @@ async def receive_login_event(request: Request):
     container_name = body.get("name", "")
     if not container_name:
         raise HTTPException(status_code=400, detail="Missing container name")
-    docker_manager.update_login_cache(container_name, body)
+    from services.docker_login import LoginMixin
+    LoginMixin.update_login_cache(container_name, body)
+    return {"status": "ok"}
+
+
+@router.post("/internal/heartbeat")
+async def receive_heartbeat(request: Request):
+    internal_key = request.headers.get("x-internal-key", "")
+    expected_key = app_config.get("internal_api_key", "")
+    if not expected_key or internal_key != expected_key:
+        raise HTTPException(status_code=403, detail="Invalid internal key")
+    body = await request.json()
+    container_name = body.get("name", "")
+    if not container_name:
+        raise HTTPException(status_code=400, detail="Missing container name")
+    from services.instance_subsystem import instance_subsystem
+    import time as _time
+    inst = instance_subsystem.get(container_name)
+    if not inst:
+        return {"status": "ok", "ignored": True}
+    inst.bot_online = True
+    inst.bot_heartbeat_ts = _time.time()
+    if "message_sent" in body:
+        inst.message_sent = int(body["message_sent"])
+    if "message_received" in body:
+        inst.message_received = int(body["message_received"])
     return {"status": "ok"}
 
 
@@ -848,7 +866,7 @@ async def stream_container_events(
     import asyncio
     import json
     from fastapi.responses import StreamingResponse
-    from services.docker_events import docker_event_watcher
+    from services.docker_async import async_docker_manager
 
     if not _CONTAINER_NAME_RE.match(name):
         raise HTTPException(status_code=400, detail="Invalid container name")
@@ -861,7 +879,7 @@ async def stream_container_events(
 
     _timeout = min(max(timeout, 5), 300)
     loop = asyncio.get_event_loop()
-    q = docker_event_watcher.subscribe(name, loop)
+    q = async_docker_manager.subscribe(name)
 
     async def _generate():
         try:
@@ -881,7 +899,7 @@ async def stream_container_events(
                     # 心跳注释行，保持连接活跃
                     yield ": keep-alive\n\n"
         finally:
-            docker_event_watcher.unsubscribe(name, q)
+            async_docker_manager.unsubscribe(name, q)
 
     return StreamingResponse(
         _generate(),

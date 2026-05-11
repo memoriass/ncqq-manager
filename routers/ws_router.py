@@ -10,6 +10,7 @@ WebSocket 路由 - 实时事件推送 + 日志流
 """
 
 import asyncio
+from collections import defaultdict
 
 import orjson
 
@@ -31,12 +32,14 @@ from services.ob11_events import (
     GroupMessageEvent,
     PrivateMessageEvent,
 )
-from middleware.auth import validate_token_value
+from middleware.auth import validate_token_value, check_instance_permission
 from middleware.rate_limiter import websocket_public_speed_limit
 
 router = APIRouter(tags=["websocket"])
 
 _MAX_PUBLIC_WS = 50  # 公开 WS 最大并发连接数
+_MAX_PUBLIC_WS_PER_IP = 5  # 单 IP 最大并发公开 WS 连接数
+_public_ws_per_ip: defaultdict[str, int] = defaultdict(int)
 
 
 def _build_snapshot(containers: list) -> dict:
@@ -52,9 +55,28 @@ def _build_snapshot(containers: list) -> dict:
     return snap
 
 
-def _build_public_version(sub_page: int, sub_page_size: int) -> tuple:
-    tick = state_engine.health_info.get("tick", 0)
-    return (sub_page, sub_page_size, tick)
+def _diff_containers(prev: list, curr: list) -> dict | None:
+    """计算容器列表增量。返回 None 表示无变化。"""
+    prev_map = {c["name"]: c for c in prev}
+    curr_map = {c["name"]: c for c in curr}
+    added = [c for name, c in curr_map.items() if name not in prev_map]
+    removed = [name for name in prev_map if name not in curr_map]
+    updated = [
+        c for name, c in curr_map.items()
+        if name in prev_map and c != prev_map[name]
+    ]
+    if not added and not removed and not updated:
+        return None
+    return {"added": added, "removed": removed, "updated": updated}
+
+
+def _diff_qr(prev: dict, curr: dict) -> dict | None:
+    """计算 QR 状态增量。返回 None 表示无变化。"""
+    changed = {k: v for k, v in curr.items() if prev.get(k) != v}
+    removed = [k for k in prev if k not in curr]
+    if not changed and not removed:
+        return None
+    return {"changed": changed, "removed": removed}
 
 
 def _resolve_ws_token(ws: WebSocket) -> str:
@@ -77,7 +99,6 @@ async def ws_events(ws: WebSocket):
     prev_snapshot: dict = {}
     try:
         while True:
-            # 从状态引擎读内存快照（零阻塞，<1ms）
             containers = state_engine.get_containers()
             curr_snapshot = _build_snapshot(containers)
 
@@ -88,14 +109,19 @@ async def ws_events(ws: WebSocket):
                         timeout=5,
                     )
                     prev_snapshot = curr_snapshot
-                else:
-                    await asyncio.wait_for(
-                        ws.send_json({"type": "heartbeat"}), timeout=5
-                    )
             except (asyncio.TimeoutError, Exception):
                 break
 
-            await asyncio.sleep(3)
+            # 等待状态变更或超时（替代固定 sleep 轮询）
+            changed = await state_engine.wait_for_change(timeout=10.0)
+            if not changed:
+                # 超时无变更 → 发心跳保活
+                try:
+                    await asyncio.wait_for(
+                        ws.send_json({"type": "heartbeat"}), timeout=5
+                    )
+                except (asyncio.TimeoutError, Exception):
+                    break
     except WebSocketDisconnect:
         pass
     except Exception as e:
@@ -117,14 +143,24 @@ async def ws_container_logs(
         await ws.close(code=4001, reason="Unauthorized")
         return
 
+    if not check_instance_permission(session, node_id, name):
+        await ws.close(code=4003, reason="No permission for this instance")
+        return
+
     await ws.accept()
     try:
         while True:
             try:
-                logs = await asyncio.wait_for(
-                    run_in_threadpool(cluster_manager.get_logs, node_id, name, 200),
-                    timeout=8,
-                )
+                if node_id == "local":
+                    from services.docker_async import async_docker_manager
+                    logs = await asyncio.wait_for(
+                        async_docker_manager.get_logs(name, 200), timeout=8,
+                    )
+                else:
+                    logs = await asyncio.wait_for(
+                        run_in_threadpool(cluster_manager.get_logs, node_id, name, 200),
+                        timeout=8,
+                    )
             except (asyncio.TimeoutError, Exception):
                 logs = ""
             try:
@@ -150,6 +186,7 @@ async def ws_public(ws: WebSocket):
     协议：
       服务端 → 客户端：
         {"type": "full",      "data": {"containers": [...], "qr": {...}}}
+        {"type": "patch",     "data": {"containers": {"added":[], "removed":[], "updated":[]}, "qr": {"changed":{}, "removed":[]}}}
         {"type": "heartbeat"}
       客户端 → 服务端（可选，按需订阅分页）：
         {"type": "subscribe", "page": 1, "pageSize": 20}
@@ -159,14 +196,20 @@ async def ws_public(ws: WebSocket):
         await ws.close(code=4429, reason="Rate limited")
         return
 
+    client_ip = ws.client.host if ws.client else "unknown"
+    if _public_ws_per_ip[client_ip] >= _MAX_PUBLIC_WS_PER_IP:
+        await ws.close(code=4429, reason="Too many connections from this IP")
+        return
+
     if not await ws_manager.connect_if_available(ws, _MAX_PUBLIC_WS):
         await ws.close(code=4429, reason="Too many connections")
         return
 
+    _public_ws_per_ip[client_ip] += 1
+
     # 默认推送全量（向后兼容），客户端可发 subscribe 切换分页
     sub_page = 0  # 0 = 全量模式
     sub_page_size = 20
-    prev_version: tuple | None = None
 
     async def _recv_loop():
         """接收客户端的订阅消息（翻页/搜索时发送）。"""
@@ -184,13 +227,13 @@ async def ws_public(ws: WebSocket):
             pass
 
     recv_task = asyncio.create_task(_recv_loop())
+    prev_containers: list = []
+    prev_qr: dict = {}
+    first_push = True
     try:
         while True:
-            curr_version = _build_public_version(sub_page, sub_page_size)
-
             # 构建推送数据
             if sub_page > 0:
-                # 分页模式 — 只推送当前页（MCSM instance/select 模式）
                 page_result = instance_subsystem.query(
                     page=sub_page, page_size=sub_page_size
                 )
@@ -200,35 +243,57 @@ async def ws_public(ws: WebSocket):
                     inst = instance_subsystem.get(item["name"])
                     if inst:
                         qr_states[item["name"]] = inst.to_qr_dict()
-                payload = {"containers": page_result, "qr": qr_states}
             else:
-                # 全量模式 — 兼容简单客户端
                 containers = state_engine.get_containers()
                 qr_states = state_engine.get_qr_states()
-                payload = {"containers": containers, "qr": qr_states}
 
             try:
-                if curr_version != prev_version:
+                if first_push:
+                    # 首次全量推送
+                    payload = {"containers": containers, "qr": qr_states}
                     await asyncio.wait_for(
                         ws.send_json({"type": "full", "data": payload}),
                         timeout=5,
                     )
-                    prev_version = curr_version
+                    first_push = False
                 else:
-                    await asyncio.wait_for(
-                        ws.send_json({"type": "heartbeat"}),
-                        timeout=5,
-                    )
+                    # 增量推送
+                    c_diff = _diff_containers(prev_containers, containers)
+                    q_diff = _diff_qr(prev_qr, qr_states)
+                    if c_diff or q_diff:
+                        patch: dict = {}
+                        if c_diff:
+                            patch["containers"] = c_diff
+                        if q_diff:
+                            patch["qr"] = q_diff
+                        await asyncio.wait_for(
+                            ws.send_json({"type": "patch", "data": patch}),
+                            timeout=5,
+                        )
             except (asyncio.TimeoutError, Exception):
                 break
 
-            await asyncio.sleep(3)
+            prev_containers = containers
+            prev_qr = qr_states
+
+            # 事件驱动等待
+            changed = await state_engine.wait_for_change(timeout=10.0)
+            if not changed:
+                try:
+                    await asyncio.wait_for(
+                        ws.send_json({"type": "heartbeat"}), timeout=5
+                    )
+                except (asyncio.TimeoutError, Exception):
+                    break
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.debug("WS public 连接异常: %s", e)
     finally:
         recv_task.cancel()
+        _public_ws_per_ip[client_ip] -= 1
+        if _public_ws_per_ip[client_ip] <= 0:
+            _public_ws_per_ip.pop(client_ip, None)
         await ws_manager.disconnect(ws)
 
 

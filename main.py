@@ -130,10 +130,6 @@ async def lifespan(app: FastAPI):
     from services.container_state import state_engine
     await state_engine.start()
 
-    # 启动 Docker 事件监听（事件驱动替代定时轮询）
-    from services.docker_events import docker_event_watcher
-    docker_event_watcher.start(notify_fn=state_engine.notify_change)
-
     # 启动定时任务调度器
     from services.scheduler import scheduler
     await scheduler.start()
@@ -147,9 +143,9 @@ async def lifespan(app: FastAPI):
     from services.bs_activation_service import bs_activation_service
     await bs_activation_service.auto_resume()
 
-    # 注入主事件循环引用到 docker_manager（供线程池回调中 fire-and-forget BS 注入使用）
-    from services.docker_manager import set_main_event_loop
-    set_main_event_loop(asyncio.get_running_loop())
+    # 登录代偿检测器：文件扫描注入（BS/WS 均生效）+ 登录态验证（仅非 BS 模式）
+    from services.login_compensator import login_compensator
+    await login_compensator.auto_start()
 
     yield
 
@@ -160,7 +156,6 @@ async def lifespan(app: FastAPI):
         await asyncio.gather(monitor_task, flush_task, return_exceptions=True)
     except Exception:
         pass
-    docker_event_watcher.stop()
     await state_engine.stop()
     await async_docker_manager.stop()
     await async_login_checker.stop()
@@ -168,6 +163,7 @@ async def lifespan(app: FastAPI):
     await scheduler.stop()
     botshepherd_manager.stop()
     await bs_activation_service.stop()
+    await login_compensator.stop()
     operation_logger.flush()
     cleanup_expired_tokens()
     database.close_db()

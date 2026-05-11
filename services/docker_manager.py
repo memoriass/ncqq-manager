@@ -13,6 +13,7 @@ import io
 import json
 import time
 import tarfile
+import threading
 import urllib.request
 import urllib.error
 import docker
@@ -24,16 +25,6 @@ from services.log import logger
 from services.config import get_data_dir
 from services.docker_login import LoginMixin, _normalize_uin  # noqa: F401
 from services.docker_lifecycle import LifecycleMixin
-
-# 主事件循环引用（由 main.py lifespan 在启动时注入，供线程池回调使用）
-_main_event_loop: Optional[asyncio.AbstractEventLoop] = None
-
-
-def set_main_event_loop(loop: asyncio.AbstractEventLoop) -> None:
-    """由 lifespan 在主协程中调用，将主事件循环注入本模块，供线程内 fire-and-forget 使用。"""
-    global _main_event_loop
-    _main_event_loop = loop
-
 
 # Stats 缓存：{container_name: {stats_dict, ts}}
 _stats_cache: Dict[str, Dict] = {}
@@ -52,6 +43,8 @@ _DOCKER_LOGS_TIMEOUT = 2    # 秒，c.logs() 超时
 
 class DockerManager(LoginMixin, LifecycleMixin):
     def __init__(self):
+        self._port_lock = threading.Lock()
+        self._reserved_ports: set = set()
         try:
             self.client = docker.from_env()
             logger.info("Docker 连接成功")
@@ -463,6 +456,19 @@ class DockerManager(LoginMixin, LifecycleMixin):
             if port > 65535:
                 raise ValueError(f"没有可用端口（从 {base} 开始，所有端口均被占用）")
         return port
+
+    def allocate_port(self, base: int) -> int:
+        """原子化端口分配：获取已用端口 + 查找可用 + 预留，防止竞态。"""
+        with self._port_lock:
+            used = self.get_used_ports()
+            used |= self._reserved_ports
+            port = self.find_available_port(base, used)
+            self._reserved_ports.add(port)
+            return port
+
+    def release_port(self, port: int) -> None:
+        """容器创建/绑定完成后释放预留。"""
+        self._reserved_ports.discard(port)
 
     # ============ 镜像管理 ============
 

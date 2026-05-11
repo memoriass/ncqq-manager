@@ -183,11 +183,10 @@ class Scheduler:
 
     async def _do_restart(self, config: Dict):
         """重启指定容器"""
-        from starlette.concurrency import run_in_threadpool
-        from services.docker_manager import docker_manager
+        from services.docker_async import async_docker_manager
         container_name = config.get("container_name", "")
         if container_name:
-            await run_in_threadpool(docker_manager.action_container, container_name, "restart")
+            await async_docker_manager.action_container(container_name, "restart")
 
     def _do_cleanup(self, config: Dict):
         """清理旧备份文件"""

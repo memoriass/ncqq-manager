@@ -17,10 +17,12 @@ from services.instance_subsystem import instance_subsystem
 from services.docker_async import async_login_checker, async_docker_manager
 
 
+_bs_inject_locks: Dict[str, asyncio.Lock] = {}
+
+
 def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
-    """按登录判定结果触发 BS 注入（fire-and-forget）。"""
+    """按登录判定结果触发 BS 注入（fire-and-forget，per-name 串行）。"""
     try:
-        # 注入依赖登录判定：未登录或缺少 uin 时不触发
         if not result.get("logged_in"):
             return
         uin = str(result.get("uin", ""))
@@ -34,13 +36,15 @@ def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
         except RuntimeError:
             loop = None
         if loop is not None:
-            loop.run_in_executor(
-                None,
-                docker_manager._on_login_detected,
-                name,
-                result,
-                prev,
-            )
+            lock = _bs_inject_locks.setdefault(name, asyncio.Lock())
+
+            async def _guarded():
+                if lock.locked():
+                    return  # 已有注入在执行，跳过
+                async with lock:
+                    await docker_manager._on_login_detected(name, result, prev)
+
+            loop.create_task(_guarded())
     except Exception as e:
         logger.debug("BS 注入调度异常 [%s]: %s", name, e)
 
@@ -65,6 +69,7 @@ class ContainerStateEngine:
         self._running = False
         self._task: asyncio.Task | None = None
         self._force_event: asyncio.Event | None = None  # 操作/事件后立即触发刷新
+        self._change_condition: asyncio.Condition = asyncio.Condition()
         # 首次 tick 完成前不发上线通知（避免启动时误报所有在线容器）
         self._engine_initialized: bool = False
 
@@ -101,8 +106,14 @@ class ContainerStateEngine:
             return
         self._running = True
         self._force_event = asyncio.Event()
+        # 注册 Docker Events 回调 — 容器状态变化时立即唤醒引擎
+        async_docker_manager.on_container_event(self._on_docker_event)
         self._task = asyncio.create_task(self._loop())
         logger.info("容器状态引擎已启动")
+
+    def _on_docker_event(self, name: str, action: str):
+        """Docker 容器事件回调 — 立即唤醒主循环。"""
+        self.notify_change()
 
     async def stop(self):
         self._running = False
@@ -121,6 +132,15 @@ class ContainerStateEngine:
         if self._force_event:
             self._force_event.set()
 
+    async def wait_for_change(self, timeout: float = 10.0) -> bool:
+        """等待状态变更通知，返回 True 表示有变更，False 表示超时。"""
+        try:
+            async with self._change_condition:
+                await asyncio.wait_for(self._change_condition.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
+
     # ============ 后台主循环（自适应间隔 — 事件驱动） ============
 
     async def _loop(self):
@@ -130,6 +150,10 @@ class ContainerStateEngine:
                 await self._tick_once()
             except Exception as e:
                 logger.error("状态引擎异常: %s", e, exc_info=True)
+
+            # 通知所有等待状态变更的 WS 客户端
+            async with self._change_condition:
+                self._change_condition.notify_all()
 
             # §9 tick 耗时记录
             elapsed = time.monotonic() - t0
@@ -452,9 +476,10 @@ class ContainerStateEngine:
                 if exists:
                     age = now - await asyncio.to_thread(os.path.getmtime, qr_path)
                     if age < _QR_MAX_AGE:
-                        raw = await asyncio.to_thread(
-                            lambda: open(qr_path, "rb").read()
-                        )
+                        def _read_qr(p=qr_path):
+                            with open(p, "rb") as f:
+                                return f.read()
+                        raw = await asyncio.to_thread(_read_qr)
                         b64 = base64.b64encode(raw).decode("utf-8")
                         qr_data = f"data:image/png;base64,{b64}"
                     else:

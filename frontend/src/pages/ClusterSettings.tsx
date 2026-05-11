@@ -335,7 +335,7 @@ export default function ClusterSettings() {
                         />
                     </Box>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        {t('clusterConfig.bsInitDesc')}
+                        {config.init_bs_enabled ? t('clusterConfig.bsInitDesc') : t('clusterConfig.bsDisabledCompensateDesc')}
                     </Typography>
 
                     <Collapse in={config.init_bs_enabled}>

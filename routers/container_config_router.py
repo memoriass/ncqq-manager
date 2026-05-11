@@ -8,7 +8,7 @@ import shutil
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
-from middleware.auth import get_current_user
+from middleware.auth import get_current_user, check_instance_permission
 from services.config import get_data_dir
 from services.log import logger
 from services.operation_logger import operation_logger
@@ -36,6 +36,8 @@ def read_container_config(
     filename: str,
     session: dict = Depends(get_current_user),
 ):
+    if not check_instance_permission(session, "local", name):
+        raise HTTPException(status_code=403, detail="No permission for this instance")
     file_path = _safe_path(get_data_dir(), name, filename)
     if not os.path.exists(file_path):
         return {"status": "not_found", "content": ""}
@@ -51,6 +53,8 @@ def save_container_config(
     request: Request,
     session: dict = Depends(get_current_user),
 ):
+    if not check_instance_permission(session, "local", name):
+        raise HTTPException(status_code=403, detail="No permission for this instance")
     file_path = _safe_path(get_data_dir(), name, filename)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
     with open(file_path, "w", encoding="utf-8") as file_handle:
@@ -70,6 +74,8 @@ def list_container_files(
     path: str = "",
     session: dict = Depends(get_current_user),
 ):
+    if not check_instance_permission(session, "local", name):
+        raise HTTPException(status_code=403, detail="No permission for this instance")
     target_dir = _safe_path(get_data_dir(), name, path)
     if not os.path.exists(target_dir):
         return {"status": "ok", "files": [], "folders": [], "current_path": path}
@@ -99,6 +105,8 @@ def delete_container_file(
     path: 相对于 data/{name}/ 的路径（必填，不可为空以防止误删根目录）。
     文件直接删除；文件夹递归删除（shutil.rmtree）。
     """
+    if not check_instance_permission(session, "local", name):
+        raise HTTPException(status_code=403, detail="No permission for this instance")
     if not path or path.strip("/") == "":
         raise HTTPException(status_code=400, detail="path 不能为空，禁止删除根目录")
 

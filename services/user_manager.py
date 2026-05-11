@@ -22,7 +22,7 @@ class ROLE:
 
 
 class UserManager:
-    _BAN_THRESHOLD = 10   # 失败次数上限
+    _BAN_THRESHOLD = 5    # 失败次数上限（5次后封禁）
     _BAN_TTL = 1800       # 30 分钟自动解封
 
     def __init__(self):

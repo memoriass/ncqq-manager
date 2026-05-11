@@ -191,6 +191,11 @@ CREATE TABLE IF NOT EXISTS login_failures (
     first_fail REAL NOT NULL,
     last_fail  REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS reserved_ports (
+    port       INTEGER PRIMARY KEY,
+    reserved_at REAL NOT NULL
+);
 """
 
 # ──────────── settings 读写助手 ────────────
@@ -234,6 +239,36 @@ def execute(sql: str, params: tuple = ()) -> sqlite3.Cursor:
 def executemany(sql: str, params_list: list) -> sqlite3.Cursor:
     with _lock:
         return _get_conn().executemany(sql, params_list)
+
+
+class transaction:
+    """显式事务上下文管理器 — 在 autocommit 模式下提供原子性。
+
+    用法: with db.transaction() as tx:
+              tx.execute(...)
+              tx.execute(...)
+    注意：事务内部使用 tx.execute() 而非 db.execute()，避免锁重入。
+    """
+
+    def __enter__(self):
+        _lock.acquire()
+        self._conn = _get_conn()
+        self._conn.execute("BEGIN")
+        return self
+
+    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+        return self._conn.execute(sql, params)
+
+    def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
+        return self._conn.executemany(sql, params_list)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is None:
+            self._conn.execute("COMMIT")
+        else:
+            self._conn.execute("ROLLBACK")
+        _lock.release()
+        return False
 
 
 def commit():

@@ -287,7 +287,7 @@ export default function Dashboard() {
                     </Button>
                 </Box>
 
-                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
                     <TextField
                         size="small"
                         placeholder={t('admin.searchPlaceholder')}
@@ -306,7 +306,7 @@ export default function Dashboard() {
                         size="small"
                         value={selectedNode}
                         onChange={(e) => setSelectedNode(e.target.value)}
-                        sx={{ minWidth: 220, height: 38, borderRadius: 2, fontSize: '0.875rem', borderColor: theme.palette.divider, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff' }}
+                        sx={{ minWidth: 180, height: 38, borderRadius: 2, fontSize: '0.875rem', borderColor: theme.palette.divider, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.02)' : '#fff' }}
                     >
                         <MenuItem value="all">
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

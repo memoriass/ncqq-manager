@@ -1,6 +1,7 @@
 """
 认证路由 - 登录/登出/状态检查/首次初始化
 """
+import asyncio
 import os
 import socket
 from typing import Optional
@@ -11,12 +12,15 @@ from pydantic import BaseModel
 from middleware.auth import (
     get_current_user, create_token, remove_token, get_optional_user,
 )
+from middleware.rate_limiter import public_speed_limit
 from services.user_manager import user_manager
 from services.config import app_config
 from services.operation_logger import operation_logger
 from services.log import logger
 
 router = APIRouter(prefix="/api", tags=["auth"])
+
+_setup_lock = asyncio.Lock()
 
 # 生产环境建议设置 COOKIE_SECURE=true（需要 HTTPS）
 _COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "").lower() in ("1", "true", "yes")
@@ -149,75 +153,78 @@ async def api_setup_status():
     }
 
 
-@router.post("/setup/init")
+@router.post("/setup/init", dependencies=[Depends(public_speed_limit(5.0))])
 async def api_setup_init(req: SetupRequest, request: Request):
     """首次初始化系统 — 设置管理员账号和运行参数"""
-    if app_config.get("initialized", False):
-        return JSONResponse(
-            {"status": "error", "message": "System already initialized"},
-            status_code=400,
+    async with _setup_lock:
+        if app_config.get("initialized", False):
+            return JSONResponse(
+                {"status": "error", "message": "System already initialized"},
+                status_code=400,
+            )
+
+        if not req.admin_username or not req.admin_password:
+            return JSONResponse(
+                {"status": "error", "message": "Username and password are required"},
+                status_code=400,
+            )
+
+        if len(req.admin_password) < 6:
+            return JSONResponse(
+                {"status": "error", "message": "Password must be at least 6 characters"},
+                status_code=400,
+            )
+
+        # 创建管理员账号
+        from services.user_manager import user_manager, ROLE
+        user = user_manager.create_user(
+            username=req.admin_username,
+            password=req.admin_password,
+            permission=ROLE.ADMIN,
         )
+        if not user:
+            return JSONResponse(
+                {"status": "error", "message": "Failed to create admin user"},
+                status_code=500,
+            )
 
-    if not req.admin_username or not req.admin_password:
-        return JSONResponse(
-            {"status": "error", "message": "Username and password are required"},
-            status_code=400,
+        # 更新配置
+        import uuid as _uuid
+        updates = {
+            "initialized": True,
+            "host": req.host,
+            "port": req.port,
+            "internal_api_key": _uuid.uuid4().hex,
+        }
+        if req.data_dir:
+            updates["data_dir"] = req.data_dir
+        app_config.update(updates)
+
+        ip = request.client.host if request.client else "unknown"
+        operation_logger.info("system_initialized", {
+            "operator_ip": ip,
+            "operator_name": req.admin_username,
+            "admin_user": req.admin_username,
+            "host": req.host,
+            "port": req.port,
+        })
+        logger.info("系统初始化完成: admin=%s, host=%s, port=%d", req.admin_username, req.host, req.port)
+
+        # 自动登录
+        token = create_token(user)
+        response = JSONResponse({
+            "status": "ok",
+            "message": "System initialized successfully",
+            "user": {
+                "uuid": user["uuid"],
+                "userName": user["userName"],
+                "permission": user["permission"],
+            },
+        })
+        response.set_cookie(
+            key="auth_token", value=token,
+            max_age=86400 * 7, httponly=True, samesite=_COOKIE_SAMESITE,
+            secure=_COOKIE_SECURE,
         )
-
-    if len(req.admin_password) < 6:
-        return JSONResponse(
-            {"status": "error", "message": "Password must be at least 6 characters"},
-            status_code=400,
-        )
-
-    # 创建管理员账号
-    from services.user_manager import user_manager, ROLE
-    user = user_manager.create_user(
-        username=req.admin_username,
-        password=req.admin_password,
-        permission=ROLE.ADMIN,
-    )
-    if not user:
-        return JSONResponse(
-            {"status": "error", "message": "Failed to create admin user"},
-            status_code=500,
-        )
-
-    # 更新配置
-    updates = {
-        "initialized": True,
-        "host": req.host,
-        "port": req.port,
-    }
-    if req.data_dir:
-        updates["data_dir"] = req.data_dir
-    app_config.update(updates)
-
-    ip = request.client.host if request.client else "unknown"
-    operation_logger.info("system_initialized", {
-        "operator_ip": ip,
-        "operator_name": req.admin_username,
-        "admin_user": req.admin_username,
-        "host": req.host,
-        "port": req.port,
-    })
-    logger.info("系统初始化完成: admin=%s, host=%s, port=%d", req.admin_username, req.host, req.port)
-
-    # 自动登录
-    token = create_token(user)
-    response = JSONResponse({
-        "status": "ok",
-        "message": "System initialized successfully",
-        "user": {
-            "uuid": user["uuid"],
-            "userName": user["userName"],
-            "permission": user["permission"],
-        },
-    })
-    response.set_cookie(
-        key="auth_token", value=token,
-        max_age=86400 * 7, httponly=True, samesite=_COOKIE_SAMESITE,
-        secure=_COOKIE_SECURE,
-    )
-    return response
+        return response
 

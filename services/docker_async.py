@@ -7,6 +7,7 @@ AsyncDockerManager — aiodocker 替代 docker-py 热路径，零线程池开销
 import asyncio
 import json
 import time
+from collections import defaultdict
 from typing import Dict, List, Optional
 
 import aiohttp
@@ -187,17 +188,116 @@ class AsyncDockerManager:
 
     def __init__(self):
         self._docker: Optional[aiodocker.Docker] = None
+        self._port_lock = asyncio.Lock()
+        self._event_task: Optional[asyncio.Task] = None
+        self._event_callbacks: List = []
+        # SSE 订阅分发（从 docker_events.py 迁移）
+        self._subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
+        self._last_event: dict[str, dict] = {}
 
     async def start(self):
         """创建 aiodocker 连接（自动探测 Windows npipe / Linux socket）。"""
         self._docker = aiodocker.Docker()
+        # 启动时清理过期的端口预留（>5分钟未释放视为泄漏）
+        self._cleanup_stale_reservations()
+        # 启动 Docker Events 监听
+        self._event_task = asyncio.create_task(self._watch_events())
         logger.info("异步Docker管理器已启动")
 
     async def stop(self):
         """关闭 aiodocker 连接。"""
+        if self._event_task:
+            self._event_task.cancel()
+            self._event_task = None
         if self._docker:
             await self._docker.close()
             self._docker = None
+
+    def on_container_event(self, callback) -> None:
+        """注册容器事件回调（start/stop/die 时触发）。"""
+        self._event_callbacks.append(callback)
+
+    # ---- SSE 订阅分发（从 docker_events.py 迁移） ----
+
+    def get_last_event(self, name: str) -> Optional[dict]:
+        """返回指定容器最近一次 Docker 事件 {action, time}，无记录时返回 None。"""
+        return self._last_event.get(name)
+
+    def subscribe(self, name: str) -> asyncio.Queue:
+        """为指定容器名注册一个事件队列，返回该队列供 SSE handler 消费。"""
+        q: asyncio.Queue = asyncio.Queue(maxsize=64)
+        self._subscribers[name].append(q)
+        return q
+
+    def unsubscribe(self, name: str, q: asyncio.Queue) -> None:
+        """移除指定队列。"""
+        lst = self._subscribers.get(name, [])
+        try:
+            lst.remove(q)
+        except ValueError:
+            pass
+        if not lst:
+            self._subscribers.pop(name, None)
+
+    async def _watch_events(self) -> None:
+        """后台监听 Docker container events，触发即时刷新 + SSE 分发。"""
+        _RELEVANT_ACTIONS = {"start", "stop", "die", "destroy", "kill", "pause", "unpause", "create", "restart"}
+        while True:
+            try:
+                subscriber = self._docker.events.subscribe()
+                while True:
+                    event = await subscriber.get()
+                    if event is None:
+                        break
+                    if event.get("Type") != "container":
+                        continue
+                    action = event.get("Action", "").split(":")[0]
+                    if action not in _RELEVANT_ACTIONS:
+                        continue
+                    actor = event.get("Actor", {})
+                    name = actor.get("Attributes", {}).get("name", "")
+                    image = actor.get("Attributes", {}).get("image", "")
+
+                    # SSE 分发 + last_event（所有容器）
+                    self._dispatch_event(name, action, event)
+
+                    # 回调仅限 napcat 容器
+                    if "napcat" not in name.lower() and "napcat" not in image.lower():
+                        continue
+                    logger.debug("Docker event: %s container=%s", action, name)
+                    for cb in self._event_callbacks:
+                        try:
+                            result = cb(name, action)
+                            if asyncio.iscoroutine(result):
+                                await result
+                        except Exception as e:
+                            logger.debug("Docker event callback error: %s", e)
+            except asyncio.CancelledError:
+                return
+            except Exception as e:
+                logger.debug("Docker events 监听异常，5s 后重连: %s", e)
+                await asyncio.sleep(5)
+
+    def _dispatch_event(self, name: str, action: str, raw: dict) -> None:
+        """将事件投递到订阅该容器名的所有队列，并更新 last_event 缓存。"""
+        ts = raw.get("time", int(time.time()))
+        self._last_event[name] = {"action": action, "time": ts}
+
+        queues = self._subscribers.get(name)
+        if not queues:
+            return
+        payload = {
+            "name": name,
+            "action": action,
+            "time": ts,
+            "status": raw.get("status", action),
+            "exit_code": raw.get("Actor", {}).get("Attributes", {}).get("exitCode"),
+        }
+        for q in list(queues):
+            try:
+                q.put_nowait(payload)
+            except asyncio.QueueFull:
+                pass
 
     @property
     def connected(self) -> bool:
@@ -305,6 +405,18 @@ class AsyncDockerManager:
         container = await self._docker.containers.get(name)
         await container.restart(timeout=timeout)
         logger.info("容器 %s 重启完成（timeout=%ds）", name, timeout)
+
+    # ---- 4b. 容器 inspect（异步获取完整容器信息） ----
+
+    async def inspect_container(self, name: str) -> Optional[Dict]:
+        """异步 inspect 容器，返回完整 attrs dict，失败返回 None。"""
+        if not self._docker:
+            return None
+        try:
+            container = await self._docker.containers.get(name)
+            return await container.show()
+        except Exception:
+            return None
 
     # ---- 5. 容器创建（CRUD 异步化 — 替代 docker_manager.create_container） ----
 
@@ -475,6 +587,34 @@ class AsyncDockerManager:
             if port > 65535:
                 raise ValueError(f"没有可用端口（从 {base} 开始，所有端口均被占用）")
         return port
+
+    async def allocate_port(self, base: int) -> int:
+        """原子化端口分配：获取已用端口 + 查找可用 + 预留，防止竞态。"""
+        import time as _time
+        import services.database as db
+        async with self._port_lock:
+            used = await self.get_used_ports()
+            # 从 SQLite 加载已预留端口
+            rows = db.fetchall("SELECT port FROM reserved_ports")
+            used |= {r["port"] for r in rows}
+            port = self.find_available_port(base, used)
+            db.execute(
+                "INSERT OR REPLACE INTO reserved_ports (port, reserved_at) VALUES (?,?)",
+                (port, _time.time()),
+            )
+            return port
+
+    def release_port(self, port: int) -> None:
+        """容器创建/绑定完成后释放预留（端口已被 Docker 占用，无需继续预留）。"""
+        import services.database as db
+        db.execute("DELETE FROM reserved_ports WHERE port=?", (port,))
+
+    def _cleanup_stale_reservations(self) -> None:
+        """清理超过 5 分钟的过期预留（进程重启后的残留）。"""
+        import time as _time
+        import services.database as db
+        cutoff = _time.time() - 300
+        db.execute("DELETE FROM reserved_ports WHERE reserved_at < ?", (cutoff,))
 
     # ---- 内部辅助 ----
 

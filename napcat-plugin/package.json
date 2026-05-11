@@ -1,0 +1,12 @@
+{
+  "name": "napcat-plugin-manager-link",
+  "plugin": "Manager互联",
+  "version": "1.0.0",
+  "main": "index.mjs",
+  "description": "NapCat Manager 互联插件 — 登录/登出事件实时推送",
+  "author": "ncqq-manager",
+  "napcat": {
+    "tags": ["工具", "管理"],
+    "minVersion": "4.14.0"
+  }
+}

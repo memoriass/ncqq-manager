@@ -136,7 +136,13 @@ class LoginMixin:
                 stage="logged_in", method="plugin", reason="plugin_login_event",
             )
             from services.docker_manager import docker_manager as _dm
-            _dm._on_login_detected(name, result, prev)
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    loop.create_task(_dm._on_login_detected(name, result, prev))
+            except RuntimeError:
+                pass
         elif event.get("event") == "logout":
             inst.update_login(
                 logged_in=False, uin=inst.uin,
