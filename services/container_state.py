@@ -370,18 +370,8 @@ class ContainerStateEngine:
                     logger.debug("掉线扫码通知异常: %s", e)
 
         # ---- 2.6 当前已掉线实例 SMTP 通知补偿 ----
-        # 规则创建时目标可能已经掉线，不会再产生 true -> false 边沿；这里补偿触发一次，并带冷却。
-        # 注意：只按账号登录态 logged_in=False 补偿，不能因 bot_online/心跳离线触发邮件。
-        try:
-            from services.alert_manager import alert_manager
-            for _name in running_local_names:
-                inst = instance_subsystem.get(_name)
-                if inst and inst.status == "running" and (not inst.logged_in):
-                    sent = await alert_manager.notify_current_login_lost_if_needed(inst.name, inst.uin or inst.last_uin, inst.node_id)
-                    if sent:
-                        logger.info("当前掉线 SMTP 通知已触发: %s", inst.name)
-        except Exception as e:
-            logger.debug("当前掉线 SMTP 通知补偿异常: %s", e)
+        # 暂停宽泛补偿：普通 logged_in=False 可能只是无心跳/无近期消息，不能群发邮件。
+        # 邮件只由 true->false 边沿或 fresh NapCat KickedOffLine 明确事件触发。
 
         # ---- 3. QR 码刷新（未登录 & running） ----
         data_dir = get_data_dir()
