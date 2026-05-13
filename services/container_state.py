@@ -448,6 +448,10 @@ class ContainerStateEngine:
                 except Exception as e:
                     logger.debug("掉线扫码通知异常: %s", e)
 
+        # ---- 2.6 当前已掉线实例 SMTP 通知补偿 ----
+        # 暂停宽泛补偿：普通 logged_in=False 可能只是无心跳/无近期消息，不能群发邮件。
+        # 邮件只由 true->false 边沿或 fresh NapCat KickedOffLine 明确事件触发。
+
         # ---- 3. QR 码刷新（未登录 & running） ----
         data_dir = get_data_dir()
         for name in running_local_names:

@@ -68,6 +68,79 @@ class AsyncLoginChecker:
             pass
         return {"logged_in": False, "stage": "waiting"}
 
+    async def _detect_kicked_offline_via_logs(self, name: str, tail: int = 200, max_age: int = 180) -> Dict:
+        """Detect fresh explicit NapCat account-offline signals from recent logs.
+
+        Only fresh explicit lines such as KickedOffLine / account invalid are strong
+        logged-out evidence. Old log tails must not trigger alerts after manager
+        restarts, otherwise stale offline lines can cause mass false positives.
+        """
+        from services.docker_manager import docker_manager
+        import datetime as _dt
+        import re as _re
+
+        def _read_logs() -> str:
+            try:
+                c = docker_manager.client.containers.get(name)
+                raw = c.logs(tail=tail) or b""
+                return raw.decode("utf-8", errors="ignore") if isinstance(raw, bytes) else str(raw)
+            except Exception:
+                return ""
+
+        text = await asyncio.to_thread(_read_logs)
+        if not text:
+            return {"logged_in": False, "matched": False}
+        offline_markers = (
+            "[KickedOffLine]",
+            "账号状态变更为离线",
+            "当前登录已失效",
+            "请重新登录",
+            "被踢下线",
+            "挤下线",
+            "KickedOffLine",
+        )
+        online_markers = ("接收 <-", "发送 ->", "账号状态变更为在线", "WebSocket 服务器已连接")
+        lines = text.splitlines()
+        last_offline_idx = -1
+        last_offline_line = ""
+        for i, line in enumerate(lines):
+            if any(m in line for m in offline_markers):
+                last_offline_idx = i
+                last_offline_line = line
+        if last_offline_idx < 0:
+            return {"logged_in": False, "matched": False}
+        last_online_idx = -1
+        for i, line in enumerate(lines):
+            if any(m in line for m in online_markers):
+                last_online_idx = i
+        if last_offline_idx <= last_online_idx:
+            return {"logged_in": False, "matched": False}
+
+        # NapCat log prefix usually looks like: 05-11 23:42:44 ...
+        # Require the explicit offline line to be fresh to avoid replaying stale logs.
+        m = _re.search(r"(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})", last_offline_line)
+        if m:
+            now = _dt.datetime.now()
+            ts = _dt.datetime(now.year, int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4)), int(m.group(5)))
+            if ts - now > _dt.timedelta(days=1):
+                ts = ts.replace(year=now.year - 1)
+            age = abs((now - ts).total_seconds())
+            if age > max_age:
+                return {"logged_in": False, "matched": False, "reason": "stale_napcat_offline_log"}
+        else:
+            return {"logged_in": False, "matched": False, "reason": "offline_log_without_timestamp"}
+
+        uin = await asyncio.to_thread(self._get_uin_from_config, name)
+        return {
+            "logged_in": False,
+            "matched": True,
+            "uin": uin or "",
+            "stage": "waiting",
+            "method": "napcat_log",
+            "reason": "napcat_kicked_offline",
+        }
+
+
     async def check_login_status(self, name: str,
                                   http_port: int, webui_port: int) -> Dict:
         """四级级联检测：SDK WS 状态 → WS API 调用 → BS API → HTTP OneBot 兜底。
@@ -83,6 +156,12 @@ class AsyncLoginChecker:
           3. OneBot HTTP /get_login_info（兜底，冷启动引导 + WS/BS 均不可用时）
         """
         from services.napcat_ws_service import napcat_ws_service
+
+        kicked = await self._detect_kicked_offline_via_logs(name)
+        if kicked.get("matched"):
+            logger.warning("登录检测[%s] NapCat 明确下线: %s", name, kicked.get("reason"))
+            return kicked
+
 
         # 1. SDK WS 直连（主路径：BS 修正后的心跳 + 有 uin → 直接返回）
         r1 = napcat_ws_service.get_login_result(name)
@@ -118,6 +197,21 @@ class AsyncLoginChecker:
         return {"logged_in": False, "stage": stage}
 
     # ============ 批量检测 ============
+
+    def _get_uin_from_config(name: str) -> str:
+        """从本地 onebot11_*.json 文件名提取 uin。"""
+        try:
+            config_dir = os.path.join(get_data_dir(), name, "config")
+            if not os.path.exists(config_dir):
+                return ""
+            ob_files = [
+                f for f in os.listdir(config_dir)
+                if f.startswith("onebot11_") and f.endswith(".json")
+            ]
+            if ob_files:
+                latest = max(
+                    ob_files,
+
 
     async def batch_check_login(
         self, instances: list, concurrency: int = _MAX_CONCURRENCY,

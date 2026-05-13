@@ -8,6 +8,9 @@ import socket
 import asyncio
 import threading
 import ipaddress
+import smtplib
+import ssl
+from email.message import EmailMessage
 from typing import List, Dict, Any, Optional
 from urllib.parse import urlparse
 
@@ -42,11 +45,86 @@ def _validate_webhook_url(url: str, allow_local: bool = False) -> str:
     return url
 
 
+def _split_recipients(raw: str) -> List[str]:
+    if not raw:
+        return []
+    return [x.strip() for x in raw.replace(";", ",").split(",") if x.strip()]
+
+
+def _smtp_settings() -> Dict[str, Any]:
+    return {
+        "enabled": bool(db.get_setting("smtp_enabled", False)),
+        "host": db.get_setting("smtp_host", ""),
+        "port": int(db.get_setting("smtp_port", 465) or 465),
+        "username": db.get_setting("smtp_username", ""),
+        "password": db.get_setting("smtp_password", ""),
+        "sender": db.get_setting("smtp_sender", ""),
+        "sender_name": db.get_setting("smtp_sender_name", "NapCat Manager"),
+        "recipients": db.get_setting("smtp_recipients", ""),
+        "use_ssl": bool(db.get_setting("smtp_use_ssl", True)),
+        "use_tls": bool(db.get_setting("smtp_use_tls", False)),
+        "subject_prefix": db.get_setting("smtp_subject_prefix", "[NapCat 掉线告警]"),
+    }
+
+
+def _send_smtp_sync(subject: str, message: str, extra: Optional[Dict] = None, recipients: str = "") -> bool:
+    cfg = _smtp_settings()
+    if not cfg["enabled"]:
+        logger.debug("SMTP 通知跳过: smtp_enabled=false")
+        return False
+    if not cfg["host"]:
+        logger.warning("SMTP 通知跳过: smtp_host 未配置")
+        return False
+    to_list = _split_recipients(recipients or cfg["recipients"])
+    if not to_list:
+        logger.warning("SMTP 通知跳过: smtp_recipients 未配置")
+        return False
+    sender = cfg["sender"] or cfg["username"]
+    if not sender:
+        logger.warning("SMTP 通知跳过: sender/username 未配置")
+        return False
+
+    prefix = cfg["subject_prefix"] or "[NapCat 告警]"
+    full_subject = subject if subject.startswith("[") else f"{prefix} {subject}"
+    body = message
+    if extra:
+        body += "\n\n---\n事件详情:\n"
+        body += json.dumps(extra, ensure_ascii=False, indent=2)
+
+    msg = EmailMessage()
+    msg["Subject"] = full_subject
+    msg["From"] = f'{cfg["sender_name"]} <{sender}>' if cfg["sender_name"] else sender
+    msg["To"] = ", ".join(to_list)
+    msg.set_content(body)
+
+    try:
+        if cfg["use_ssl"]:
+            context = ssl.create_default_context()
+            with smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=15, context=context) as client:
+                if cfg["username"]:
+                    client.login(cfg["username"], cfg["password"])
+                client.send_message(msg)
+        else:
+            with smtplib.SMTP(cfg["host"], cfg["port"], timeout=15) as client:
+                if cfg["use_tls"]:
+                    client.starttls(context=ssl.create_default_context())
+                if cfg["username"]:
+                    client.login(cfg["username"], cfg["password"])
+                client.send_message(msg)
+        logger.info("SMTP 通知发送成功: recipients=%d subject=%s", len(to_list), full_subject)
+        return True
+    except Exception as e:
+        logger.warning("SMTP 通知发送失败: %s", e)
+        return False
+
+
 class AlertManager:
     """告警规则管理与触发器"""
 
     def __init__(self):
         self._init_table()
+        self._smtp_lost_ts = {}
+        self._smtp_lost_cooldown = 300
 
     def _init_table(self):
         """确保告警表存在"""
@@ -160,6 +238,43 @@ class AlertManager:
         if rule and rule.get("webhook_url"):
             await self._send_webhook_async(rule["webhook_url"], message, level, extra)
 
+
+
+    @staticmethod
+    def _rule_matches_event(rule: Dict, event_type: str, name: str, node_id: str = "local") -> bool:
+        if not rule.get("enabled"):
+            return False
+        if rule.get("type") != event_type:
+            return False
+        cfg = rule.get("config", {}) or {}
+        target = cfg.get("instance_name", "") or cfg.get("instance", "")
+        target_node = cfg.get("node_id", "")
+        if target and target != name:
+            return False
+        if target_node and target_node != node_id:
+            return False
+        return True
+
+    async def _dispatch_smtp_rules(self, event_type: str, name: str, node_id: str, message: str, level: str, extra: dict) -> None:
+        """Dispatch SMTP alert rules.
+
+        SMTP is an independent alert channel, parallel to webhook rules and qq_bot sentinels.
+        Global SMTP server settings are shared, while every SMTP rule can target a specific
+        instance/event and provide its own recipients.
+        """
+        rules = self.list_rules()
+        for rule in rules:
+            if not self._rule_matches_event(rule, event_type, name, node_id):
+                continue
+            cfg = rule.get("config", {}) or {}
+            recipients = cfg.get("smtp_recipients", "") or cfg.get("recipients", "")
+            db.execute(
+                "INSERT INTO alert_history (rule_id,message,level,created_at) VALUES (?,?,?,?)",
+                (rule["id"], message, level, time.time()),
+            )
+            db.commit()
+            await self._send_smtp_async(message, level, extra, recipients)
+
     async def notify_instance_offline(self, name: str, node_id: str = "local", uin: str = ""):
         """实例离线通知 — 查找所有 instance_offline 类型且 enabled 的规则并触发。
         同时通过 qq_bot 哨兵渠道发 QQ 消息（群/私聊均支持）。
@@ -193,6 +308,8 @@ class AlertManager:
                 await self.trigger_alert_async(rule["id"], message, "critical", extra)
         # qq_bot 哨兵渠道：容器停止也推 QQ 消息
         await self._dispatch_qq_bot_rules(message, extra)
+        # SMTP 独立规则渠道
+        await self._dispatch_smtp_rules("instance_offline", name, node_id, message, "critical", extra)
 
     async def notify_instance_online(self, name: str, node_id: str = "local", uin: str = ""):
         """实例上线通知 — 容器从非 running 变为 running 时触发。
@@ -227,6 +344,55 @@ class AlertManager:
                 await self.trigger_alert_async(rule["id"], message, "info", extra)
         # qq_bot 哨兵渠道：实例上线也推 QQ 消息
         await self._dispatch_qq_bot_rules(message, extra)
+        # SMTP 独立规则渠道
+        await self._dispatch_smtp_rules("instance_online", name, node_id, message, "info", extra)
+
+    async def notify_current_login_lost_if_needed(self, name: str, uin: str = "", node_id: str = "local") -> bool:
+        """Trigger SMTP-only notification for an instance that is already logged out.
+
+        This covers the case where a SMTP email rule is created after the account is already
+        offline, so no true -> false edge exists. Cooldown prevents repeated emails.
+        """
+        matched = False
+        for rule in self.list_rules():
+            if self._rule_matches_event(rule, "login_lost", name, node_id):
+                cfg = rule.get("config", {}) or {}
+                if cfg.get("smtp_recipients") or cfg.get("recipients"):
+                    matched = True
+                    break
+        if not matched:
+            return False
+        key = f"login_lost:{node_id}:{name}"
+        now = time.time()
+        if now - self._smtp_lost_ts.get(key, 0) < self._smtp_lost_cooldown:
+            return False
+        self._smtp_lost_ts[key] = now
+
+        lost_time = time.strftime("%Y-%m-%d %H:%M:%S")
+        uin_display = uin or "未知"
+        base_url = (db.get_setting("webhook_base_url", "") or "").rstrip("/")
+        lines = [
+            f"🔑 实例掉线需重新登录: {name}",
+            f"📋 QQ 账号: {uin_display}",
+            f"🖥️ 节点: {node_id}",
+            f"⏰ 掉线时间: {lost_time}",
+        ]
+        extra = {
+            "event": "login_lost",
+            "instance": name,
+            "node_id": node_id,
+            "uin": uin_display,
+            "lost_time": lost_time,
+            "current_state_compensation": True,
+        }
+        if base_url:
+            qr_url = f"{base_url}/api/containers/{name}/qrcode?node_id={node_id}"
+            lines.append(f"📱 扫码链接: {qr_url}")
+            extra["qr_url"] = qr_url
+            extra["dashboard_url"] = base_url
+        message = "\n".join(lines)
+        await self._dispatch_smtp_rules("login_lost", name, node_id, message, "critical", extra)
+        return True
 
     async def notify_login_lost(
         self, name: str, uin: str = "", node_id: str = "local",
@@ -283,6 +449,8 @@ class AlertManager:
 
         # qq_bot 通知渠道：通过哨兵 Bot 发 QQ 消息
         await self._dispatch_qq_bot_rules(message, extra)
+        # SMTP 独立规则渠道
+        await self._dispatch_smtp_rules("login_lost", name, node_id, message, "critical", extra)
 
     async def notify_via_bot(
         self,
@@ -417,6 +585,27 @@ class AlertManager:
                 await session.post(url, json=payload)
         except Exception as e:
             logger.debug("Webhook 异步发送失败: %s", e)
+
+    def _fire_smtp_task(self, message: str, level: str, extra: Optional[Dict] = None, recipients: str = ""):
+        def _runner():
+            _send_smtp_sync(self._smtp_subject(message, level, extra), message, extra, recipients)
+        threading.Thread(target=_runner, name="alert-smtp", daemon=True).start()
+
+    async def _send_smtp_async(self, message: str, level: str, extra: Optional[Dict] = None, recipients: str = ""):
+        await asyncio.to_thread(_send_smtp_sync, self._smtp_subject(message, level, extra), message, extra, recipients)
+
+    @staticmethod
+    def _smtp_subject(message: str, level: str, extra: Optional[Dict] = None) -> str:
+        event = (extra or {}).get("event", "alert")
+        inst = (extra or {}).get("instance", "")
+        if event == "login_lost":
+            return f"账号掉线: {inst}" if inst else "账号掉线"
+        if event == "instance_offline":
+            return f"实例停止: {inst}" if inst else "实例停止"
+        if event == "instance_online":
+            return f"实例上线: {inst}" if inst else "实例上线"
+        first = (message or "").splitlines()[0][:80]
+        return first or f"NapCat 告警 {level}"
 
     def _parse_rule(self, row) -> Dict:
         d = dict(row)
