@@ -51,7 +51,7 @@ class AppConfig:
         "init_bs_enabled": False,
         "init_bs_client_base_port": 6100,
         "init_bs_targets": "[]",  # JSON 字符串，如 '["ws://target1:3001/ws"]'
-        "manager_host": "172.17.0.1",  # 宿主机 IP，NapCat 容器连接 BS/管理器时使用（跨网络部署时需改为实际 IP）
+        "manager_host": "172.17.0.1",  # 宿主机 IP，NapCat 容器连接 BS/管理器时使用
         "manager_port": 8000,     # 管理器监听端口，用于 BS 自动注入本地 OneBot WS 端点
         "internal_api_key": "",   # 内部 API 通信密钥（插件/节点间鉴权）
         "init_auto_join_groups_enabled": False,  # 登录后自动发群通知开关
