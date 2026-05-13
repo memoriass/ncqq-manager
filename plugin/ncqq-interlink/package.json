@@ -1,5 +1,5 @@
 {
-  "name": "napcat-plugin-manager-link",
+  "name": "ncqq-interlink",
   "plugin": "Manager互联",
   "version": "1.0.0",
   "main": "index.mjs",

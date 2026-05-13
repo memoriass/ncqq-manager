@@ -7,15 +7,19 @@ WebSocket 路由 - 实时事件推送 + 日志流
   /ws/logs/{name}    — 管理员专用，推送容器日志流
   /ws/onebot/v11/ws  — OneBot v11 反向 WS 接收端点（BS 默认目标），用于 Bot 掉线检测
   /ws/napcat/{name}  — 带容器名的主路径端点，支持 NapCatApiProxy 主动 API 调用
+  /ws/plugin/{name}  — 插件持久 WS 链接，接收 login/logout/heartbeat 推送（密钥鉴权）
 """
 
 import asyncio
+import re
+import time
 from collections import defaultdict
 
 import orjson
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.concurrency import run_in_threadpool
+from services.config import app_config
 
 from services.ws_manager import ws_manager
 from services.cluster_manager import cluster_manager
@@ -473,3 +477,99 @@ async def ws_onebot_receiver(ws: WebSocket):
         "OneBot WS 兼容端点：新连接 header_self_id=%s client=%s", header_sid, ws.client
     )
     await _ob11_recv_loop(ws, "", header_sid)
+
+
+_PLUGIN_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$")
+
+
+@router.websocket("/ws/plugin/{name}")
+async def ws_plugin_link(ws: WebSocket, name: str, key: str = Query(default="")):
+    """
+    插件持久 WS 链接 — 接收 ncqq-interlink 插件推送的 login/logout/heartbeat。
+
+    鉴权：?key=<internal_api_key>（服务器间通信，无 cookie）。
+    断连时立即置 bot_online=False，无需等待 90s 超时兜底。
+    """
+    expected_key = app_config.get("internal_api_key", "")
+    if not expected_key or key != expected_key:
+        await ws.close(code=4003, reason="Invalid key")
+        return
+    if not _PLUGIN_NAME_RE.match(name or ""):
+        await ws.close(code=4400, reason="Invalid container name")
+        return
+
+    await ws.accept()
+    logger.info("Plugin WS [%s] 已连接 client=%s", name, ws.client)
+
+    # 连接即刷新心跳时间戳，标记在线
+    inst = instance_subsystem.get(name)
+    if inst:
+        inst.bot_online = True
+        inst.bot_heartbeat_ts = time.time()
+    state_engine.notify_change()
+
+    try:
+        while True:
+            try:
+                raw = await asyncio.wait_for(ws.receive_text(), timeout=120.0)
+            except asyncio.TimeoutError:
+                # 120s 无消息时服务端主动 ping 检测存活
+                try:
+                    await ws.send_text('{"type":"ping"}')
+                except Exception:
+                    break
+                continue
+
+            try:
+                data = orjson.loads(raw)
+            except Exception:
+                continue
+
+            msg_type = data.get("type", "")
+
+            if msg_type == "login":
+                from services.docker_login import LoginMixin
+                LoginMixin.update_login_cache(name, {
+                    "event": "login",
+                    "uin": str(data.get("uin", "")),
+                    "nickname": data.get("nickname", ""),
+                })
+                inst = instance_subsystem.get(name)
+                if inst:
+                    inst.bot_online = True
+                    inst.bot_heartbeat_ts = time.time()
+                state_engine.notify_change()
+                logger.info("Plugin WS [%s] login uin=%s", name, data.get("uin"))
+
+            elif msg_type == "logout":
+                from services.docker_login import LoginMixin
+                LoginMixin.update_login_cache(name, {
+                    "event": "logout",
+                    "uin": str(data.get("uin", "")),
+                })
+                state_engine.notify_change()
+                logger.info("Plugin WS [%s] logout uin=%s", name, data.get("uin"))
+
+            elif msg_type == "heartbeat":
+                inst = instance_subsystem.get(name)
+                if inst:
+                    inst.bot_online = True
+                    inst.bot_heartbeat_ts = time.time()
+                    if "message_sent" in data:
+                        inst.message_sent = int(data["message_sent"])
+                    if "message_received" in data:
+                        inst.message_received = int(data["message_received"])
+                state_engine.notify_change()
+
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug("Plugin WS [%s] 异常: %s", name, e)
+    finally:
+        logger.info("Plugin WS [%s] 已断开", name)
+        # 断连立即标记掉线，无需等 90s 超时
+        inst = instance_subsystem.get(name)
+        if inst:
+            inst.bot_online = False
+            inst.bot_heartbeat_ts = 0.0
+        state_engine.notify_change()

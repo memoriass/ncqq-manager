@@ -371,8 +371,7 @@ class DockerManager(LoginMixin, LifecycleMixin):
     def get_stats(self, name: str) -> Dict:
         """获取完整统计 (基础资源 + NapCat 信息 + 登录状态)。
 
-        ★ 大修：登录状态改从 instance_subsystem 内存态读取，
-        不再调用同步 check_login_status 级联探测。
+        登录状态从 instance_subsystem 内存态读取，
         两个子任务并行执行，各自有超时保护，单个子任务失败不阻塞其他。
         """
         from services.instance_subsystem import instance_subsystem

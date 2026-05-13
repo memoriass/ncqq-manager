@@ -21,11 +21,11 @@ class ContainerInstance:
     node_id: str = "local"
     created: str = ""
 
-    # ---- 端口映射（来自 Docker API inspect，供异步登录检测使用） ----
+    # ---- 端口映射（来自 Docker API inspect） ----
     http_port: int = 0  # OneBot HTTP 端口 (3000/tcp 映射)
     webui_port: int = 0  # NapCat WebUI 端口 (6099/tcp 映射)
 
-    # ---- 登录状态（来自 check_login_status） ----
+    # ---- 登录状态 ----
     uin: str = ""
     logged_in: bool = False
     login_ts: float = 0.0  # 上次登录检测时间戳

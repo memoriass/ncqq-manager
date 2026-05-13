@@ -3,16 +3,11 @@ NapCat WS 连接注册表服务
 
 职责：
   - 接收来自 ws_router /ws/napcat/{name} 的 NapCat 反向 WS 连接
-  - 维护 {name: {uin, connected, last_seen, nickname, hb_online}} 连接表
-  - 提供给 container_state 用于主路径登录判定（BS 修正后的心跳可信赖）
-  - BS 辅助检测：当 WS 未连接时调用 BS /api/accounts 做兜底
+  - 维护 {name: {uin, connected, last_seen, nickname}} 连接表
   - NapCatApiProxy：复用反向 WS 连接主动发 OneBot API 调用
-  - active_health_check：通过 WS 代理调用 get_login_info 验证 QQ 登录
+  - 消息监控缓冲区
 
-数据流（★ 大修）：
-  BS 代理层 → 修正心跳 status.online → WS 转发到 Manager
-  → napcat_ws_service 记录 hb_online → container_state 状态引擎读取
-  → 状态引擎作为唯一写入源更新 inst.update_login()
+登录状态由内联插件通过 /ws/plugin/{name} 推送，本服务不再参与登录检测。
 """
 
 import asyncio
@@ -29,9 +24,6 @@ if TYPE_CHECKING:
 
 # 重连宽限期（秒）：WS 断开后保留在线态，等 NapCat 重连
 _RECONNECT_GRACE = 15
-# BS 辅助检测缓存 TTL（秒）— 已登录实例降频，未登录保持高频
-_BS_CACHE_TTL_ONLINE = 60
-_BS_CACHE_TTL_OFFLINE = 10
 # API 代理调用超时（秒）
 _API_PROXY_TIMEOUT = 10.0
 # 消息监控缓冲区大小（每容器）
@@ -141,8 +133,6 @@ class _ConnEntry:
         "connected",
         "connect_ts",
         "disconnect_ts",
-        "last_hb_ts",
-        "hb_online",
         "last_seen",
         "ws_ref",
     )
@@ -153,12 +143,8 @@ class _ConnEntry:
         self.connected: bool = False
         self.connect_ts: float = 0.0
         self.disconnect_ts: float = 0.0
-        self.last_hb_ts: float = 0.0
-        self.hb_online: Optional[bool] = None
-        self.last_seen: float = 0.0  # 最后一次在线时间戳（connect_ts 或 disconnect_ts）
-        self.ws_ref: Optional["WebSocket"] = (
-            None  # 绑定的 WS 实例，防止并发连接状态覆盖
-        )
+        self.last_seen: float = 0.0
+        self.ws_ref: Optional["WebSocket"] = None
 
     def is_alive(self) -> bool:
         """WS 在线 OR 断开宽限期内"""
@@ -174,8 +160,6 @@ class NapCatWsService:
 
     def __init__(self) -> None:
         self._table: Dict[str, _ConnEntry] = {}
-        # BS 辅助检测缓存：{uin: (ts, online)}
-        self._bs_cache: Dict[str, tuple] = {}
         # API 代理注册表：{name: NapCatApiProxy}
         self._proxies: Dict[str, NapCatApiProxy] = {}
         # 消息监控缓冲区：{name: deque[dict]}
@@ -209,12 +193,7 @@ class NapCatWsService:
         e.connect_ts = time.time()
         e.last_seen = e.connect_ts
         e.disconnect_ts = 0.0
-
-        # ★ 修复 1：新连接建立时，清理旧连接残留的心跳状态
-        e.hb_online = None
-        e.last_hb_ts = 0.0
-
-        e.ws_ref = ws  # 绑定 WS 实例
+        e.ws_ref = ws
         logger.info(
             "NapCat WS 连接注册: name=%s uin=%s nickname=%s", name, uin, nickname
         )
@@ -265,24 +244,10 @@ class NapCatWsService:
             logger.info("WS 事件补全 uin: name=%s old=%s new=%s", name, old, uin)
 
     def on_heartbeat(self, name: str, online: bool) -> None:
-        """来自 WS 心跳事件。
-
-        当状态从 online→offline 变化时，主动唤醒状态引擎立即刷新，
-        避免等待下一个轮询周期（最长 30s）才发现掉线。
-        """
+        """OB11 心跳事件—仅更新 last_seen（登录态已全面转交插件 WS 管理）。"""
         e = self._table.get(name)
         if e:
-            prev_online = e.hb_online
-            e.last_hb_ts = time.time()
-            e.hb_online = online
-            # 状态翻转（在线→离线 或 离线→在线）时唤醒状态引擎
-            if prev_online is not None and prev_online != online:
-                logger.info(
-                    "NapCat 心跳状态变化: name=%s %s→%s，唤醒状态引擎",
-                    name, "online" if prev_online else "offline",
-                    "online" if online else "offline",
-                )
-                self._wake_state_engine()
+            e.last_seen = time.time()
 
     # ------------------------------------------------------------------
     # API 代理注册（由 ws_router 在连接建立/断开时调用）
@@ -368,153 +333,6 @@ class NapCatWsService:
     def get_entry(self, name: str) -> Optional[_ConnEntry]:
         return self._table.get(name)
 
-    def get_login_result(self, name: str) -> Dict:
-        """主路径：从 WS 注册表返回登录状态（BS 修正后的心跳可信赖）。
-
-        ★ 大修：简化分支逻辑，信任 BS 修正后的 heartbeat.status.online 字段。
-        BS 代理层每 60s 调用 get_login_info 确认 QQ 登录状态，并覆写心跳
-        status.online 为实际 QQ 登录态。因此 hb_online 字段是可靠的。
-
-        分支树：
-          WS 已死 → 清理残留，返回 offline
-          hb_online=False → 离线（BS 确认 or 心跳直接上报）
-          hb_online=True → 在线（BS 修正后可信）
-          hb_online=None + 未超时 → 初始连接期，暂假定在线
-          hb_online=None + 超时(>45s) → 安全网：可能 ghost WS，返回 offline
-        """
-        _HB_WAIT_TIMEOUT = 20  # 等待首次心跳的最长时间（缩短以减少假在线窗口）
-
-        e = self._table.get(name)
-        if not e or not e.uin:
-            return {"logged_in": False, "stage": "waiting"}
-
-        # WS 已彻底死亡（超出宽限期）→ 清理残留
-        if not e.is_alive():
-            e.uin = ""
-            e.hb_online = None
-            return {"logged_in": False, "stage": "waiting", "method": "sdk_ws", "reason": "ws_dead"}
-
-        # 心跳明确离线（BS 修正后可信赖）
-        if e.hb_online is False:
-            return {
-                "logged_in": False, "uin": e.uin, "stage": "waiting",
-                "method": "sdk_ws", "reason": "heartbeat_offline",
-            }
-
-        # 心跳明确在线（BS 修正后可信赖）
-        if e.hb_online is True:
-            return {
-                "logged_in": True, "uin": e.uin, "nickname": e.nickname,
-                "stage": "logged_in", "method": "sdk_ws",
-                "reason": "ws_connected" if e.connected else "ws_grace",
-            }
-
-        # hb_online=None — 尚未收到心跳（新连接初始阶段）
-        ws_age = time.time() - e.connect_ts if e.connect_ts > 0 else 0
-        if ws_age > _HB_WAIT_TIMEOUT:
-            # 安全网：BS 保活可能维持了 NapCat 已断连的 ghost WS
-            return {
-                "logged_in": False, "uin": e.uin, "stage": "waiting",
-                "method": "sdk_ws", "reason": "no_heartbeat",
-            }
-
-        # 初始连接期（<20s）且有 proxy：主动调用 get_login_info 确认，避免盲目假定在线
-        if ws_age > 5 and self._proxies.get(name):
-            return {
-                "logged_in": False, "uin": e.uin, "stage": "waiting",
-                "method": "sdk_ws", "reason": "initial_needs_verify",
-            }
-
-        # 初始连接期（<45s），暂假定在线等待心跳到达
-        return {
-            "logged_in": True, "uin": e.uin, "nickname": e.nickname,
-            "stage": "logged_in", "method": "sdk_ws", "reason": "ws_initial",
-        }
-
-    def _resolve_known_uin(self, name: str) -> str:
-        """解析实例可用 uin（WS注册表 → instance_subsystem）。"""
-        e = self._table.get(name)
-        if e and e.uin:
-            return str(e.uin)
-
-        # 兜底：容器状态引擎内存态
-        try:
-            from services.instance_subsystem import instance_subsystem
-
-            inst = instance_subsystem.get(name)
-            if inst and inst.uin:
-                return str(inst.uin)
-        except Exception:
-            pass
-
-        return ""
-
-    # ------------------------------------------------------------------
-    # BS 辅助检测（兜底，异步）
-    # ------------------------------------------------------------------
-
-    async def check_via_bs(self, name: str) -> Dict:
-        """
-        通过 BS /api/accounts/{uin}/online-status 做辅助检测。
-        ★ account_id 必须是 QQ 号（uin），非容器名。
-        优先从注册表取已知 uin；若 uin 未知则尝试 instance_subsystem/login_cache。
-        结果带短 TTL 缓存，避免频繁请求 BS。
-        返回格式与 check_login_status 兼容。
-        """
-        try:
-            from services.botshepherd import botshepherd_manager
-
-            if not botshepherd_manager.running:
-                return {"logged_in": False, "stage": "waiting"}
-
-            # 缓存命中
-            cached = self._bs_cache.get(name)
-            cached_ttl = _BS_CACHE_TTL_ONLINE if (cached and cached[1].get("logged_in")) else _BS_CACHE_TTL_OFFLINE
-            if cached and (time.time() - cached[0]) < cached_ttl:
-                return cached[1]
-
-            # ★ BS account_id = QQ号(uin)；优先使用可解析的已知 uin
-            known_uin = self._resolve_known_uin(name)
-            if not known_uin:
-                logger.debug(
-                    "BS 辅助检测跳过 [%s]: uin 未知（WS/实例缓存均缺失）", name
-                )
-                return {
-                    "logged_in": False,
-                    "stage": "waiting",
-                    "method": "bs_api",
-                    "reason": "uin_unknown",
-                }
-
-            result = await asyncio.wait_for(
-                botshepherd_manager.get_account_online(known_uin), timeout=3.0
-            )
-            # _error 表示 BS 返回了非 200 响应（如 404/账号不存在）
-            if not isinstance(result, dict) or result.get("_error"):
-                logger.debug(
-                    "BS 辅助检测无效响应 [%s] uin=%s: %s", name, known_uin, result
-                )
-                return {"logged_in": False, "stage": "waiting"}
-
-            online = bool(result.get("online", False))
-            uin = str(
-                result.get("uin", "") or result.get("account_id", "") or known_uin
-            )
-            ret: Dict = {
-                "logged_in": online,
-                "stage": "logged_in" if online else "waiting",
-                "method": "bs_api",
-                "reason": "bs_account_online" if online else "bs_account_offline",
-                "uin": uin,
-            }
-
-            # 写入缓存
-            self._bs_cache[name] = (time.time(), ret)
-            return ret
-        except Exception as exc:
-            logger.debug("BS 辅助检测异常 [%s]: %s", name, exc)
-            return {"logged_in": False, "stage": "waiting"}
-
     # ------------------------------------------------------------------
     # 消息监控缓冲区
     # ------------------------------------------------------------------
@@ -554,43 +372,6 @@ class NapCatWsService:
                 result[name] = msgs
         return result
 
-    # ------------------------------------------------------------------
-    # WS 原生登录检测（通过已有 WS 连接调用 get_login_info）
-    # ------------------------------------------------------------------
-
-    async def check_login_via_ws(self, name: str) -> Dict:
-        """通过反向 WS 连接主动调用 get_login_info，替代 HTTP 探测。
-
-        适用场景：WS 已连接但 heartbeat 尚未确认登录状态（hb_online=None），
-        或需要获取最新 uin/nickname。
-
-        返回格式与 check_login_status 兼容。
-        """
-        proxy = self._proxies.get(name)
-        if not proxy:
-            return {"logged_in": False, "stage": "waiting"}
-        try:
-            data = await proxy.call_action("get_login_info", timeout=5.0)
-            uid = str(data.get("user_id", ""))
-            if uid and uid != "0":
-                nickname = data.get("nickname", "")
-                # 反写注册表
-                self.ensure_uin(name, uid)
-                e = self._table.get(name)
-                if e and nickname:
-                    e.nickname = nickname
-                return {
-                    "logged_in": True,
-                    "uin": uid,
-                    "nickname": nickname,
-                    "method": "ws_api",
-                    "stage": "logged_in",
-                    "reason": "ws_get_login_info",
-                }
-        except Exception as exc:
-            logger.debug("WS 登录检测失败 [%s]: %s", name, exc)
-        return {"logged_in": False, "stage": "waiting"}
-
     def all_names(self) -> list:
         return list(self._table.keys())
 
@@ -609,65 +390,6 @@ class NapCatWsService:
             "last_seen": e.last_seen,
         }
 
-    async def active_health_check(self, name: str) -> Dict:
-        """主动健康检测：通过 WS 代理调用 get_login_info 验证 QQ 登录状态。
-
-        适用场景：WS 连接存在且心跳显示在线，但心跳长时间未更新，
-        需要主动确认 Bot 是否仍然登录。
-
-        ★ 重要：不依赖 get_status.online（该字段反映 NapCat 进程健康，
-        不是 QQ 登录状态——QQ 掉线后 NapCat 照样报 online=True）。
-        也不依赖 BS check_account_online_status（底层同样是 get_status，假阳性）。
-        唯一可靠方式：get_login_info 返回空/0 uin = QQ 未登录。
-
-        返回格式与 check_login_status 兼容。
-        """
-        proxy = self._proxies.get(name)
-        if not proxy:
-            return {"logged_in": False, "stage": "waiting", "reason": "no_proxy"}
-
-        try:
-            data = await proxy.call_action("get_login_info", timeout=5.0)
-            uid = str(data.get("user_id", ""))
-            nickname = data.get("nickname", "")
-            if uid and uid != "0":
-                # get_login_info 返回了有效 uin — 确认在线
-                self.ensure_uin(name, uid)
-                e = self._table.get(name)
-                if e:
-                    if nickname:
-                        e.nickname = nickname
-                    e.last_hb_ts = time.time()  # 刷新心跳时间戳
-                    e.hb_online = True  # ★ 同步心跳状态，防止状态引擎唤醒时读到旧值覆写
-
-                logger.debug("主动健康检测 [%s]: get_login_info 确认在线 uin=%s", name, uid)
-                return {
-                    "logged_in": True,
-                    "uin": uid,
-                    "nickname": nickname,
-                    "method": "ws_api",
-                    "stage": "logged_in",
-                    "reason": "active_get_login_info",
-                }
-            else:
-                # get_login_info 返回空/0 → QQ 未登录
-                logger.info("主动健康检测 [%s]: get_login_info 返回空uin，确认离线", name)
-                e = self._table.get(name)
-                if e:
-                    e.hb_online = False
-                self._wake_state_engine()
-                return {
-                    "logged_in": False,
-                    "uin": e.uin if e else "",
-                    "stage": "waiting",
-                    "method": "ws_api",
-                    "reason": "get_login_info_no_uin",
-                }
-        except Exception as exc:
-            logger.debug("主动健康检测异常 [%s]: %s", name, exc)
-            # WS 代理调用失败 → 连接可能已断开
-            return {"logged_in": False, "stage": "waiting", "reason": "health_check_error"}
-
     def cleanup(self, name: str) -> None:
         """公开接口：清理指定容器的全部内部状态（注册表 + API 代理 + 消息缓冲）。
 
@@ -683,9 +405,6 @@ class NapCatWsService:
         if proxy:
             proxy.close()
             logger.info("已清理 API 代理: %s", name)
-
-        # 清理 BS 辅助检测缓存
-        self._bs_cache.pop(name, None)
 
         # 清理消息缓冲区
         self._msg_buffers.pop(name, None)

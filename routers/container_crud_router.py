@@ -63,7 +63,7 @@ def _parse_env_vars(env_vars: list[str]) -> dict[str, str]:
     return env
 
 
-_PLUGIN_SRC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "napcat-plugin")
+_PLUGIN_SRC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "plugin", "ncqq-interlink")
 
 
 def _inject_manager_plugin(data_dir: str) -> None:
@@ -71,7 +71,7 @@ def _inject_manager_plugin(data_dir: str) -> None:
     if not os.path.isdir(_PLUGIN_SRC_DIR):
         logger.warning("互联插件源目录不存在: %s", _PLUGIN_SRC_DIR)
         return
-    dest = os.path.join(data_dir, "plugins", "napcat-plugin-manager-link")
+    dest = os.path.join(data_dir, "plugins", "ncqq-interlink")
     if os.path.exists(dest):
         shutil.rmtree(dest, ignore_errors=True)
     shutil.copytree(_PLUGIN_SRC_DIR, dest)
@@ -83,8 +83,8 @@ def _inject_plugin_config(data_dir: str, manager_url: str, internal_key: str, co
     config_dir = os.path.join(data_dir, "config")
     os.makedirs(config_dir, exist_ok=True)
 
-    # 插件配置文件：对应容器内 ctx.configPath = /app/napcat/config/napcat-plugin-manager-link.json
-    plugin_cfg_path = os.path.join(config_dir, "napcat-plugin-manager-link.json")
+    # 插件配置文件：对应容器内 ctx.configPath = /app/napcat/config/ncqq-interlink.json
+    plugin_cfg_path = os.path.join(config_dir, "ncqq-interlink.json")
     plugin_cfg = {
         "managerUrl": manager_url,
         "internalKey": internal_key,
@@ -102,7 +102,7 @@ def _inject_plugin_config(data_dir: str, manager_url: str, internal_key: str, co
                 existing = json.load(f)
         except (json.JSONDecodeError, OSError):
             existing = {}
-    existing["napcat-plugin-manager-link"] = True
+    existing["ncqq-interlink"] = True
     with open(plugins_json_path, "w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2, ensure_ascii=False)
 

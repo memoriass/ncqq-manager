@@ -121,11 +121,8 @@ async def lifespan(app: FastAPI):
     # 启动操作日志定时刷盘任务
     flush_task = asyncio.create_task(background_flush_logs())
 
-    # 启动异步登录检测器（aiohttp 连接池）
-    from services.docker_async import async_login_checker, async_docker_manager
-    await async_login_checker.start()
-
     # 启动异步Docker管理器（aiodocker — 替代 docker-py 热路径）
+    from services.docker_async import async_docker_manager
     await async_docker_manager.start()
 
     # 启动容器状态引擎（后台异步刷新，API/WS 零阻塞读内存）
@@ -160,7 +157,6 @@ async def lifespan(app: FastAPI):
         pass
     await state_engine.stop()
     await async_docker_manager.stop()
-    await async_login_checker.stop()
     await cluster_manager.stop_session()
     await scheduler.stop()
     botshepherd_manager.stop()

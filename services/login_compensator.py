@@ -2,15 +2,10 @@
 登录代偿检测器（LoginCompensator）
 
 职责：
-  提供两项代偿能力：
-
-  1. 文件扫描注入：定期扫描容器 config 目录，检测 onebot11_{uin}.json 文件出现
-     且尚未注入 WS 配置时，立即触发注入+重启，实现快速首次连接建立。
-     ★ 无论 BS 模式还是纯 WS 模式均生效，解决新容器首次登录时无网络配置
-       导致无法连接 BS 上报登录成功的死锁问题。
-  2. 登录态验证：对已有 WS 连接的实例每 60s 调用 get_login_info，
-     修正 hb_online 字段，模拟 BS 的 _check_qq_login 功能。
-     仅在 init_bs_enabled=False 时启用。
+  文件扫描注入：定期扫描容器 config 目录，检测 onebot11_{uin}.json 文件出现
+  且尚未注入 WS 配置时，立即触发注入+重启，实现快速首次连接建立。
+  ★ 无论 BS 模式还是纯 WS 模式均生效，解决新容器首次登录时无网络配置
+    导致无法连接 BS 的死锁问题。
 
 启动条件：
   init_bs_enabled=True 或 init_ws_client_enabled=True
@@ -21,16 +16,14 @@ import os
 import re
 from services.log import logger
 
-_CHECK_INTERVAL = 60  # 登录态验证间隔（秒）
 _SCAN_INTERVAL = 15   # 文件扫描间隔（秒）— 首次登录无需亚秒响应，降低 I/O 频率
 _UIN_RE = re.compile(r"^onebot11_(\d{5,12})\.json$")
 
 
 class LoginCompensator:
-    """登录代偿检测器（单例）— 文件扫描注入 + 登录态验证"""
+    """登录代偿检测器（单例）— 文件扫描注入"""
 
     def __init__(self) -> None:
-        self._verify_task: asyncio.Task | None = None
         self._scan_task: asyncio.Task | None = None
         self._running = False
 
@@ -38,32 +31,23 @@ class LoginCompensator:
     def running(self) -> bool:
         return self._running
 
-    async def start(self, skip_verify: bool = False) -> None:
-        """启动代偿检测循环。
-
-        Args:
-            skip_verify: 为 True 时跳过登录态验证循环（BS 模式自带心跳检测）。
-        """
+    async def start(self) -> None:
+        """启动文件扫描注入循环。"""
         if self._running:
             return
         self._running = True
-        if not skip_verify:
-            self._verify_task = asyncio.create_task(self._verify_loop())
         self._scan_task = asyncio.create_task(self._scan_loop())
-        mode = "仅文件扫描注入" if skip_verify else "登录态验证 + 文件扫描注入"
-        logger.info("登录代偿检测器已启动（%s）", mode)
+        logger.info("登录代偿检测器已启动（仅文件扫描注入）")
 
     async def stop(self) -> None:
         """停止代偿检测循环。"""
         self._running = False
-        for task in (self._verify_task, self._scan_task):
-            if task:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass
-        self._verify_task = None
+        if self._scan_task:
+            self._scan_task.cancel()
+            try:
+                await self._scan_task
+            except asyncio.CancelledError:
+                pass
         self._scan_task = None
 
     async def auto_start(self) -> None:
@@ -73,7 +57,7 @@ class LoginCompensator:
             bs_enabled = app_config.get("init_bs_enabled", False)
             ws_enabled = app_config.get("init_ws_client_enabled", False)
             if bs_enabled or ws_enabled:
-                await self.start(skip_verify=bs_enabled)
+                await self.start()
             else:
                 logger.debug(
                     "登录代偿检测器未启动: bs_enabled=%s ws_enabled=%s",
@@ -81,50 +65,6 @@ class LoginCompensator:
                 )
         except Exception as e:
             logger.warning("登录代偿检测器自动启动检查失败: %s", e)
-
-    # ---- 登录态验证循环 ----
-
-    async def _verify_loop(self) -> None:
-        """每 60s 对所有有 WS proxy 的实例验证 QQ 登录态。"""
-        await asyncio.sleep(15)
-        while self._running:
-            try:
-                await self._verify_all()
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.warning("代偿登录验证异常: %s", e)
-            if self._running:
-                await asyncio.sleep(_CHECK_INTERVAL)
-
-    async def _verify_all(self) -> None:
-        """遍历所有有 proxy 的实例，主动调用 get_login_info 修正 hb_online。"""
-        from services.napcat_ws_service import napcat_ws_service
-
-        names = list(napcat_ws_service._proxies.keys())
-        if not names:
-            return
-        for name in names:
-            try:
-                result = await asyncio.wait_for(
-                    napcat_ws_service.active_health_check(name), timeout=8,
-                )
-                logged_in = result.get("logged_in", False)
-                e = napcat_ws_service._table.get(name)
-                if e and e.is_alive():
-                    prev = e.hb_online
-                    e.hb_online = logged_in
-                    if prev is not None and prev != logged_in:
-                        logger.info(
-                            "代偿检测状态变化: name=%s %s→%s",
-                            name, "online" if prev else "offline",
-                            "online" if logged_in else "offline",
-                        )
-                        napcat_ws_service._wake_state_engine()
-            except asyncio.TimeoutError:
-                logger.debug("代偿检测超时: name=%s", name)
-            except Exception:
-                pass
 
     # ---- 文件扫描注入循环 ----
 

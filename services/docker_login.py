@@ -1,8 +1,6 @@
 """
 登录状态辅助 Mixin
 
-★ 大修：同步检测 + _login_cache 已全部移除。
-登录检测统一由 AsyncLoginChecker + container_state 状态引擎承担。
 本模块仅保留 LoginMixin（配置同步、插件事件接口）和容器清理辅助函数。
 """
 
@@ -33,9 +31,6 @@ def _normalize_uin(raw: str) -> str:
 class LoginMixin:
     """登录状态辅助功能集合，混入 DockerManager 使用。
 
-    ★ 大修：同步登录检测方法 (check_login_via_onebot / check_login_via_webui /
-    check_login_status / batch_check_login) 已全部移除。
-    登录检测由 AsyncLoginChecker 四级级联 + container_state 状态引擎统一承担。
     本 Mixin 仅保留缓存管理、配置同步和插件事件接口。
     """
 

@@ -25,7 +25,7 @@ from middleware.rate_limiter import public_speed_limit, speed_limit
 from services.cluster_manager import cluster_manager
 from services.config import app_config, get_data_dir
 from services.container_state import state_engine
-from services.docker_async import async_docker_manager, async_login_checker as async_docker_manager_login
+from services.docker_async import async_docker_manager
 from services.log import logger
 from services.operation_log_context import build_operator_payload
 from services.operation_logger import operation_logger
@@ -701,15 +701,6 @@ async def get_qr_code(name: str, node_id: str = "local"):
                 qr_file_fresh = True
                 with open(qr_path, "rb") as file_handle:
                     data = base64.b64encode(file_handle.read()).decode("utf-8")
-                if age > 30:
-                    # ★ 修复：使用异步登录检测替代同步 docker_manager
-                    http_port = inst.http_port if inst else 0
-                    webui_port = inst.webui_port if inst else 0
-                    login = await async_docker_manager_login.check_login_status(
-                        name, http_port, webui_port
-                    )
-                    if login.get("logged_in"):
-                        return {"status": "logged_in", "uin": login.get("uin", "")}
                 expires_in = max(0, int(_QR_MAX_AGE - age))
                 return {
                     "status": "ok",
@@ -721,17 +712,6 @@ async def get_qr_code(name: str, node_id: str = "local"):
                 }
     except Exception as exc:
         logger.debug(f"读取本地二维码文件失败: {exc}")
-    if not qr_file_fresh:
-        try:
-            http_port = inst.http_port if inst else 0
-            webui_port = inst.webui_port if inst else 0
-            login = await async_docker_manager_login.check_login_status(
-                name, http_port, webui_port
-            )
-            if login.get("logged_in"):
-                return {"status": "logged_in", "uin": login.get("uin", "")}
-        except Exception:
-            pass
     try:
         logs_text = await async_docker_manager.get_logs(name, 50)
         if logs_text:
@@ -750,60 +730,19 @@ async def refresh_login_status(
     if node_id != "local":
         return {"status": "ok", "logged_in": False, "method": "remote_unsupported"}
 
-    from services.napcat_ws_service import napcat_ws_service
     from services.instance_subsystem import instance_subsystem
 
-    # 1. 优先通过 WS 代理主动探测（最快、最准确）
-    proxy = napcat_ws_service.get_proxy(name)
-    if proxy is not None:
-        try:
-            login = await napcat_ws_service.active_health_check(name)
-            if login.get("logged_in") or login.get("reason") in (
-                "get_login_info_no_uin", "health_check_error"
-            ):
-                # 有明确结果（在线或确认离线），同步到实例状态
-                inst = instance_subsystem.get(name)
-                if inst:
-                    inst.update_login(
-                        logged_in=login.get("logged_in", False),
-                        uin=login.get("uin", ""),
-                        stage=login.get("stage", "waiting"),
-                        method=login.get("method", "ws_api"),
-                        reason=login.get("reason", ""),
-                    )
-                state_engine.notify_change()
-                return {
-                    "status": "ok",
-                    "logged_in": login.get("logged_in", False),
-                    "uin": login.get("uin", ""),
-                    "nickname": login.get("nickname", ""),
-                    "method": login.get("method", "ws_api"),
-                }
-        except Exception:
-            pass
-
-    # 2. WS 代理不可用时，使用异步五级级联检测
     inst = instance_subsystem.get(name)
-    http_port = inst.http_port if inst else 0
-    webui_port = inst.webui_port if inst else 0
-    login = await async_docker_manager_login.check_login_status(name, http_port, webui_port)
+    if not inst:
+        return {"status": "ok", "logged_in": False, "uin": "", "method": "plugin"}
 
-    # 同步结果到实例状态
-    if inst:
-        inst.update_login(
-            logged_in=login.get("logged_in", False),
-            uin=login.get("uin", ""),
-            stage=login.get("stage", "waiting"),
-            method=login.get("method", ""),
-            reason=login.get("reason", ""),
-        )
     state_engine.notify_change()
     return {
         "status": "ok",
-        "logged_in": login.get("logged_in", False),
-        "uin": login.get("uin", ""),
-        "nickname": login.get("nickname", ""),
-        "method": login.get("method", ""),
+        "logged_in": inst.logged_in,
+        "uin": inst.uin or "",
+        "nickname": "",
+        "method": inst.login_method or "plugin",
     }
 
 

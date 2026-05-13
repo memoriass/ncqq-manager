@@ -1,170 +1,18 @@
 """
-异步 Docker 管理 + 登录检测器
+异步 Docker 管理器
 
-AsyncLoginChecker  — aiohttp 并发登录探测（OneBot HTTP 单路，BS 修正后无需文件系统兜底）
 AsyncDockerManager — aiodocker 替代 docker-py 热路径，零线程池开销
+
+登录检测已全面转为内联插件 WS 推送（/ws/plugin/{name}），本文件仅保留 Docker API 封装。
 """
 import asyncio
-import json
 import time
 from collections import defaultdict
 from typing import Dict, List, Optional
 
-import aiohttp
 import aiodocker
 
 from services.log import logger
-
-
-_LOGIN_TIMEOUT = aiohttp.ClientTimeout(total=2, connect=1)
-_MAX_CONCURRENCY = 30  # 同时最多 30 个 HTTP 探测
-
-
-class AsyncLoginChecker:
-    """异步登录状态检测器 — 替代 docker_manager 中的同步 urllib 探测。"""
-
-    def __init__(self):
-        self._session: Optional[aiohttp.ClientSession] = None
-
-    async def start(self):
-        """创建共享 HTTP 连接池。"""
-        self._session = aiohttp.ClientSession(
-            connector=aiohttp.TCPConnector(limit=50, ttl_dns_cache=60),
-            headers={"User-Agent": "NapCatManager/1.0"},
-        )
-        logger.info("异步登录检测器已启动")
-
-    async def stop(self):
-        """关闭连接池。"""
-        if self._session:
-            await self._session.close()
-            self._session = None
-
-    # ============ 单容器检测 ============
-
-    async def check_login_onebot(self, http_port: int) -> Dict:
-        """方案 A：OneBot HTTP API /get_login_info"""
-        if not http_port or not self._session:
-            return {"logged_in": False, "stage": "waiting"}
-        try:
-            async with self._session.post(
-                f"http://127.0.0.1:{http_port}/get_login_info",
-                json={},
-                timeout=_LOGIN_TIMEOUT,
-            ) as resp:
-                result = await resp.json(content_type=None)
-            if result.get("status") == "ok" and result.get("data", {}).get("user_id"):
-                uid = str(result["data"]["user_id"])
-                if uid and uid != "0":
-                    return {
-                        "logged_in": True,
-                        "uin": uid,
-                        "nickname": result["data"].get("nickname", ""),
-                        "method": "onebot",
-                        "stage": "logged_in",
-                        "reason": "onebot_http_ready",
-                    }
-        except (aiohttp.ClientError, asyncio.TimeoutError, json.JSONDecodeError,
-                ValueError, KeyError):
-            pass
-        return {"logged_in": False, "stage": "waiting"}
-
-    async def check_login_status(self, name: str,
-                                  http_port: int, webui_port: int) -> Dict:
-        """四级级联检测：SDK WS 状态 → WS API 调用 → BS API → HTTP OneBot 兜底。
-
-        ★ 大修：移除原 Level 4 文件系统兜底检测（通过 config 文件名 + qrcode.png
-        判定登录为 ghost WS 误判的根源，假阳性率高）。
-        冷启动引导由 HTTP OneBot API 承担（BS 尚未注入时仍可直连 NapCat 探测）。
-
-        优先级：
-          1. napcat_ws_service（零网络开销，BS 已修正心跳 status.online 字段）
-          1.5 WS API 调用（WS 已连接但心跳未确认时，通过 WS 调用 get_login_info）
-          2. BS 账号 API（BS 运行时辅助检测，10s TTL 缓存）
-          3. OneBot HTTP /get_login_info（兜底，冷启动引导 + WS/BS 均不可用时）
-        """
-        from services.napcat_ws_service import napcat_ws_service
-
-        # 1. SDK WS 直连（主路径：BS 修正后的心跳 + 有 uin → 直接返回）
-        r1 = napcat_ws_service.get_login_result(name)
-        if r1["logged_in"]:
-            logger.debug("登录检测[%s] WS主路径命中 uin=%s", name, r1.get("uin"))
-            return r1
-
-        # 1.5 WS API 调用（WS 已连接但心跳未确认时，通过 WS 调用 get_login_info）
-        if napcat_ws_service.get_proxy(name) is not None:
-            r15 = await napcat_ws_service.check_login_via_ws(name)
-            if r15["logged_in"]:
-                logger.debug("登录检测[%s] WS API命中 uin=%s", name, r15.get("uin"))
-                return r15
-
-        # 2. BS 账号 API 辅助（次路径）
-        r2 = await napcat_ws_service.check_via_bs(name)
-        if r2["logged_in"]:
-            logger.debug("登录检测[%s] BS辅助命中 uin=%s", name, r2.get("uin"))
-            return r2
-
-        # 3. OneBot HTTP 兜底（冷启动引导：BS 尚未注入，NapCat 仅有 HTTP 端口可达）
-        if http_port:
-            r3 = await self.check_login_onebot(http_port)
-            if r3["logged_in"]:
-                r3_uin = r3.get("uin", "")
-                if r3_uin:
-                    napcat_ws_service.ensure_uin(name, r3_uin)
-                logger.debug("登录检测[%s] HTTP兜底命中 uin=%s", name, r3.get("uin"))
-                return r3
-
-        # 均无信号
-        stage = r1.get("stage") or r2.get("stage") or "waiting"
-        return {"logged_in": False, "stage": stage}
-
-    # ============ 批量检测 ============
-
-    async def batch_check_login(
-        self, instances: list, concurrency: int = _MAX_CONCURRENCY,
-    ) -> Dict[str, Dict]:
-        """批量并发检测登录状态。
-
-        Args:
-            instances: ContainerInstance 列表（需有 name, http_port, webui_port）
-            concurrency: 最大并发数
-        Returns:
-            {name: {logged_in, uin?, ...}}
-        """
-        sem = asyncio.Semaphore(concurrency)
-        results: Dict[str, Dict] = {}
-
-        async def _check_one(inst):
-            async with sem:
-                try:
-                    r = await asyncio.wait_for(
-                        self.check_login_status(
-                            inst.name, inst.http_port, inst.webui_port),
-                        timeout=4,
-                    )
-                    results[inst.name] = r
-                except (asyncio.TimeoutError, Exception):
-                    results[inst.name] = {"logged_in": False}
-
-        await asyncio.gather(*[_check_one(i) for i in instances])
-        return results
-
-    # ============ 内部辅助 ============
-
-    async def _fetch_json(self, url: str, timeout: aiohttp.ClientTimeout) -> Optional[Dict]:
-        """通用 GET JSON 请求，异常返回 None。"""
-        if not self._session:
-            return None
-        try:
-            async with self._session.get(url, timeout=timeout) as resp:
-                return await resp.json(content_type=None)
-        except (aiohttp.ClientError, asyncio.TimeoutError,
-                json.JSONDecodeError, ValueError):
-            return None
-
-
-# ============ 单例 — 登录检测 ============
-async_login_checker = AsyncLoginChecker()
 
 
 # ============================================================
