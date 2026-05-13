@@ -351,17 +351,6 @@ export default function ClusterSettings() {
                                     size="small"
                                 />
                             </Grid>
-                            <Grid item xs={12} md={6}>
-                                <TextField
-                                    fullWidth name="manager_host"
-                                    label={t('clusterConfig.managerHost')}
-                                    value={config.manager_host}
-                                    onChange={handleChange}
-                                    helperText={t('clusterConfig.managerHostHelp')}
-                                    size="small"
-                                    placeholder="127.0.0.1"
-                                />
-                            </Grid>
                             <Grid item xs={12}>
                                 <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
                                     {t('clusterConfig.bsTargets')}
