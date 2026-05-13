@@ -23,6 +23,7 @@ interface ClusterConfig {
     init_ws_client_token: string;
     init_bs_enabled: boolean;
     init_bs_client_base_port: number;
+    init_bs_host: string;
     init_bs_targets: string;
     manager_host: string;
     init_auto_join_groups_enabled: boolean;
@@ -38,6 +39,7 @@ const DEFAULT_CONFIG: ClusterConfig = {
     init_ws_client_token: "",
     init_bs_enabled: false,
     init_bs_client_base_port: 6100,
+    init_bs_host: "",
     init_bs_targets: "[]",
     manager_host: "127.0.0.1",
     init_auto_join_groups_enabled: false,
@@ -349,6 +351,17 @@ export default function ClusterSettings() {
                                     onChange={handleChange}
                                     helperText={t('clusterConfig.bsClientBasePortHelp')}
                                     size="small"
+                                />
+                            </Grid>
+                            <Grid item xs={12} md={6}>
+                                <TextField
+                                    fullWidth name="init_bs_host"
+                                    label={t('clusterConfig.bsHost')}
+                                    value={config.init_bs_host}
+                                    onChange={handleChange}
+                                    helperText={t('clusterConfig.bsHostHelp')}
+                                    size="small"
+                                    placeholder={config.manager_host || '172.17.0.1'}
                                 />
                             </Grid>
                             <Grid item xs={12}>

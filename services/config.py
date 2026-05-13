@@ -30,6 +30,7 @@ class AppConfig:
                      "docker_image", "api_key", "data_dir",
                      "init_ws_client_url", "init_ws_client_token",
                      "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets",
+                     "init_bs_host",
                      "manager_host", "manager_port", "internal_api_key",
                      "init_auto_join_groups_enabled", "init_auto_join_groups"}
 
@@ -51,7 +52,8 @@ class AppConfig:
         "init_bs_enabled": False,
         "init_bs_client_base_port": 6100,
         "init_bs_targets": "[]",  # JSON 字符串，如 '["ws://target1:3001/ws"]'
-        "manager_host": "172.17.0.1",  # 宿主机 IP，NapCat 容器连接 BS/管理器时使用
+        "init_bs_host": "",  # BS 所在主机 IP（留空则使用 manager_host）
+        "manager_host": "172.17.0.1",  # 宿主机 IP，NapCat 容器连接管理器时使用
         "manager_port": 8000,     # 管理器监听端口，用于 BS 自动注入本地 OneBot WS 端点
         "internal_api_key": "",   # 内部 API 通信密钥（插件/节点间鉴权）
         "init_auto_join_groups_enabled": False,  # 登录后自动发群通知开关

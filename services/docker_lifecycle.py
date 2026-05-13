@@ -143,7 +143,7 @@ class LifecycleMixin:
         bs_bind_url = ""
 
         if bs_enabled:
-            bs_host = str(app_config.get("manager_host", "127.0.0.1"))
+            bs_host = str(app_config.get("init_bs_host") or app_config.get("manager_host", "127.0.0.1"))
             bs_base_port = int(app_config.get("init_bs_client_base_port", 6100))
             bs_port = self.allocate_port(bs_base_port)  # type: ignore[attr-defined]
             bs_bind_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
