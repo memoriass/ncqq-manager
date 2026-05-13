@@ -2,6 +2,8 @@
 NapCat QQ Manager - 精简入口点
 所有路由已拆分到 routers/ 目录，服务层在 services/，中间件在 middleware/
 """
+import sys
+import asyncio
 import os
 import uvicorn
 from contextlib import asynccontextmanager
@@ -366,4 +368,10 @@ async def serve_spa(full_path: str):
 # ============ 应用入口 ============
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    if sys.platform == "win32":
+        # reload=True 通过子进程实现，子进程不继承 ProactorEventLoop policy
+        # Windows 下直接运行（不热重载）以确保 aiodocker Named Pipe 正常工作
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+        uvicorn.run(app, host="0.0.0.0", port=8000, reload=False)
+    else:
+        uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
