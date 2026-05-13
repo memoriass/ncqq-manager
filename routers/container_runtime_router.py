@@ -819,6 +819,7 @@ async def receive_login_event(request: Request):
         raise HTTPException(status_code=400, detail="Missing container name")
     from services.docker_login import LoginMixin
     LoginMixin.update_login_cache(container_name, body)
+    state_engine.notify_change()
     return {"status": "ok"}
 
 
@@ -843,6 +844,7 @@ async def receive_heartbeat(request: Request):
         inst.message_sent = int(body["message_sent"])
     if "message_received" in body:
         inst.message_received = int(body["message_received"])
+    state_engine.notify_change()
     return {"status": "ok"}
 
 

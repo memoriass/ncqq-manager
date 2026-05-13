@@ -158,7 +158,7 @@ class ContainerInstance:
         self.bot_heartbeat_ts = time.time()
 
     def clear_runtime(self) -> None:
-        """容器停止时清理运行时数据。"""
+        """容器停止时清理运行时数据（含登录态，下次启动后插件重新推送）。"""
         self.cpu_percent = 0.0
         self.mem_usage = 0.0
         self.mem_limit = 0.0
@@ -168,6 +168,13 @@ class ContainerInstance:
         self.qr_expired = False
         self.bot_online = False
         self.bot_heartbeat_ts = 0.0
+        # 容器停止 → 登录态失效，等插件重新上报
+        if self.logged_in:
+            self.logged_in = False
+            self.login_stage = "waiting"
+            self.login_method = ""
+            self.login_reason = "container_stopped"
+            self.login_ts = time.time()
         self.login_stage = "waiting"
         self.login_method = ""
         self.login_reason = ""

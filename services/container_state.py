@@ -14,39 +14,7 @@ from typing import Dict, List
 
 from services.log import logger
 from services.instance_subsystem import instance_subsystem
-from services.docker_async import async_login_checker, async_docker_manager
-
-
-_bs_inject_locks: Dict[str, asyncio.Lock] = {}
-
-
-def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
-    """按登录判定结果触发 BS 注入（fire-and-forget，per-name 串行）。"""
-    try:
-        if not result.get("logged_in"):
-            return
-        uin = str(result.get("uin", ""))
-        if not uin:
-            return
-
-        from services.docker_manager import docker_manager
-
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop is not None:
-            lock = _bs_inject_locks.setdefault(name, asyncio.Lock())
-
-            async def _guarded():
-                if lock.locked():
-                    return  # 已有注入在执行，跳过
-                async with lock:
-                    await docker_manager._on_login_detected(name, result, prev)
-
-            loop.create_task(_guarded())
-    except Exception as e:
-        logger.debug("BS 注入调度异常 [%s]: %s", name, e)
+from services.docker_async import async_docker_manager
 
 
 # ============ 常量 ============
@@ -54,8 +22,6 @@ def _trigger_bs_inject(name: str, result: Dict, prev: Dict) -> None:
 _REFRESH_INTERVAL_MIN = 3  # 事件活跃时的刷新间隔（秒）
 _REFRESH_INTERVAL_MAX = 30  # 长时间无事件时的最大兜底间隔
 _REFRESH_INTERVAL_STEP = 3  # 每次无事件时递增量
-_LOGIN_TTL_OK = 60  # 已登录容器的登录检测间隔
-_LOGIN_TTL_FAIL = 8  # 未登录容器的登录检测间隔
 _QR_MAX_AGE = 120  # QR 文件最大有效期（秒）
 
 
@@ -315,149 +281,41 @@ class ContainerStateEngine:
                     inst.http_port = ports.get("http_port", 0)
                     inst.webui_port = ports.get("webui_port", 0)
 
-        # ---- 2. 增量登录检测 — BS 修正心跳为主路径，状态引擎唯一写入源 ⭐ ----
-        # ★ 大修：登录状态仅由此状态引擎写入 inst.update_login()，
-        # bot_heartbeat / ws_router 等只更新 _ConnEntry 并唤醒此引擎。
-        from services.napcat_ws_service import napcat_ws_service
+        # ---- 2. 插件心跳超时检测 — 心跳连续缺失 → 视为掉线 ----
+        # 登录状态由插件 /internal/login-event 推送写入 inst.update_login()，
+        # 此处仅做心跳超时兜底：连续 90s（3 × 30s 间隔）无心跳 → 标记掉线。
+        _HEARTBEAT_TIMEOUT = 90
 
         now = time.time()
-        need_login_instances = []
-        need_health_check: list = []
-        # 掉线扫码通知表：{name: (was_logged_in, old_uin, node_id)}
         prev_login: Dict[str, tuple] = {}
-        # 定期登录验证间隔：BS 已做 60s 轮询，Manager 侧仅兜底
-        _LOGIN_VERIFY_INTERVAL = 300
 
         for name in running_local_names:
             inst = instance_subsystem.get(name)
-            if not inst:
+            if not inst or not inst.logged_in:
                 continue
-
-            ws_result = napcat_ws_service.get_login_result(name)
-
-            if ws_result["logged_in"]:
-                # ── WS 主路径在线 ──
-                old_uin = inst.uin
-                new_uin = ws_result.get("uin", "")
-                was_logged = inst.logged_in
-                prev_login_state = {"logged_in": was_logged, "uin": old_uin}
+            # 已收到过心跳 + 超时 → 视为掉线
+            if inst.bot_heartbeat_ts > 0 and now - inst.bot_heartbeat_ts > _HEARTBEAT_TIMEOUT:
+                prev_login[name] = (True, inst.uin, inst.node_id)
                 inst.update_login(
-                    logged_in=True,
-                    uin=new_uin,
-                    stage="logged_in",
-                    method=ws_result.get("method", "sdk_ws"),
-                    reason=ws_result.get("reason", "ws_connected"),
+                    logged_in=False,
+                    uin=inst.uin,
+                    stage="waiting",
+                    method="plugin",
+                    reason="heartbeat_timeout",
                 )
-                if new_uin and (not was_logged or old_uin != new_uin):
-                    _trigger_bs_inject(name, ws_result, prev_login_state)
+                logger.info(
+                    "插件心跳超时 [%s]: uin=%s 距上次心跳 %.0fs",
+                    name, inst.uin, now - inst.bot_heartbeat_ts,
+                )
 
-                # 定期验证（BS 做主检测，Manager 仅兜底确认）
-                if now - inst.login_ts >= _LOGIN_VERIFY_INTERVAL:
-                    need_health_check.append((name, inst))
-                    logger.debug("定期登录验证 [%s]: %.0fs 未验证", name, now - inst.login_ts)
-                continue
-
-            # ── WS 路径返回离线 ──
-            ws_reason = ws_result.get("reason", "")
-
-            # WS 有明确离线信号（heartbeat_offline / no_heartbeat / ws_dead）
-            # → 立即同步到实例状态
-            if ws_reason in ("heartbeat_offline", "no_heartbeat", "ws_dead"):
-                if inst.logged_in:
-                    # 状态翻转：登录 → 离线
-                    prev_login[name] = (True, inst.uin, inst.node_id)
-                    inst.update_login(
-                        logged_in=False,
-                        uin=ws_result.get("uin", inst.uin),
-                        stage="waiting",
-                        method="sdk_ws",
-                        reason=ws_reason,
-                    )
-                    logger.info("WS 确认离线 [%s]: reason=%s uin=%s", name, ws_reason, inst.uin)
-                else:
-                    # 已经是离线状态，刷新时间戳
-                    inst.update_login(
-                        logged_in=False,
-                        uin=ws_result.get("uin", inst.uin),
-                        stage="waiting",
-                        method="sdk_ws",
-                        reason=ws_reason,
-                    )
-                continue
-
-            # WS 无明确信号（waiting / 无连接）→ TTL 慢路径
-            ttl = _LOGIN_TTL_OK if inst.logged_in else _LOGIN_TTL_FAIL
-            if now - inst.login_ts >= ttl:
-                need_login_instances.append(inst)
-
-        # ---- 2.1 主动健康检测 — 定期验证确认 QQ 仍然在线 ----
-        if need_health_check:
-            for hc_name, hc_inst in need_health_check:
-                try:
-                    hc_result = await asyncio.wait_for(
-                        napcat_ws_service.active_health_check(hc_name),
-                        timeout=6,
-                    )
-                    if not hc_result.get("logged_in"):
-                        # 主动检测确认离线 → 更新实例状态
-                        was_logged = hc_inst.logged_in
-                        old_uin = hc_inst.uin
-                        hc_inst.update_login(
-                            logged_in=False,
-                            uin=hc_result.get("uin", old_uin),
-                            stage="waiting",
-                            method=hc_result.get("method", "ws_api"),
-                            reason=hc_result.get("reason", "health_check_offline"),
-                        )
-                        if was_logged:
-                            logger.warning(
-                                "主动健康检测发现离线 [%s]: uin=%s reason=%s",
-                                hc_name, old_uin, hc_result.get("reason"),
-                            )
-                            # 记录到掉线通知表
-                            prev_login[hc_name] = (True, old_uin, hc_inst.node_id)
-                except (asyncio.TimeoutError, Exception) as e:
-                    logger.debug("主动健康检测异常 [%s]: %s", hc_name, e)
-
-        for inst in need_login_instances:
-            prev_login[inst.name] = (inst.logged_in, inst.uin, inst.node_id)
-
-        if need_login_instances:
-            login_results = await async_login_checker.batch_check_login(
-                need_login_instances
-            )
-            for name, result in login_results.items():
-                inst = instance_subsystem.get(name)
-                if inst:
-                    inst.update_login(
-                        logged_in=result.get("logged_in", False),
-                        uin=result.get("uin", ""),
-                        stage=result.get("stage", "waiting"),
-                        method=result.get("method", ""),
-                        reason=result.get("reason", ""),
-                    )
-                    new_uin = result.get("uin", "")
-                    if result.get("logged_in") and new_uin:
-                        prev_was_logged, prev_uin, _ = prev_login.get(
-                            name, (False, "", "local")
-                        )
-                        if not prev_was_logged or prev_uin != new_uin:
-                            prev_login_state = {
-                                "logged_in": prev_was_logged,
-                                "uin": prev_uin,
-                            }
-                            _trigger_bs_inject(name, result, prev_login_state)
-
-        # ---- 2.5 掉线扫码通知 — logged_in: true → false 时推送 ----
+        # ---- 2.5 掉线通知 ----
         for name, (was_logged_in, old_uin, nid) in prev_login.items():
             if not was_logged_in:
-                continue  # 之前就没登录，跳过
+                continue
             inst = instance_subsystem.get(name)
             if inst and not inst.logged_in:
-                # 登录态丢失 — 异步推送通知
                 try:
                     from services.alert_manager import alert_manager
-
                     await alert_manager.notify_login_lost(name, old_uin, nid)
                 except Exception as e:
                     logger.debug("掉线扫码通知异常: %s", e)
