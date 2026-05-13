@@ -846,6 +846,30 @@ async def receive_heartbeat(request: Request):
     return {"status": "ok"}
 
 
+@router.post("/internal/heartbeat")
+async def receive_heartbeat(request: Request):
+    internal_key = request.headers.get("x-internal-key", "")
+    expected_key = app_config.get("internal_api_key", "")
+    if not expected_key or internal_key != expected_key:
+        raise HTTPException(status_code=403, detail="Invalid internal key")
+    body = await request.json()
+    container_name = body.get("name", "")
+    if not container_name:
+        raise HTTPException(status_code=400, detail="Missing container name")
+    from services.instance_subsystem import instance_subsystem
+    import time as _time
+    inst = instance_subsystem.get(container_name)
+    if not inst:
+        return {"status": "ok", "ignored": True}
+    inst.bot_online = True
+    inst.bot_heartbeat_ts = _time.time()
+    if "message_sent" in body:
+        inst.message_sent = int(body["message_sent"])
+    if "message_received" in body:
+        inst.message_received = int(body["message_received"])
+    return {"status": "ok"}
+
+
 @router.get("/containers/{name}/events")
 async def stream_container_events(
     name: str,

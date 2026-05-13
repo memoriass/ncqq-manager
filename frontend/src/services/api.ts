@@ -35,11 +35,6 @@ export interface ContainerStats {
         http_client: number;
         ws_client: number;
     };
-    // WS 运行状态透传
-    bot_ws_connected?: boolean;
-    bot_nickname?: string;
-    bot_ws_uin?: string;
-    bot_last_seen?: number;
 }
 
 export interface Node {
@@ -143,6 +138,24 @@ export interface AlertRule {
     config: Record<string, unknown>;
     webhook_url: string;
     created_at: number;
+}
+
+
+export interface AlertSettings {
+    status: string;
+    allow_local_webhook: boolean;
+    webhook_base_url: string;
+    smtp_enabled: boolean;
+    smtp_host: string;
+    smtp_port: number;
+    smtp_username: string;
+    smtp_password_set: boolean;
+    smtp_sender: string;
+    smtp_sender_name: string;
+    smtp_recipients: string;
+    smtp_use_ssl: boolean;
+    smtp_use_tls: boolean;
+    smtp_subject_prefix: string;
 }
 
 export interface AlertHistory {
@@ -448,11 +461,17 @@ export const alertApi = {
         request<{ status: string; history: AlertHistory[] }>(`/alerts/history?limit=${limit}`),
 
     getSettings: () =>
-        request<{ status: string; allow_local_webhook: boolean }>('/alerts/settings'),
+        request<AlertSettings>('/alerts/settings'),
 
-    updateSettings: (data: { allow_local_webhook: boolean }) =>
+    updateSettings: (data: Partial<Omit<AlertSettings, 'status' | 'smtp_password_set'>> & { smtp_password?: string }) =>
         request<{ status: string }>('/alerts/settings', {
             method: 'PUT',
+            body: JSON.stringify(data),
+        }),
+
+    testSmtp: (data: { recipients: string; subject?: string; message?: string }) =>
+        request<{ status: string; message?: string }>('/alerts/smtp/test', {
+            method: 'POST',
             body: JSON.stringify(data),
         }),
 };
@@ -764,45 +783,7 @@ export interface BotStatusItem {
     last_seen: number;
 }
 
-export interface BotMessage {
-    time: number;
-    self_id: number;
-    post_type: string;
-    message_type?: string;
-    sub_type?: string;
-    sender?: { user_id?: number; nickname?: string; card?: string };
-    group_id?: number;
-    user_id?: number;
-    raw_message?: string;
-    message_id?: number;
-    [key: string]: unknown;
-}
-
 export const botApi = {
     /** 列出所有已知 Bot（含已断线历史），connected=true 表示当前在线 */
     list: () => request<BotStatusItem[]>('/bots'),
-
-    /** 查询指定 Bot 的连接状态 */
-    getStatus: (name: string) =>
-        request<BotStatusItem>(`/bots/${name}/status`),
-
-    /** 代理调用 OneBot API（透传 action/params） */
-    call: (name: string, action: string, params: Record<string, unknown> = {}, timeout = 10) =>
-        request<{ status: string; data: unknown }>(`/bots/${name}/call`, {
-            method: 'POST',
-            body: JSON.stringify({ action, params, timeout }),
-        }),
-
-    /** 便捷发消息（私聊/群聊） */
-    send: (name: string, msgType: 'private' | 'group', targetId: string, message: string) =>
-        request<{ status: string; message_id: number }>(`/bots/${name}/send`, {
-            method: 'POST',
-            body: JSON.stringify({ msg_type: msgType, target_id: targetId, message }),
-        }),
-
-    /** 获取指定 Bot 最近收到的消息 */
-    getMessages: (name: string, limit = 50) =>
-        request<{ status: string; name: string; count: number; messages: BotMessage[] }>(
-            `/bots/${name}/messages?limit=${limit}`
-        ),
 };
