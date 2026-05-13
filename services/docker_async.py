@@ -492,6 +492,11 @@ class AsyncDockerManager:
 
     # ---- 6. 容器日志（CRUD 异步化 — 替代 cluster_manager.get_logs） ----
 
+    async def get_stats(self, name: str) -> Dict:
+        """异步获取容器完整统计（委托给同步 docker_manager，避免阻塞事件循环）。"""
+        from services.docker_manager import docker_manager
+        return await asyncio.to_thread(docker_manager.get_stats, name)
+
     async def get_logs(self, name: str, tail: int = 100) -> str:
         """异步获取容器日志。"""
         if not self._docker:
