@@ -78,6 +78,37 @@ def _inject_manager_plugin(data_dir: str) -> None:
     logger.info("已注入互联插件到: %s", dest)
 
 
+def _inject_plugin_config(data_dir: str, manager_url: str, internal_key: str, container_name: str) -> None:
+    """写入插件配置文件（ctx.configPath）和 plugins.json，实现完全自动化配置。"""
+    config_dir = os.path.join(data_dir, "config")
+    os.makedirs(config_dir, exist_ok=True)
+
+    # 插件配置文件：对应容器内 ctx.configPath = /app/napcat/config/napcat-plugin-manager-link.json
+    plugin_cfg_path = os.path.join(config_dir, "napcat-plugin-manager-link.json")
+    plugin_cfg = {
+        "managerUrl": manager_url,
+        "internalKey": internal_key,
+        "containerName": container_name,
+    }
+    with open(plugin_cfg_path, "w", encoding="utf-8") as f:
+        json.dump(plugin_cfg, f, indent=2, ensure_ascii=False)
+
+    # plugins.json：启用互联插件（NapCat 首次运行时若文件已存在则直接读取）
+    plugins_json_path = os.path.join(config_dir, "plugins.json")
+    existing: dict = {}
+    if os.path.exists(plugins_json_path):
+        try:
+            with open(plugins_json_path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+    existing["napcat-plugin-manager-link"] = True
+    with open(plugins_json_path, "w", encoding="utf-8") as f:
+        json.dump(existing, f, indent=2, ensure_ascii=False)
+
+    logger.info("已注入互联插件配置: %s", plugin_cfg_path)
+
+
 def _generate_onebot11_config_with_ws_client(config_dir: str, ws_client_url: str, ws_client_token: str = "", uin: str = "default") -> None:
     config_file = os.path.join(config_dir, f"onebot11_{uin}.json")
     ws_client_config = {
@@ -142,11 +173,13 @@ async def api_create_container(req: CreateRequest, request: Request, session: di
     manager_host = app_config.get("manager_host", "127.0.0.1")
     manager_port = app_config.get("manager_port", 8000)
     internal_key = app_config.get("internal_api_key", "")
-    if manager_host:
-        env["NCQQ_MANAGER_URL"] = f"http://{manager_host}:{manager_port}"
+    manager_url = f"http://{manager_host}:{manager_port}" if manager_host else ""
+    if manager_url:
+        env["NCQQ_MANAGER_URL"] = manager_url
     if internal_key:
         env["NCQQ_INTERNAL_KEY"] = internal_key
     env["NCQQ_CONTAINER_NAME"] = req.name
+    _inject_plugin_config(data_dir, manager_url, internal_key, req.name)
     cid = await async_docker_manager.create_container(name=req.name, image=req.docker_image or app_config.get("docker_image", "mlikiowa/napcat-docker:latest"), volumes=volumes, ports={"6099/tcp": webui_port, "3000/tcp": http_port, "3001/tcp": ws_port}, environment=env, restart_policy={"Name": req.restart_policy} if req.restart_policy and req.restart_policy != "no" else {"Name": "always"}, mem_limit=f"{req.memory_limit}m" if req.memory_limit > 0 else None, network_mode=req.network_mode if req.network_mode != "bridge" else None)
     for p in (webui_port, http_port, ws_port):
         async_docker_manager.release_port(p)
