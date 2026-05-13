@@ -39,14 +39,12 @@ async def get_cluster_config(session: dict = Depends(get_current_user)):
             "ws_base_port": app_config.get("ws_base_port"),
             "api_key": ("***" if app_config.get("api_key") else ""),
             "data_dir": app_config.get("data_dir"),
-            "init_ws_client_enabled": app_config.get("init_ws_client_enabled", False),
             "init_ws_client_url": app_config.get("init_ws_client_url", "ws://127.0.0.1:5100/onebot/v11/ws"),
             "init_ws_client_token": app_config.get("init_ws_client_token", ""),
             "init_bs_enabled": app_config.get("init_bs_enabled", False),
             "init_bs_client_base_port": app_config.get("init_bs_client_base_port", 6100),
-            "init_bs_napcat_host": app_config.get("init_bs_napcat_host", "172.17.0.1"),
             "init_bs_targets": app_config.get("init_bs_targets", "[]"),
-            "manager_host": app_config.get("manager_host", "127.0.0.1"),
+            "manager_host": app_config.get("manager_host", "172.17.0.1"),
             "manager_port": app_config.get("manager_port", 8000),
             "init_auto_join_groups_enabled": app_config.get("init_auto_join_groups_enabled", False),
             "init_auto_join_groups": app_config.get("init_auto_join_groups", "[]"),
@@ -68,8 +66,8 @@ async def save_cluster_config(
 ):
     body = await request.json()
     allowed_keys = {"webui_base_port", "http_base_port", "ws_base_port", "docker_image", "api_key", "data_dir",
-                     "init_ws_client_enabled", "init_ws_client_url", "init_ws_client_token",
-                     "init_bs_enabled", "init_bs_client_base_port", "init_bs_napcat_host", "init_bs_targets",
+                     "init_ws_client_url", "init_ws_client_token",
+                     "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets",
                      "manager_host", "manager_port",
                      "init_auto_join_groups_enabled", "init_auto_join_groups"}
     updates = {k: v for k, v in body.items() if k in allowed_keys}

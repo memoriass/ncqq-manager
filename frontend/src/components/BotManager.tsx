@@ -100,11 +100,19 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
     const [loadingMore, setLoadingMore] = useState(false);
     const [newQQ, setNewQQ] = useState('');
     const [showNewChat, setShowNewChat] = useState(false);
+    const [contactDialogOpen, setContactDialogOpen] = useState(false);
+    const [contactGroups, setContactGroups] = useState<Array<{ group_id: number; group_name: string }>>([]);
+    const [contactFriends, setContactFriends] = useState<Array<{ user_id: number; nickname: string; remark: string }>>([]);
+    const [contactTab, setContactTab] = useState<'groups' | 'friends'>('groups');
+    const [contactLoading, setContactLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const t = useTranslate();
     const toast = useToast();
     const theme = useTheme();
     const isDark = theme.palette.mode === 'dark';
+
+    // 最大渲染消息数 — 避免过多消息导致性能问题
+    const MAX_RENDER_MESSAGES = 50;
 
     // 加载群列表作为会话
     useEffect(() => {
@@ -231,6 +239,36 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
         setShowNewChat(false);
     };
 
+    const openContactDialog = async () => {
+        setContactDialogOpen(true);
+        setContactLoading(true);
+        try {
+            const [groupRes, friendRes] = await Promise.allSettled([
+                botApi.call(name, 'get_group_list'),
+                botApi.call(name, 'get_friend_list'),
+            ]);
+            if (groupRes.status === 'fulfilled' && Array.isArray(groupRes.value.data)) {
+                setContactGroups(groupRes.value.data as Array<{ group_id: number; group_name: string }>);
+            }
+            if (friendRes.status === 'fulfilled' && Array.isArray(friendRes.value.data)) {
+                setContactFriends(friendRes.value.data as Array<{ user_id: number; nickname: string; remark: string }>);
+            }
+        } catch { /* ignore */ }
+        setContactLoading(false);
+    };
+
+    const selectContact = (type: 'group' | 'private', id: string, contactName: string) => {
+        const existing = conversations.find(c => c.id === id && c.type === type);
+        if (existing) {
+            setActiveConv(existing);
+        } else {
+            const conv: Conversation = { id, type, name: contactName, lastMsg: '', lastTime: 0 };
+            setConversations(prev => [conv, ...prev]);
+            setActiveConv(conv);
+        }
+        setContactDialogOpen(false);
+    };
+
     const formatTime = (ts: number) => {
         if (!ts) return '';
         const d = new Date(ts * 1000);
@@ -238,13 +276,14 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
     };
 
     return (
+        <>
         <Box sx={{ ...glass, borderRadius: 3, display: 'flex', height: 560, overflow: 'hidden' }}>
             {/* 左侧会话列表 */}
             <Box sx={{ width: 260, borderRight: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', flexDirection: 'column' }}>
                 <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>{t('botManager.chat')}</Typography>
                     <Tooltip title={t('botManager.newPrivateChat')}>
-                        <IconButton size="small" onClick={() => setShowNewChat(!showNewChat)}>
+                        <IconButton size="small" onClick={openContactDialog}>
                             <AddCommentIcon sx={{ fontSize: 18 }} />
                         </IconButton>
                     </Tooltip>
@@ -325,7 +364,7 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
                                     </Button>
                                 </Box>
                             )}
-                            {messages.map((msg, i) => {
+                            {messages.slice(-MAX_RENDER_MESSAGES).map((msg, i) => {
                                 const isSelf = msg.user_id === msg.self_id;
                                 return (
                                     <Box key={msg.message_id || i} sx={{ display: 'flex', flexDirection: isSelf ? 'row-reverse' : 'row', gap: 1, alignItems: 'flex-end' }}>
@@ -379,6 +418,67 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
                 )}
             </Box>
         </Box>
+
+            {/* 联系人选择对话框 */}
+            <Dialog open={contactDialogOpen} onClose={() => setContactDialogOpen(false)}
+                PaperProps={{ sx: { borderRadius: 3, minWidth: 400, maxHeight: '70vh' } }}>
+                <DialogTitle sx={{ fontWeight: 700, fontSize: '1rem', pb: 1 }}>
+                    {t('botManager.selectContact')}
+                </DialogTitle>
+                <DialogContent sx={{ px: 2, pb: 2 }}>
+                    <Tabs value={contactTab} onChange={(_, v) => setContactTab(v)} sx={{ mb: 1.5, minHeight: 36, '& .MuiTab-root': { minHeight: 36, textTransform: 'none', fontSize: '0.85rem' } }}>
+                        <Tab value="groups" icon={<GroupIcon sx={{ fontSize: 16 }} />} iconPosition="start" label={t('botManager.groupList')} />
+                        <Tab value="friends" icon={<PersonIcon sx={{ fontSize: 16 }} />} iconPosition="start" label={t('botManager.friendList')} />
+                    </Tabs>
+
+                    {/* 手动输入 QQ 号 */}
+                    <Box sx={{ mb: 1.5 }}>
+                        <TextField
+                            size="small" fullWidth
+                            placeholder={t('botManager.inputQQ')}
+                            value={newQQ}
+                            onChange={e => setNewQQ(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { addPrivateChat(); setContactDialogOpen(false); } }}
+                            InputProps={{
+                                endAdornment: (
+                                    <InputAdornment position="end">
+                                        <IconButton size="small" onClick={() => { addPrivateChat(); setContactDialogOpen(false); }}><SendIcon sx={{ fontSize: 14 }} /></IconButton>
+                                    </InputAdornment>
+                                ),
+                            }}
+                            sx={{ '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                        />
+                    </Box>
+
+                    {contactLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={24} /></Box>
+                    ) : contactTab === 'groups' ? (
+                        <List sx={{ maxHeight: 320, overflow: 'auto', py: 0 }}>
+                            {contactGroups.map(g => (
+                                <ListItemButton key={g.group_id} onClick={() => selectContact('group', String(g.group_id), g.group_name || String(g.group_id))} sx={{ py: 0.8, borderRadius: 1, mb: 0.3 }}>
+                                    <ListItemIcon sx={{ minWidth: 32 }}><GroupIcon sx={{ fontSize: 18, color: '#6366f1' }} /></ListItemIcon>
+                                    <ListItemText primary={g.group_name || String(g.group_id)} secondary={String(g.group_id)} primaryTypographyProps={{ fontSize: '0.82rem', fontWeight: 500 }} secondaryTypographyProps={{ fontSize: '0.7rem', fontFamily: 'monospace' }} />
+                                </ListItemButton>
+                            ))}
+                            {contactGroups.length === 0 && <Typography sx={{ py: 2, textAlign: 'center', color: 'text.secondary', fontSize: '0.8rem' }}>{t('botManager.noGroups')}</Typography>}
+                        </List>
+                    ) : (
+                        <List sx={{ maxHeight: 320, overflow: 'auto', py: 0 }}>
+                            {contactFriends.map(f => (
+                                <ListItemButton key={f.user_id} onClick={() => selectContact('private', String(f.user_id), f.remark || f.nickname || String(f.user_id))} sx={{ py: 0.8, borderRadius: 1, mb: 0.3 }}>
+                                    <ListItemIcon sx={{ minWidth: 32 }}><PersonIcon sx={{ fontSize: 18, color: '#10b981' }} /></ListItemIcon>
+                                    <ListItemText primary={f.remark || f.nickname || String(f.user_id)} secondary={String(f.user_id)} primaryTypographyProps={{ fontSize: '0.82rem', fontWeight: 500 }} secondaryTypographyProps={{ fontSize: '0.7rem', fontFamily: 'monospace' }} />
+                                </ListItemButton>
+                            ))}
+                            {contactFriends.length === 0 && <Typography sx={{ py: 2, textAlign: 'center', color: 'text.secondary', fontSize: '0.8rem' }}>{t('botManager.noFriends')}</Typography>}
+                        </List>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setContactDialogOpen(false)} color="inherit" sx={{ borderRadius: 2 }}>{t('botManager.cancel')}</Button>
+                </DialogActions>
+            </Dialog>
+        </>
     );
 }
 

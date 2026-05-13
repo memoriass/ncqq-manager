@@ -202,12 +202,34 @@ class BSActivationService:
     # ---- 监控循环 ----
 
     async def _monitor_loop(self) -> None:
-        """定期检查 BS connections 健康状态。"""
+        """定期检查 BS connections 健康状态，BS 崩溃时自动重启。"""
         # 启动延迟，等 BS 完全启动
         await asyncio.sleep(_STARTUP_DELAY)
 
+        _restart_backoff = 0  # 连续重启退避计数
+
         while self._running:
             try:
+                # ★ BS 崩溃自动恢复
+                from services.botshepherd import botshepherd_manager
+                if not botshepherd_manager.running:
+                    wait = min(10 * (2 ** _restart_backoff), 120)
+                    logger.warning("BS 进程未运行，%ds 后尝试自动重启（第 %d 次）",
+                                   wait, _restart_backoff + 1)
+                    await asyncio.sleep(wait)
+                    if not self._running:
+                        break
+                    result = botshepherd_manager.start()
+                    if result.get("status") == "ok":
+                        logger.info("BS 自动重启成功: %s", result.get("message"))
+                        _restart_backoff = 0
+                        await asyncio.sleep(_STARTUP_DELAY)
+                    else:
+                        logger.error("BS 自动重启失败: %s", result.get("message"))
+                        _restart_backoff = min(_restart_backoff + 1, 4)
+                    continue
+
+                _restart_backoff = 0
                 await self._check_connections()
             except asyncio.CancelledError:
                 raise

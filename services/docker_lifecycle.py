@@ -76,11 +76,7 @@ class LifecycleMixin:
 
         data_dir_base = get_data_dir()
         config_dir = os.path.join(data_dir_base, name, "config")
-        ws_enabled = app_config.get("init_ws_client_enabled", False)
         bs_enabled = app_config.get("init_bs_enabled", False)
-
-        if not ws_enabled and not bs_enabled:
-            return
 
         # 层2 - 持久层：该 uin 已注入过（重启后仍有效），跳过步骤①避免重复分配端口
         # ★ 但先验证配置文件是否实际存在：容器重建后 config 目录可能被清空，
@@ -147,12 +143,12 @@ class LifecycleMixin:
         bs_bind_url = ""
 
         if bs_enabled:
-            bs_host = str(app_config.get("init_bs_napcat_host", "172.17.0.1"))
+            bs_host = str(app_config.get("manager_host", "127.0.0.1"))
             bs_base_port = int(app_config.get("init_bs_client_base_port", 6100))
             bs_port = self.allocate_port(bs_base_port)  # type: ignore[attr-defined]
             bs_bind_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
             ws_url = f"ws://{bs_host}:{bs_port}/onebot/v11/ws"
-        elif ws_enabled:
+        else:
             ws_url = str(app_config.get("init_ws_client_url", ""))
             if "{name}" in ws_url:
                 ws_url = ws_url.replace("{name}", name)

@@ -23,7 +23,6 @@ interface ClusterConfig {
     init_ws_client_token: string;
     init_bs_enabled: boolean;
     init_bs_client_base_port: number;
-    init_bs_napcat_host: string;
     init_bs_targets: string;
     manager_host: string;
     init_auto_join_groups_enabled: boolean;
@@ -39,7 +38,6 @@ const DEFAULT_CONFIG: ClusterConfig = {
     init_ws_client_token: "",
     init_bs_enabled: false,
     init_bs_client_base_port: 6100,
-    init_bs_napcat_host: "172.17.0.1",
     init_bs_targets: "[]",
     manager_host: "127.0.0.1",
     init_auto_join_groups_enabled: false,
@@ -148,17 +146,17 @@ export default function ClusterSettings() {
             }}>
                 <CardContent sx={{ p: { xs: 3, md: 5 } }}>
                     <Grid container spacing={4}>
-                        <Grid item xs={12}>
+                        <Grid item xs={12} md={6}>
                             <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, color: 'text.primary' }}>
-                                {t('clusterConfig.dockerImage')}
+                                {t('clusterConfig.napcatHostIp')}
                             </Typography>
                             <TextField
                                 fullWidth
-                                name="docker_image"
-                                value={config.docker_image || ''}
+                                name="manager_host"
+                                value={config.manager_host || ''}
                                 onChange={handleChange}
-                                placeholder="mlikiowa/napcat-docker:latest"
-                                helperText={t('clusterConfig.dockerImageHelp')}
+                                placeholder="172.17.0.1"
+                                helperText={t('clusterConfig.napcatHostIpHelp')}
                                 size="medium"
                                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : '#fff' } }}
                             />
@@ -303,8 +301,6 @@ export default function ClusterSettings() {
                     </Collapse>
                 </CardContent>
             </Card>
-
-            {/* BotShepherd 接管设置卡片 */}
             <Card variant="outlined" sx={{
                 borderRadius: 4, mt: 3,
                 bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
@@ -353,17 +349,6 @@ export default function ClusterSettings() {
                                     onChange={handleChange}
                                     helperText={t('clusterConfig.bsClientBasePortHelp')}
                                     size="small"
-                                />
-                            </Grid>
-                            <Grid item xs={12} md={6}>
-                                <TextField
-                                    fullWidth name="init_bs_napcat_host"
-                                    label={t('clusterConfig.bsNapcatHost')}
-                                    value={config.init_bs_napcat_host}
-                                    onChange={handleChange}
-                                    helperText={t('clusterConfig.bsNapcatHostHelp')}
-                                    size="small"
-                                    placeholder="172.17.0.1"
                                 />
                             </Grid>
                             <Grid item xs={12} md={6}>

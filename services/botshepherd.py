@@ -327,11 +327,49 @@ class BotShepherdManager:
         logger.info("BS 依赖同步完成")
         return {"status": "ok", "message": "依赖同步完成"}
 
+    def _kill_stale_bs_process(self) -> None:
+        """杀掉残留的 BS 子进程（主进程重启后旧子进程可能仍存活占用端口）。"""
+        try:
+            if sys.platform == "win32":
+                # 通过 wmic 查找在 BotShepherd 目录下运行 main.py 的 python 进程
+                r = subprocess.run(
+                    ["wmic", "process", "where",
+                     "commandline like '%BotShepherd%main.py%' and name like '%python%'",
+                     "get", "processid"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                for line in r.stdout.splitlines():
+                    line = line.strip()
+                    if line.isdigit():
+                        pid = int(line)
+                        if pid != os.getpid():
+                            logger.warning("杀掉残留 BS 进程 PID=%s", pid)
+                            subprocess.run(["taskkill", "/F", "/PID", str(pid)],
+                                           capture_output=True, timeout=5)
+            else:
+                import re as _re
+                r = subprocess.run(
+                    ["ps", "aux"],
+                    capture_output=True, text=True, timeout=5,
+                )
+                for line in r.stdout.splitlines():
+                    if "BotShepherd" in line and "main.py" in line and "python" in line.lower():
+                        parts = line.split()
+                        if len(parts) > 1:
+                            pid = int(parts[1])
+                            if pid != os.getpid():
+                                logger.warning("杀掉残留 BS 进程 PID=%s", pid)
+                                os.kill(pid, signal.SIGKILL)
+        except Exception as e:
+            logger.debug("清理 BS 残留进程时出错（可忽略）: %s", e)
+
     def start(self) -> Dict[str, Any]:
         if self.running:
             return {"status": "ok", "message": "already running"}
         if not self.installed:
             return {"status": "error", "message": "not installed"}
+        # 清理可能残留的旧 BS 进程（端口占用）
+        self._kill_stale_bs_process()
         venv_py = _get_venv_python()
         python = venv_py if venv_py else sys.executable
         try:
@@ -370,6 +408,7 @@ class BotShepherdManager:
     def stop(self) -> Dict[str, Any]:
         if not self.running:
             return {"status": "ok", "message": "not running"}
+        pid = self._process.pid
         try:
             if sys.platform == "win32":
                 self._process.send_signal(signal.CTRL_BREAK_EVENT)
@@ -377,7 +416,16 @@ class BotShepherdManager:
                 self._process.terminate()
             self._process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            self._process.kill()
+            # 强杀整个进程树（Windows 上 kill() 不杀子进程）
+            if sys.platform == "win32":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
+                               capture_output=True, timeout=5)
+            else:
+                self._process.kill()
+            try:
+                self._process.wait(timeout=5)
+            except Exception:
+                pass
         except Exception as e:
             return {"status": "error", "message": str(e)}
         self._process = None

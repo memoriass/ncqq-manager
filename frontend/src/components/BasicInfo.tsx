@@ -76,6 +76,10 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
     };
 
     const fetchQrcode = useCallback(async () => {
+        if (isLoggedInRef.current) {
+            setShowQrcode(false);
+            return;
+        }
         try {
             const data = await containerApi.getQR(name, node_id);
             if (data.status === 'logged_in') {
@@ -92,10 +96,12 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                 setQrExpiresIn(data.expires_in ?? null);
                 setShowQrcode(true);
             } else {
-                // waiting 状态 — 容器启动中或 QR 尚未生成
-                setShowQrcode(true);
-                setQrcode('');
-                setQrExpiresIn(null);
+                // waiting 状态 — 容器启动中或 QR 尚未生成；已登录则不展示
+                if (!isLoggedInRef.current) {
+                    setShowQrcode(true);
+                    setQrcode('');
+                    setQrExpiresIn(null);
+                }
             }
         } catch {
             // 请求失败时仍显示二维码区域（等待/加载中），避免界面无反应

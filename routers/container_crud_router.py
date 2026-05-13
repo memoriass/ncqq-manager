@@ -192,8 +192,6 @@ async def api_create_container(req: CreateRequest, request: Request, session: di
 
 @router.post("/containers/{name}/inject-ws-client")
 async def api_inject_ws_client(name: str, uin: str = "default", session: dict = Depends(get_current_user)):
-    if not app_config.get("init_ws_client_enabled", False):
-        raise HTTPException(status_code=400, detail="WS Client Injection is disabled in cluster settings")
     ws_client_url = str(app_config.get("init_ws_client_url", ""))
     if not ws_client_url:
         raise HTTPException(status_code=400, detail="Injection URL is not configured")

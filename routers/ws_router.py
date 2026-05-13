@@ -547,8 +547,11 @@ async def ws_plugin_link(ws: WebSocket, name: str, key: str = Query(default=""))
                     "event": "logout",
                     "uin": str(data.get("uin", "")),
                 })
+                inst = instance_subsystem.get(name)
+                if inst:
+                    inst.bot_online = False
                 state_engine.notify_change()
-                logger.info("Plugin WS [%s] logout uin=%s", name, data.get("uin"))
+                logger.info("Plugin WS [%s] logout uin=%s reason=%s", name, data.get("uin"), data.get("reason", ""))
 
             elif msg_type == "heartbeat":
                 inst = instance_subsystem.get(name)

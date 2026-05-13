@@ -7,7 +7,7 @@ import uuid
 from typing import Any, Dict
 from services.log import logger
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
@@ -28,9 +28,8 @@ class AppConfig:
     # 运行时字段（存储在 SQLite settings 表）
     _RUNTIME_KEYS = {"webui_base_port", "http_base_port", "ws_base_port",
                      "docker_image", "api_key", "data_dir",
-                     "init_ws_client_enabled", "init_ws_client_url", "init_ws_client_token",
+                     "init_ws_client_url", "init_ws_client_token",
                      "init_bs_enabled", "init_bs_client_base_port", "init_bs_targets",
-                     "init_bs_napcat_host",
                      "manager_host", "manager_port", "internal_api_key",
                      "init_auto_join_groups_enabled", "init_auto_join_groups"}
 
@@ -47,14 +46,12 @@ class AppConfig:
         "docker_image": "mlikiowa/napcat-docker:latest",
         "api_key": "",
         "data_dir": os.path.join(BASE_DIR, "data"),
-        "init_ws_client_enabled": False,
         "init_ws_client_url": "ws://127.0.0.1:5100/onebot/v11/ws",
         "init_ws_client_token": "",
         "init_bs_enabled": False,
         "init_bs_client_base_port": 6100,
         "init_bs_targets": "[]",  # JSON 字符串，如 '["ws://target1:3001/ws"]'
-        "init_bs_napcat_host": "172.17.0.1",  # NapCat 容器内访问宿主机 BS 的 IP（Linux Docker 默认网桥）
-        "manager_host": "127.0.0.1",  # BS 连接管理器 WS 端点时使用的地址（跨网络/容器部署时需改为实际 IP）
+        "manager_host": "172.17.0.1",  # 宿主机 IP，NapCat 容器连接 BS/管理器时使用（跨网络部署时需改为实际 IP）
         "manager_port": 8000,     # 管理器监听端口，用于 BS 自动注入本地 OneBot WS 端点
         "internal_api_key": "",   # 内部 API 通信密钥（插件/节点间鉴权）
         "init_auto_join_groups_enabled": False,  # 登录后自动发群通知开关

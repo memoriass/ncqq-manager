@@ -128,6 +128,7 @@ class SetupRequest(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
     data_dir: Optional[str] = None
+    manager_host: Optional[str] = None
 
 
 @router.get("/setup/status")
@@ -198,6 +199,8 @@ async def api_setup_init(req: SetupRequest, request: Request):
         }
         if req.data_dir:
             updates["data_dir"] = req.data_dir
+        if req.manager_host:
+            updates["manager_host"] = req.manager_host
         app_config.update(updates)
 
         ip = request.client.host if request.client else "unknown"

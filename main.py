@@ -37,6 +37,7 @@ from routers.scheduler_router import router as scheduler_router
 from routers.resource_router import router as resource_router
 from routers.botshepherd_router import router as botshepherd_router
 from routers.bot_api_router import router as bot_api_router
+from routers.internal_plugin_router import router as internal_plugin_router
 
 
 # ============ 生命周期管理 ============
@@ -142,9 +143,6 @@ async def lifespan(app: FastAPI):
     from services.bs_activation_service import bs_activation_service
     await bs_activation_service.auto_resume()
 
-    # 登录代偿检测器：文件扫描注入（BS/WS 均生效）+ 登录态验证（仅非 BS 模式）
-    from services.login_compensator import login_compensator
-    await login_compensator.auto_start()
 
     yield
 
@@ -161,7 +159,6 @@ async def lifespan(app: FastAPI):
     await scheduler.stop()
     botshepherd_manager.stop()
     await bs_activation_service.stop()
-    await login_compensator.stop()
     operation_logger.flush()
     cleanup_expired_tokens()
     database.close_db()
@@ -236,6 +233,7 @@ app.include_router(scheduler_router)
 app.include_router(resource_router)
 app.include_router(botshepherd_router)
 app.include_router(bot_api_router)
+app.include_router(internal_plugin_router)
 
 
 # ============ 全局异常处理器 ============

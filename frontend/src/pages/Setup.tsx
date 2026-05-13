@@ -33,6 +33,7 @@ export default function SetupPage() {
     const [localIp, setLocalIp] = useState('127.0.0.1');
     const [port, setPort] = useState(8000);
     const [dataDir, setDataDir] = useState('');
+    const [managerHost, setManagerHost] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState(false);
@@ -71,6 +72,7 @@ export default function SetupPage() {
                 host: getHost(),
                 port,
                 data_dir: dataDir || undefined,
+                manager_host: managerHost || undefined,
             });
             setSuccess(true);
             setTimeout(() => navigate('/admin', { replace: true }), 1500);
@@ -172,6 +174,13 @@ export default function SetupPage() {
 
                         <TextField fullWidth size="small" label={t('setup.servicePort')} type="number" value={port}
                             onChange={e => setPort(parseInt(e.target.value) || 8000)}
+                            sx={{ mb: 2, ...inputSx }} />
+
+                        <TextField fullWidth size="small" label={t('setup.managerHost')} value={managerHost}
+                            onChange={e => setManagerHost(e.target.value)}
+                            placeholder="172.17.0.1"
+                            helperText={t('setup.managerHostHelp')}
+                            InputProps={{ startAdornment: <InputAdornment position="start"><LanIcon color="disabled" /></InputAdornment> }}
                             sx={{ mb: 3, ...inputSx }} />
 
                         <Divider sx={{ my: 2 }} />

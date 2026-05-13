@@ -568,20 +568,17 @@ async def api_container_action(
                 shutil.rmtree(data_dir, ignore_errors=True)
                 logger.info("已删除本地数据目录: %s", data_dir)
 
-        # 删除 BS 连接配置（BS 已启用时），避免僵尸连接堆积
-        from services.config import app_config as _cfg
+        # 删除 BS 连接配置，避免僵尸连接堆积
+        try:
+            from services.botshepherd import botshepherd_manager
 
-        if _cfg.get("init_bs_enabled", False):
-            try:
-                from services.botshepherd import botshepherd_manager
-
-                r = await botshepherd_manager.delete_connection(name)
-                if isinstance(r, dict) and r.get("success", True) is not False:
-                    logger.info("已删除 BS 连接配置: %s", name)
-                else:
-                    logger.debug("BS 连接配置删除结果: %s → %s", name, r)
-            except Exception as _e:
-                logger.debug("删除 BS 连接配置失败（可忽略）: %s → %s", name, _e)
+            r = await botshepherd_manager.delete_connection(name)
+            if isinstance(r, dict) and r.get("success", True) is not False:
+                logger.info("已删除 BS 连接配置: %s", name)
+            else:
+                logger.debug("BS 连接配置删除结果: %s → %s", name, r)
+        except Exception as _e:
+            logger.debug("删除 BS 连接配置失败（可忽略）: %s → %s", name, _e)
     operation_logger.info(
         "container_action",
         {

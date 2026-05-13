@@ -244,10 +244,35 @@ class NapCatWsService:
             logger.info("WS 事件补全 uin: name=%s old=%s new=%s", name, old, uin)
 
     def on_heartbeat(self, name: str, online: bool) -> None:
-        """OB11 心跳事件—仅更新 last_seen（登录态已全面转交插件 WS 管理）。"""
+        """OB11 心跳事件—更新 last_seen，并作为插件 WS 的降级路径维持 bot_online。"""
         e = self._table.get(name)
         if e:
             e.last_seen = time.time()
+        # # [TEST] 降级逻辑已注释，测试插件 WS 独立工作能力
+        # if online:
+        #     from services.instance_subsystem import instance_subsystem
+        #     inst = instance_subsystem.get(name)
+        #     if inst:
+        #         if not inst.bot_online:
+        #             inst.bot_online = True
+        #             inst.bot_heartbeat_ts = time.time()
+        #             self._wake_state_engine()
+        #         # 降级登录检测：有效心跳 + 注册表有 uin → 视为已登录
+        #         if not inst.logged_in and e and e.uin and e.uin != "0":
+        #             inst.update_login(
+        #                 logged_in=True, uin=e.uin,
+        #                 stage="logged_in", method="heartbeat_fallback",
+        #                 reason="ob11_heartbeat_with_valid_uin",
+        #             )
+        #             self._wake_state_engine()
+        #             logger.info("心跳降级登录: name=%s uin=%s", name, e.uin)
+
+    def get_login_result(self, name: str) -> dict:
+        """从 WS 注册表获取登录信息（供 qrcode 端点降级查询）。"""
+        e = self._table.get(name)
+        if e and e.connected and e.uin and e.uin != "0":
+            return {"logged_in": True, "uin": e.uin}
+        return {"logged_in": False}
 
     # ------------------------------------------------------------------
     # API 代理注册（由 ws_router 在连接建立/断开时调用）
