@@ -95,7 +95,7 @@ th { background: var(--code-bg); font-weight: 600; }
 <!-- HEADER -->
 <div class="header">
     <button class="btn-menu" onclick="toggleSidebar()" aria-label="菜单">☰</button>
-    <div class="header-logo">NapCat Manager <span>v2.3 使用手册</span></div>
+    <div class="header-logo">NapCat Manager <span>v2.4 使用手册</span></div>
     <div class="header-actions">
         <button class="btn-theme" onclick="toggleTheme()" id="themeBtn">🌙 暗色</button>
     </div>
@@ -119,7 +119,6 @@ th { background: var(--code-bg); font-weight: 600; }
         <a class="sidebar-link" href="#" onclick="showSection('network')">🔌 网络配置</a>
         <a class="sidebar-link" href="#" onclick="showSection('alerts')">🔔 告警设置</a>
         <a class="sidebar-link" href="#" onclick="showSection('backup')">💾 备份恢复</a>
-        <a class="sidebar-link" href="#" onclick="showSection('scheduler')">⏰ 定时任务</a>
         <a class="sidebar-link" href="#" onclick="showSection('images')">🐋 镜像管理</a>
         <a class="sidebar-link" href="#" onclick="showSection('botmanager')">🤖 Bot 管理</a>
         <a class="sidebar-link" href="#" onclick="showSection('botshepherd')">🐑 BotShepherd</a>
@@ -150,9 +149,8 @@ th { background: var(--code-bg); font-weight: 600; }
 <li><strong>用户权限</strong> — 管理员/普通用户分级，实例级授权</li>
 <li><strong>文件管理</strong> — 在线编辑容器配置文件和插件</li>
 <li><strong>网络配置</strong> — 可视化管理 OneBot 11 网络端点</li>
-<li><strong>告警监控</strong> — 基于 Webhook 的容器状态告警通知</li>
-<li><strong>备份恢复</strong> — 数据库一键备份与恢复</li>
-<li><strong>定时任务</strong> — 容器自动重启等定时操作</li>
+<li><strong>告警监控</strong> — QQ 通知 / SMTP 邮箱 / Webhook 三种渠道，Bot 掉线即时推送</li>
+<li><strong>备份恢复</strong> — 配置一键备份与恢复</li>
 <li><strong>操作日志</strong> — 全链路操作审计记录</li>
 <li><strong>Bot 管理</strong> — 消息监控、消息发送、群管理与运行状态透传</li>
 <li><strong>安全防护</strong> — CSRF/SSRF 防护、IP 封禁、随机初始密码</li>
@@ -609,33 +607,46 @@ python start.py --dev</code></pre>
 <!-- ====== 告警设置 ====== -->
 <div class="section" id="sec-alerts">
 <h1>告警设置</h1>
-<p>告警功能可在容器状态异常时通过 Webhook 推送通知到外部服务（如企业微信、钉钉、飞书等）。</p>
+<p>告警功能支持三种通知渠道：Webhook、QQ 通知、SMTP 邮箱。当 Bot 掉线或容器异常时自动推送通知。</p>
 
-<h2>创建告警规则</h2>
+<h2>通知渠道</h2>
+<table>
+<tr><th>渠道</th><th>触发方式</th><th>适用场景</th></tr>
+<tr><td><strong>QQ 通知</strong></td><td>通过在线的哨兵 Bot 发送私聊/群聊消息</td><td>最即时，适合个人或小群运维</td></tr>
+<tr><td><strong>SMTP 邮箱</strong></td><td>发送邮件到指定收件人，附带扫码链接</td><td>适合需要邮件归档的团队</td></tr>
+<tr><td><strong>Webhook</strong></td><td>POST JSON 到指定 URL</td><td>对接企业微信/钉钉/飞书/AstrBot 等</td></tr>
+</table>
+
+<h2>QQ 通知</h2>
+<p>选择一个或多个在线 Bot 作为哨兵（sender_bots），指定通知目标（私聊 QQ 号或群号）。当任意被监控的 Bot 掉线时，系统从哨兵列表中选取第一个在线的 Bot 发送告警消息。</p>
+<div class="tip">哨兵 Bot 的在线状态由管理器与互联插件的 WS 连接决定（<code>bot_online</code> 字段），不依赖 OB11 WS 连接状态。</div>
+
+<h2>SMTP 邮箱通知</h2>
 <ol>
-<li>进入管理面板 → 告警设置</li>
-<li>点击"添加规则"，配置规则名称和 Webhook URL</li>
-<li>保存后系统会在触发条件满足时自动推送通知</li>
+<li>在告警设置页面配置统一的 SMTP 发件服务（Host/端口/用户名/密码/SSL）</li>
+<li>点击「添加 SMTP 邮箱通知」，选择要监听的容器，填入收件邮箱</li>
+<li>可选填「面板公网地址」，掉线邮件中会包含扫码链接</li>
 </ol>
+<div class="tip">每条 SMTP 规则可独立指定收件邮箱，支持逗号分隔多个地址。规则创建后可点击「测试」验证邮件发送。</div>
 
-<h2>告警类型</h2>
+<h2>Webhook 告警</h2>
+<p>创建规则时指定告警类型和 Webhook URL，触发时 POST JSON payload。</p>
+
+<h3>告警类型</h3>
 <table>
 <tr><th>类型</th><th>说明</th></tr>
-<tr><td><code>container_stop</code></td><td>容器意外停止时触发</td></tr>
-<tr><td><code>high_cpu</code></td><td>CPU 使用率超过阈值时触发</td></tr>
-<tr><td><code>high_mem</code></td><td>内存使用率超过阈值时触发</td></tr>
-<tr><td><code>login_failure</code></td><td>QQ 登录失败时触发</td></tr>
-<tr><td><code>instance_offline</code></td><td>容器实例从运行中变为离线时触发（支持按容器名和节点过滤）</td></tr>
+<tr><td><code>instance_offline</code></td><td>实例停止/离线</td></tr>
+<tr><td><code>login_lost</code></td><td>账号掉线/需扫码</td></tr>
+<tr><td><code>instance_online</code></td><td>实例上线</td></tr>
+<tr><td><code>container_stop</code></td><td>容器停止</td></tr>
+<tr><td><code>high_cpu</code></td><td>CPU 超限</td></tr>
+<tr><td><code>high_mem</code></td><td>内存超限</td></tr>
+<tr><td><code>login_failure</code></td><td>登录失败</td></tr>
 </table>
 
 <h2>允许所有 IP 访问</h2>
-<p>默认情况下，系统会解析 Webhook URL 的目标地址并拒绝内网/回环/保留地址（SSRF 防护）。如果通知插件与管理器部署在同一台机器上，可开启页面顶部的<strong>「允许所有 IP 访问」</strong>开关：</p>
-<ul>
-<li><strong>关闭</strong>（默认）— Webhook 不可指向 127.0.0.1、10.*、172.16-31.*、192.168.* 等内网地址</li>
-<li><strong>开启</strong> — 允许指向任意地址，包括 localhost 和内网 IP</li>
-</ul>
-
-<div class="tip">Webhook URL 格式兼容 AstrBot Webhook Push 插件，示例：<code>http://&lt;IP&gt;:60071/common-webhook</code></div>
+<p>默认启用 SSRF 防护，Webhook URL 不可指向内网地址。如果通知插件与管理器同机部署，开启此开关允许 localhost/内网 IP。</p>
+<div class="tip">Webhook 格式兼容 AstrBot Webhook Push 插件：<code>http://&lt;IP&gt;:60071/common-webhook</code></div>
 </div>
 
 <!-- ====== 备份恢复 ====== -->
@@ -653,27 +664,6 @@ python start.py --dev</code></pre>
 
 <div class="warning">上传的备份文件最大不超过 200 MB，且必须为 <code>.zip</code> 格式。恢复操作会覆盖当前 <code>config/</code> 与 <code>data/{实例名}/config/</code> 内容，请确认后再操作。</div>
 <div class="tip">运行时生成的协议缓存、资源文件、<code>qq_data</code> 等内容不会进入备份，恢复后由协议端自动重新生成。</div>
-</div>
-
-<!-- ====== 定时任务 ====== -->
-<div class="section" id="sec-scheduler">
-<h1>定时任务</h1>
-<p>定时任务功能允许管理员设置容器的自动化操作，如定时重启、定时启动/停止等。</p>
-
-<h2>创建定时任务</h2>
-<ol>
-<li>进入管理面板 → 定时任务</li>
-<li>点击"添加任务"，选择目标容器和操作类型</li>
-<li>设置执行时间（Cron 表达式或预设选项）</li>
-<li>保存后任务将按计划自动执行</li>
-</ol>
-
-<h2>支持的操作</h2>
-<ul>
-<li><strong>restart</strong> — 定时重启容器</li>
-<li><strong>start</strong> — 定时启动容器</li>
-<li><strong>stop</strong> — 定时停止容器</li>
-</ul>
 </div>
 
 <!-- ====== 镜像管理 ====== -->
@@ -831,8 +821,6 @@ curl http://localhost:8000/api/containers?apikey=YOUR_API_KEY</code></pre>
 <tr><td><code>GET</code></td><td><code>/api/alerts/settings</code></td><td>告警全局设置</td><td>管理员</td></tr>
 <tr><td><code>PUT</code></td><td><code>/api/alerts/settings</code></td><td>更新告警设置（允许所有 IP 等）</td><td>管理员</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/operation_logs</code></td><td>操作审计日志</td><td>管理员</td></tr>
-<tr><td><code>GET</code></td><td><code>/api/backup/download</code></td><td>下载配置备份（<code>config/</code> + <code>data/{实例}/config/</code>）</td><td>管理员</td></tr>
-<tr><td><code>GET</code></td><td><code>/api/scheduler/tasks</code></td><td>定时任务列表</td><td>管理员</td></tr>
 <tr><td><code>GET</code></td><td><code>/api/images</code></td><td>本地 Docker 镜像列表</td><td>管理员</td></tr>
 <tr><td><code>POST</code></td><td><code>/api/images/pull</code></td><td>拉取 Docker 镜像</td><td>管理员</td></tr>
 <tr><td><code>DELETE</code></td><td><code>/api/images/{image_id}</code></td><td>删除本地镜像</td><td>管理员</td></tr>
