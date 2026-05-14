@@ -565,9 +565,13 @@ async def ws_plugin_link(ws: WebSocket, name: str, key: str = Query(default=""))
     """
     expected_key = app_config.get("internal_api_key", "")
     if expected_key and key != expected_key:
+        # accept 后再 close，确保发出 WebSocket close frame（非 HTTP 403）
+        # 避免客户端收到 non-101 响应导致 onerror 路径进入无限重试
+        await ws.accept()
         await ws.close(code=4003, reason="Invalid key")
         return
     if not _PLUGIN_NAME_RE.match(name or ""):
+        await ws.accept()
         await ws.close(code=4400, reason="Invalid container name")
         return
 
@@ -616,15 +620,22 @@ async def ws_plugin_link(ws: WebSocket, name: str, key: str = Query(default=""))
 
             elif msg_type == "logout":
                 from services.docker_login import LoginMixin
+                from services.alert_manager import alert_manager
+                uin_str = str(data.get("uin", ""))
                 LoginMixin.update_login_cache(name, {
                     "event": "logout",
-                    "uin": str(data.get("uin", "")),
+                    "uin": uin_str,
                 })
                 inst = instance_subsystem.get(name)
+                node_id = inst.node_id if inst else "local"
                 if inst:
                     inst.bot_online = False
                 state_engine.notify_change()
                 logger.info("Plugin WS [%s] logout uin=%s reason=%s", name, data.get("uin"), data.get("reason", ""))
+                # 在线状态由管理器与互联插件通讯决定，logout 即触发告警
+                asyncio.create_task(alert_manager.notify_login_lost(
+                    name=name, uin=uin_str, node_id=node_id,
+                ))
 
             elif msg_type == "heartbeat":
                 inst = instance_subsystem.get(name)

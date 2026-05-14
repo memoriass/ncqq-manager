@@ -501,6 +501,7 @@ class AlertManager:
         }
         """
         from services.napcat_ws_service import napcat_ws_service
+        from services.instance_subsystem import instance_subsystem
         rules = self.list_rules()
         for rule in rules:
             if not (rule.get("type") == "qq_bot" and rule.get("enabled")):
@@ -528,14 +529,15 @@ class AlertManager:
                 logger.debug("qq_bot 规则缺少有效 targets，跳过: rule_id=%s", rule.get("id"))
                 continue
 
-            # ---- 从哨兵数组中选取第一个在线的 Bot（sender_bots 存容器名）----
+            # ---- 从哨兵数组中选取第一个在线的 Bot（管理器 bot_online 判定，不依赖 OB11 WS 状态）----
             sender = None
             for s in senders:
-                if napcat_ws_service.is_connected(s):
+                inst = instance_subsystem.get(s)
+                if inst and inst.bot_online:
                     sender = s
                     break
             if not sender:
-                logger.debug("qq_bot 通知跳过: 所有候选哨兵 Bot %s 均未连接", senders)
+                logger.debug("qq_bot 通知跳过: 所有候选哨兵 Bot %s 均不在线 (bot_online=False)", senders)
                 continue
 
             # ---- 并发发送所有目标 ----

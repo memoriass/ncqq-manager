@@ -73,9 +73,7 @@ class BotHeartbeatService:
         # 回写 instance_subsystem（通过 uin 关联容器实例）
         self._sync_to_instance(key, online)
 
-        # 若状态从在线变为离线，异步触发告警
-        if was_online and not online:
-            self._fire_login_lost_alert(key)
+        # 告警由互联插件路径（/ws/plugin）统一触发，此处不再重复
 
     def on_connect(self, self_id: Any) -> None:
         """Bot WS 连接建立时调用（lifecycle meta_event.connect）。"""
@@ -106,11 +104,9 @@ class BotHeartbeatService:
         """
         key = _sid(self_id)
         if key in self._table:
-            prev_online = self._table[key].get("online", False)
             self._table[key]["online"] = False
             self._sync_to_instance(key, False)
-            if prev_online:
-                self._fire_login_lost_alert(key)
+            # 告警由互联插件路径（/ws/plugin）统一触发，此处不再重复
 
     # ------------------------------------------------------------------
     # 内部：instance_subsystem 回写 & 告警

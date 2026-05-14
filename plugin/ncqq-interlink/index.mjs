@@ -11,7 +11,7 @@ let _config = { managerUrl: '', internalKey: '', containerName: '' };
 let _ctx = null;
 let _ws = null;
 let _wsReconnectTimer = null;
-let _wsReconnectDelay = 5000; // 初始重连间隔 5s，递增 5s，上限 60s
+let _wsReconnectAttempt = 0; // 连续重连次数
 let _wsPingTimer = null;
 let _loginCheckTimer = null;
 let _healthTimer = null;
@@ -97,7 +97,26 @@ function sendWS(data) {
   return false;
 }
 
+// 重连退避策略：前 6 次固定 5s（覆盖管理器正常重启窗口），之后线性递增到 30s 封顶
+function _getReconnectDelay() {
+  const FAST_RETRIES = 6;
+  const FAST_INTERVAL = 5000;
+  const MAX_INTERVAL = 30000;
+  const INCREMENT = 5000;
+  if (_wsReconnectAttempt < FAST_RETRIES) return FAST_INTERVAL;
+  return Math.min(FAST_INTERVAL + (_wsReconnectAttempt - FAST_RETRIES) * INCREMENT, MAX_INTERVAL);
+}
+
+function _scheduleReconnect(source) {
+  _wsReconnectAttempt++;
+  const delay = _getReconnectDelay();
+  console.log(`[ManagerLink] 调度重连（${source}），${delay / 1000}s 后（第 ${_wsReconnectAttempt} 次）`);
+  if (_wsReconnectTimer) clearTimeout(_wsReconnectTimer);
+  _wsReconnectTimer = setTimeout(() => connectWS(), delay);
+}
+
 async function connectWS() {
+  _wsReconnectTimer = null;
   const { managerUrl, internalKey, containerName } = _config;
   if (!managerUrl || !containerName) return;
 
@@ -114,41 +133,34 @@ async function connectWS() {
 
     _ws.onopen = () => {
       console.log(`[ManagerLink] WS 已连接 ${wsUrl}`);
-      _wsReconnectDelay = 5000; // 连接成功，重置重连间隔
-      // 30s ping 保活，防止 idle timeout 断连
+      _wsReconnectAttempt = 0;
       if (_wsPingTimer) clearInterval(_wsPingTimer);
       _wsPingTimer = setInterval(() => sendWS({ type: 'ping' }), 30000);
-      // 连接后 1s 上报当前登录状态
       setTimeout(() => checkAndReportLogin(), 1000);
     };
 
     _ws.onclose = (evt) => {
       _ws = null;
       if (_wsPingTimer) { clearInterval(_wsPingTimer); _wsPingTimer = null; }
-      console.log(`[ManagerLink] WS 断开 (code=${evt?.code ?? '?'})，${_wsReconnectDelay / 1000}s 后重连`);
-      if (_wsReconnectTimer) clearTimeout(_wsReconnectTimer);
-      _wsReconnectTimer = setTimeout(() => connectWS(), _wsReconnectDelay);
-      _wsReconnectDelay = Math.min(_wsReconnectDelay + 5000, 60000);
+      _scheduleReconnect(`close code=${evt?.code ?? '?'}`);
     };
 
     _ws.onerror = (e) => {
       console.log(`[ManagerLink] WS 错误: ${e.message || e}`);
-      // 兜底重连：某些 WebSocket 实现在握手失败时只触发 onerror 不触发 onclose
-      if (_ws && _ws.readyState === 3 /* CLOSED */ && !_wsReconnectTimer) {
-        _ws = null;
+      // 兜底：握手失败时某些 WS 实现只触发 onerror 不触发 onclose
+      if (!_wsReconnectTimer) {
+        if (_ws) { _ws = null; }
         if (_wsPingTimer) { clearInterval(_wsPingTimer); _wsPingTimer = null; }
-        _wsReconnectTimer = setTimeout(() => connectWS(), _wsReconnectDelay);
-        _wsReconnectDelay = Math.min(_wsReconnectDelay + 5000, 60000);
+        _scheduleReconnect('onerror 兜底');
       }
     };
 
-    _ws.onmessage = () => { /* 仅接收 ping，忽略下行消息 */ };
+    _ws.onmessage = () => { /* 忽略下行消息 */ };
 
   } catch (e) {
-    console.log(`[ManagerLink] WS 连接失败: ${e.message}，${_wsReconnectDelay / 1000}s 后重连`);
+    console.log(`[ManagerLink] WS 连接异常: ${e.message}`);
     if (_wsReconnectTimer) clearTimeout(_wsReconnectTimer);
-    _wsReconnectTimer = setTimeout(() => connectWS(), _wsReconnectDelay);
-    _wsReconnectDelay = Math.min(_wsReconnectDelay + 5000, 60000);
+    _scheduleReconnect('catch');
   }
 }
 
@@ -193,7 +205,7 @@ export const plugin_set_config = (ctx, config) => {
     _config = resolveConfig(config);
     console.log(`[ManagerLink] config updated: name=${_config.containerName}`);
     // 配置变更后重建 WS 连接
-    _wsReconnectDelay = 5000; // 重置重连间隔
+    _wsReconnectAttempt = 0;
     if (_ws) {
       _ws.onclose = null; // 防止触发重连定时器
       try { _ws.close(); } catch { /* ignore */ }
