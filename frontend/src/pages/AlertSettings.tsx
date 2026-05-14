@@ -215,18 +215,18 @@ export default function AlertSettings() {
         if (!smtpForm.smtp_password) delete payload.smtp_password;
         try {
             await alertApi.updateSettings(payload);
-            toast.success('SMTP 设置已保存');
+            toast.success(t('alerts.smtpSaved'));
             fetchData();
         } catch (e) {
-            toast.error('保存失败');
+            toast.error(t('alerts.saveFailed'));
             console.error(e);
         }
     };
 
     const alertTypes: Record<string, string> = {
-        instance_offline: t('alerts.typeInstanceOffline') || '实例停止/离线',
-        login_lost: t('alerts.typeLoginLost') || '账号掉线/需扫码',
-        instance_online: t('alerts.typeInstanceOnline') || '实例上线',
+        instance_offline: t('alerts.typeInstanceOffline'),
+        login_lost: t('alerts.typeLoginLost'),
+        instance_online: t('alerts.typeInstanceOnline'),
         container_stop: t('alerts.typeContainerStop'),
         high_cpu: t('alerts.typeHighCpu'),
         high_mem: t('alerts.typeHighMem'),
@@ -254,7 +254,7 @@ export default function AlertSettings() {
                     <NotificationsActiveIcon sx={{ fontSize: 28, color: '#f59e0b' }} />
                 </Box>
                 <Box>
-                    <Typography variant="h5" sx={{ fontWeight: 700 }}>告警设置</Typography>
+                    <Typography variant="h5" sx={{ fontWeight: 700 }}>{t('alerts.pageTitle')}</Typography>
                     <Typography variant="body2" color="text.secondary">{t('alerts.subtitle')}</Typography>
                 </Box>
             </Box>
@@ -263,12 +263,12 @@ export default function AlertSettings() {
             <Card elevation={0} sx={{ borderRadius: 3, mb: 3, ...glass }}>
                 <CardContent>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>QQ 通知</Typography>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{t('alerts.qqNotifySection')}</Typography>
                         <Button variant="outlined" size="small" startIcon={<AddIcon />}
                             onClick={() => openQqNotifyDialog()}
                             sx={{ borderRadius: 2, borderColor: '#7c3aed', color: '#7c3aed', textTransform: 'none',
                                 '&:hover': { borderColor: '#6d28d9', bgcolor: 'rgba(124,58,237,0.06)' } }}>
-                            添加 QQ 通知
+                            {t('alerts.addQqNotify')}
                         </Button>
                     </Box>
 
@@ -385,69 +385,69 @@ export default function AlertSettings() {
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <EmailIcon sx={{ color: '#059669' }} />
-                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>SMTP 邮箱通知</Typography>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{t('alerts.smtpSection')}</Typography>
                         </Box>
                         <FormControlLabel
                             control={<Switch checked={smtpForm.smtp_enabled} onChange={e => setSmtpForm({ ...smtpForm, smtp_enabled: e.target.checked })} color="primary" />}
-                            label="启用 SMTP"
+                            label={t('alerts.enableSmtp')}
                             labelPlacement="start"
                             sx={{ mr: 0 }}
                         />
                     </Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-                        先保存统一 SMTP 发件服务；再点击"添加 SMTP 邮箱通知"，把指定容器的掉线通知分配给指定邮箱。
+                        {t('alerts.smtpGuide')}
                     </Typography>
 
                     {/* SMTP 服务配置 */}
                     <Stack spacing={1.5} sx={{ mb: 2 }}>
-                        <TextField size="small" label="面板公网地址 / Base URL" placeholder="https://nc.example.com" value={webhookBaseUrl}
-                            onChange={e => setWebhookBaseUrl(e.target.value)} helperText="用于掉线邮件里的扫码链接，可留空" />
+                        <TextField size="small" label={t('alerts.baseUrlLabel')} placeholder="https://nc.example.com" value={webhookBaseUrl}
+                            onChange={e => setWebhookBaseUrl(e.target.value)} helperText={t('alerts.baseUrlHint')} />
                         <Box sx={{ display: 'flex', gap: 1 }}>
                             <TextField size="small" fullWidth label="SMTP Host" placeholder="smtp.qq.com" value={smtpForm.smtp_host}
                                 onChange={e => setSmtpForm({ ...smtpForm, smtp_host: e.target.value })} />
-                            <TextField size="small" sx={{ width: 120 }} label="端口" type="number" value={smtpForm.smtp_port}
+                            <TextField size="small" sx={{ width: 120 }} label={t('alerts.smtpPort')} type="number" value={smtpForm.smtp_port}
                                 onChange={e => setSmtpForm({ ...smtpForm, smtp_port: Number(e.target.value || 465) })} />
                         </Box>
                         <Box sx={{ display: 'flex', gap: 1 }}>
-                            <TextField size="small" fullWidth label="SMTP 用户名" value={smtpForm.smtp_username}
+                            <TextField size="small" fullWidth label={t('alerts.smtpUsername')} value={smtpForm.smtp_username}
                                 onChange={e => setSmtpForm({ ...smtpForm, smtp_username: e.target.value })} />
-                            <TextField size="small" fullWidth label="SMTP 密码/授权码" type="password"
-                                placeholder={smtpPasswordSet ? '已保存，留空不修改' : ''}
+                            <TextField size="small" fullWidth label={t('alerts.smtpPassword')} type="password"
+                                placeholder={smtpPasswordSet ? t('alerts.smtpPasswordPlaceholder') : ''}
                                 value={smtpForm.smtp_password}
                                 onChange={e => setSmtpForm({ ...smtpForm, smtp_password: e.target.value })} />
                         </Box>
                         <Box sx={{ display: 'flex', gap: 1 }}>
-                            <TextField size="small" fullWidth label="发件邮箱" value={smtpForm.smtp_sender}
+                            <TextField size="small" fullWidth label={t('alerts.smtpSender')} value={smtpForm.smtp_sender}
                                 onChange={e => setSmtpForm({ ...smtpForm, smtp_sender: e.target.value })} />
-                            <TextField size="small" fullWidth label="发件名称" value={smtpForm.smtp_sender_name}
+                            <TextField size="small" fullWidth label={t('alerts.smtpSenderName')} value={smtpForm.smtp_sender_name}
                                 onChange={e => setSmtpForm({ ...smtpForm, smtp_sender_name: e.target.value })} />
                         </Box>
-                        <TextField size="small" label="默认收件人（可选）" placeholder="仅作为无规则收件人时的兜底；规则测试会发给规则里的邮箱" value={smtpForm.smtp_recipients}
+                        <TextField size="small" label={t('alerts.smtpDefaultRecipients')} placeholder={t('alerts.smtpDefaultRecipientsHint')} value={smtpForm.smtp_recipients}
                             onChange={e => setSmtpForm({ ...smtpForm, smtp_recipients: e.target.value })} />
-                        <TextField size="small" label="邮件标题前缀" value={smtpForm.smtp_subject_prefix}
+                        <TextField size="small" label={t('alerts.smtpSubjectPrefix')} value={smtpForm.smtp_subject_prefix}
                             onChange={e => setSmtpForm({ ...smtpForm, smtp_subject_prefix: e.target.value })} />
                         <Box sx={{ display: 'flex', gap: 2 }}>
                             <FormControlLabel control={<Switch checked={smtpForm.smtp_use_ssl} onChange={e => setSmtpForm({ ...smtpForm, smtp_use_ssl: e.target.checked, smtp_use_tls: e.target.checked ? false : smtpForm.smtp_use_tls })} />} label="SSL" />
                             <FormControlLabel control={<Switch checked={smtpForm.smtp_use_tls} onChange={e => setSmtpForm({ ...smtpForm, smtp_use_tls: e.target.checked, smtp_use_ssl: e.target.checked ? false : smtpForm.smtp_use_ssl })} />} label="STARTTLS" />
                         </Box>
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                            <Button variant="contained" onClick={saveSmtpSettings} sx={{ borderRadius: 2, background: '#059669' }}>保存 SMTP 设置</Button>
+                            <Button variant="contained" onClick={saveSmtpSettings} sx={{ borderRadius: 2, background: '#059669' }}>{t('alerts.saveSmtp')}</Button>
                         </Box>
                     </Stack>
 
                     {/* SMTP 邮箱通知规则列表 */}
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 2, mb: 2 }}>
-                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>SMTP 邮箱通知规则</Typography>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{t('alerts.smtpRulesTitle')}</Typography>
                         <Button variant="outlined" size="small" startIcon={<EmailIcon />}
                             onClick={openSmtpNotifyDialog}
                             sx={{ borderRadius: 2, borderColor: '#059669', color: '#059669', textTransform: 'none',
                                 '&:hover': { borderColor: '#047857', bgcolor: 'rgba(5,150,105,0.06)' } }}>
-                            添加 SMTP 邮箱通知
+                            {t('alerts.addSmtpNotify')}
                         </Button>
                     </Box>
                     {smtpRules.length === 0 ? (
                         <Typography color="text.secondary" variant="body2" sx={{ textAlign: 'center', py: 2 }}>
-                            暂无 SMTP 邮箱通知规则
+                            {t('alerts.noSmtpRules')}
                         </Typography>
                     ) : (
                         <Stack spacing={1}>
@@ -457,19 +457,19 @@ export default function AlertSettings() {
                                     <Paper key={rule.id} elevation={0} sx={rowSx}>
                                         <Box>
                                             <Typography variant="body2" sx={{ fontWeight: 600 }}>{cfg.instance_name as string || rule.name}</Typography>
-                                            <Typography variant="caption" color="text.secondary">掉线通知邮箱: {cfg.smtp_recipients as string}</Typography>
+                                            <Typography variant="caption" color="text.secondary">{t('alerts.smtpRecipientLabel')}: {cfg.smtp_recipients as string}</Typography>
                                         </Box>
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                             <Button size="small" variant="outlined" onClick={async () => {
                                                 await saveSmtpSettings();
                                                 const ret = await alertApi.testSmtp({
                                                     recipients: String(cfg.smtp_recipients || ''),
-                                                    subject: `SMTP 通知测试: ${cfg.instance_name || rule.name}`,
-                                                    message: `这是一封 SMTP 邮箱通知规则测试邮件。\n监听账号/容器: ${cfg.instance_name || rule.name}\n收件邮箱: ${cfg.smtp_recipients || ''}`,
+                                                    subject: `${t('alerts.testSmtpSubject')}: ${cfg.instance_name || rule.name}`,
+                                                    message: `${t('alerts.testSmtpBody')}\n${t('alerts.monitorInstances')}: ${cfg.instance_name || rule.name}\n${t('alerts.notifyEmail')}: ${cfg.smtp_recipients || ''}`,
                                                 });
-                                                if (ret.status !== 'ok') toast.error(ret.message || 'SMTP 测试失败');
-                                                else toast.success('测试邮件已发送到该规则邮箱');
-                                            }} sx={{ borderRadius: 2 }}>测试</Button>
+                                                if (ret.status !== 'ok') toast.error(ret.message || t('alerts.testSmtpFailed'));
+                                                else toast.success(t('alerts.testSmtpSuccess'));
+                                            }} sx={{ borderRadius: 2 }}>{t('alerts.testBtn')}</Button>
                                             <Switch checked={rule.enabled} onChange={() => handleToggle(rule)} size="small" />
                                             <IconButton size="small" onClick={() => handleDelete(rule.id)} sx={{ color: 'error.main' }}>
                                                 <DeleteOutlineIcon fontSize="small" />
@@ -492,8 +492,8 @@ export default function AlertSettings() {
                         onChange={e => setForm({ ...form, name: e.target.value })}
                         sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
                     <FormControl size="small">
-                        <InputLabel>{t('common.type') || 'Type'}</InputLabel>
-                        <Select label={t('common.type') || 'Type'} value={form.type}
+                        <InputLabel>{t('alerts.msgType')}</InputLabel>
+                        <Select label={t('alerts.msgType')} value={form.type}
                             onChange={e => setForm({ ...form, type: e.target.value })}
                             sx={{ borderRadius: 2 }}>
                             {Object.entries(alertTypes).map(([k, v]) => (
@@ -517,7 +517,7 @@ export default function AlertSettings() {
             {/* ── QQ 通知专用对话框（创建/编辑） ── */}
             <Dialog open={qqNotifyOpen} onClose={() => { setQqNotifyOpen(false); setQqNotifyEditId(null); }}
                 PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 480 } }}>
-                <DialogTitle sx={{ fontWeight: 700 }}>{qqNotifyEditId ? '编辑 QQ 通知' : '添加 QQ 通知'}</DialogTitle>
+                <DialogTitle sx={{ fontWeight: 700 }}>{qqNotifyEditId ? t('alerts.editQqNotify') : t('alerts.addQqNotify')}</DialogTitle>
                 <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
                     {/* 多选 sender bots */}
                     <FormControl size="small">
@@ -529,7 +529,7 @@ export default function AlertSettings() {
                             sx={{ borderRadius: 2 }}>
                             {instances.length === 0 ? (
                                 <MenuItem disabled>
-                                    <Typography variant="caption" color="text.secondary">暂无可用实例</Typography>
+                                    <Typography variant="caption" color="text.secondary">{t('alerts.noInstances')}</Typography>
                                 </MenuItem>
                             ) : instances.map(inst => (
                                 <MenuItem key={inst.name} value={inst.name}>
@@ -555,8 +555,8 @@ export default function AlertSettings() {
 
                     {/* msg_type 单选 */}
                     <FormControl size="small">
-                        <InputLabel>{t('alerts.msgType') || '消息类型'}</InputLabel>
-                        <Select label={t('alerts.msgType') || '消息类型'} value={qqNotifyForm.msg_type}
+                        <InputLabel>{t('alerts.msgType')}</InputLabel>
+                        <Select label={t('alerts.msgType')} value={qqNotifyForm.msg_type}
                             onChange={e => setQqNotifyForm({ ...qqNotifyForm, msg_type: e.target.value })}
                             sx={{ borderRadius: 2 }}>
                             <MenuItem value="private">{t('alerts.msgTypePrivate')}</MenuItem>
@@ -566,8 +566,8 @@ export default function AlertSettings() {
 
                     {/* target_id 输入 */}
                     <TextField size="small" fullWidth
-                        label={qqNotifyForm.msg_type === 'group' ? '群号' : 'QQ 号'}
-                        placeholder={qqNotifyForm.msg_type === 'group' ? '请输入群号' : '请输入 QQ 号'}
+                        label={qqNotifyForm.msg_type === 'group' ? t('alerts.groupId') : t('alerts.qqId')}
+                        placeholder={qqNotifyForm.msg_type === 'group' ? t('alerts.groupIdPlaceholder') : t('alerts.qqIdPlaceholder')}
                         value={qqNotifyForm.target_id}
                         onChange={e => setQqNotifyForm({ ...qqNotifyForm, target_id: e.target.value })}
                         sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
@@ -578,7 +578,7 @@ export default function AlertSettings() {
                         disabled={qqNotifyForm.selectedNames.length === 0 || !qqNotifyForm.target_id}
                         variant="contained" disableElevation
                         sx={{ borderRadius: 2, background: '#7c3aed' }}>
-                        {qqNotifyEditId ? '保存' : '添加 QQ 通知'}
+                        {qqNotifyEditId ? t('alerts.saveBtn') : t('alerts.addQqNotify')}
                     </Button>
                 </DialogActions>
             </Dialog>
@@ -586,18 +586,18 @@ export default function AlertSettings() {
             {/* ── SMTP 邮箱通知专用对话框 ── */}
             <Dialog open={smtpNotifyOpen} onClose={() => setSmtpNotifyOpen(false)}
                 PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 480 } }}>
-                <DialogTitle sx={{ fontWeight: 700 }}>添加 SMTP 邮箱通知</DialogTitle>
+                <DialogTitle sx={{ fontWeight: 700 }}>{t('alerts.addSmtpNotify')}</DialogTitle>
                 <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
                     <FormControl size="small">
-                        <InputLabel>监听账号/容器</InputLabel>
+                        <InputLabel>{t('alerts.monitorInstances')}</InputLabel>
                         <Select multiple value={smtpNotifyForm.selectedNames}
                             onChange={e => setSmtpNotifyForm({ ...smtpNotifyForm, selectedNames: e.target.value as string[] })}
-                            input={<OutlinedInput label="监听账号/容器" sx={{ borderRadius: 2 }} />}
+                            input={<OutlinedInput label={t('alerts.monitorInstances')} sx={{ borderRadius: 2 }} />}
                             renderValue={selected => (selected as string[]).join(', ')}
                             sx={{ borderRadius: 2 }}>
                             {instances.length === 0 ? (
                                 <MenuItem disabled>
-                                    <Typography variant="caption" color="text.secondary">暂无可用实例</Typography>
+                                    <Typography variant="caption" color="text.secondary">{t('alerts.noInstances')}</Typography>
                                 </MenuItem>
                             ) : instances.map(inst => (
                                 <MenuItem key={inst.name} value={inst.name}>
@@ -621,10 +621,10 @@ export default function AlertSettings() {
                         </Select>
                     </FormControl>
                     <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, mt: 0.5 }}>
-                        通知邮箱
+                        {t('alerts.notifyEmail')}
                     </Typography>
                     <TextField size="small" fullWidth
-                        placeholder="邮箱地址，如 123@qq.com；多个邮箱用逗号分隔"
+                        placeholder={t('alerts.emailPlaceholder')}
                         value={smtpNotifyForm.recipients}
                         onChange={e => setSmtpNotifyForm({ ...smtpNotifyForm, recipients: e.target.value })}
                         sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
@@ -633,7 +633,7 @@ export default function AlertSettings() {
                     <Button onClick={() => setSmtpNotifyOpen(false)} color="inherit" sx={{ borderRadius: 2 }}>{t('admin.cancelText')}</Button>
                     <Button onClick={handleSmtpNotifyCreate} disabled={smtpNotifyForm.selectedNames.length === 0 || !smtpNotifyForm.recipients}
                         variant="contained" disableElevation
-                        sx={{ borderRadius: 2, background: '#059669' }}>添加 SMTP 邮箱通知</Button>
+                        sx={{ borderRadius: 2, background: '#059669' }}>{t('alerts.addSmtpNotify')}</Button>
                 </DialogActions>
             </Dialog>
 
@@ -642,11 +642,11 @@ export default function AlertSettings() {
                 PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 360, ...glass } }}>
                 <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <DeleteOutlineIcon sx={{ color: 'error.main' }} />
-                    确认删除
+                    {t('alerts.deleteConfirmTitle')}
                 </DialogTitle>
                 <DialogContent sx={{ pt: '8px !important' }}>
                     <Typography variant="body2" color="text.secondary">
-                        删除后无法恢复，确认要删除这条规则吗？
+                        {t('alerts.deleteConfirmMsg')}
                     </Typography>
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
@@ -655,7 +655,7 @@ export default function AlertSettings() {
                     </Button>
                     <Button onClick={confirmDelete} variant="contained" disableElevation
                         sx={{ borderRadius: 2, background: '#dc2626', '&:hover': { background: '#b91c1c' } }}>
-                        删除
+                        {t('alerts.deleteBtn')}
                     </Button>
                 </DialogActions>
             </Dialog>
