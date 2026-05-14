@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
     Box, Typography, Button, CircularProgress, Chip,
-    Grid, useTheme, IconButton, Tooltip,
+    useTheme, IconButton, Tooltip,
     Dialog, DialogTitle, DialogContent, DialogActions, FormControlLabel, Checkbox
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -20,6 +20,8 @@ import CableIcon from '@mui/icons-material/Cable';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import CloudDownloadIcon from '@mui/icons-material/CloudDownload';
 import HubIcon from '@mui/icons-material/Hub';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { useNavigate } from 'react-router-dom';
 import { containerApi, type ContainerStats } from '../services/api';
 import { useTranslate } from '../i18n';
@@ -211,6 +213,14 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
         return `${(mb / 1024).toFixed(2)} GB`;
     };
 
+    const formatBytes = (bytes: number) => {
+        if (!bytes) return '0 B';
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+        return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
+    };
+
     const cpuPct = Math.min(stats.cpu_percent || 0, 100);
     const memPct = stats.mem_limit ? Math.min((stats.mem_usage || 0) / stats.mem_limit * 100, 100) : 0;
 
@@ -339,48 +349,39 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                 </Box>
             )}
 
-            {/* ── 主信息面板（三列布局）── */}
-            <Box sx={{ ...glass, borderRadius: 3, overflow: 'hidden', mb: 3 }}>
-                <Grid container>
-                    {/* ── 左列：头像 + 账号信息 ── */}
-                    <Grid item xs={12} md={4} sx={{
-                        p: 3,
-                        borderRight: { md: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` },
-                        borderBottom: { xs: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, md: 'none' },
-                    }}>
-                        {/* 头像区 */}
-                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 3 }}>
-                            <Box sx={{ position: 'relative', mb: 1.5 }}>
-                                <Box sx={{
-                                    width: 88, height: 88, borderRadius: '50%', overflow: 'hidden',
-                                    border: `3px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
-                                    boxShadow: isRunning ? `0 0 0 4px ${dotColor}22` : 'none',
-                                    transition: 'box-shadow 0.4s',
-                                }}>
-                                    <Box component="img" src={avatarUrl}
-                                        sx={{ width: '100%', height: '100%', objectFit: 'cover', filter: isRunning ? 'none' : 'grayscale(80%)', opacity: isRunning ? 1 : 0.7 }} />
-                                </Box>
-                                <Box sx={{
-                                    position: 'absolute', bottom: 2, right: 2, width: 16, height: 16,
-                                    borderRadius: '50%', bgcolor: dotColor,
-                                    border: `2.5px solid ${isDark ? 'rgba(18,18,20,0.95)' : '#f8f8f8'}`,
-                                    boxShadow: `0 0 6px ${dotColor}88`,
-                                }} />
+            {/* ── 主信息面板（悬浮小方块布局）── */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2, mb: 3 }}>
+                {/* 账号信息卡片 */}
+                <Box sx={{ ...glass, borderRadius: 3, p: 3 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2.5 }}>
+                        <Box sx={{ position: 'relative', flexShrink: 0 }}>
+                            <Box sx={{
+                                width: 64, height: 64, borderRadius: '50%', overflow: 'hidden',
+                                border: `3px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)'}`,
+                                boxShadow: isRunning ? `0 0 0 3px ${dotColor}22` : 'none',
+                                transition: 'box-shadow 0.4s',
+                            }}>
+                                <Box component="img" src={avatarUrl}
+                                    sx={{ width: '100%', height: '100%', objectFit: 'cover', filter: isRunning ? 'none' : 'grayscale(80%)', opacity: isRunning ? 1 : 0.7 }} />
                             </Box>
-                            <Typography variant="h6" sx={{ fontWeight: 700, textAlign: 'center', lineHeight: 1.2 }}>
-                                {name}
-                            </Typography>
+                            <Box sx={{
+                                position: 'absolute', bottom: 0, right: 0, width: 14, height: 14,
+                                borderRadius: '50%', bgcolor: dotColor,
+                                border: `2.5px solid ${isDark ? 'rgba(18,18,20,0.95)' : '#f8f8f8'}`,
+                                boxShadow: `0 0 6px ${dotColor}88`,
+                            }} />
+                        </Box>
+                        <Box>
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{name}</Typography>
                             {qqNumber && (
-                                <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', mt: 0.3 }}>
-                                    {qqNumber}
-                                </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>{qqNumber}</Typography>
                             )}
-                            <Box sx={{ mt: 1 }}>
+                            <Box sx={{ mt: 0.5 }}>
                                 <Chip
                                     label={isRunning ? (isLoggedIn ? t('basicInfo.running') : t('basicInfo.notLoggedIn')) : (stats.status || t('basicInfo.unknown'))}
                                     size="small"
                                     sx={{
-                                        fontWeight: 700, fontSize: '0.72rem', height: 22,
+                                        fontWeight: 700, fontSize: '0.7rem', height: 20,
                                         bgcolor: isRunning ? (isLoggedIn ? 'rgba(16,185,129,0.15)' : 'rgba(59,130,246,0.15)') : 'rgba(148,163,184,0.15)',
                                         color: isRunning ? (isLoggedIn ? '#10b981' : '#3b82f6') : '#94a3b8',
                                         border: `1px solid ${isRunning ? (isLoggedIn ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.3)') : 'rgba(148,163,184,0.2)'}`,
@@ -388,75 +389,78 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
                                 />
                             </Box>
                         </Box>
-                        {/* 信息列表 */}
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.2 }}>
-                            <InfoRow label={t('basicInfo.napcatVersion')} value={stats.version || '-'} accent />
-                            <InfoRow label={t('basicInfo.platform')} value={stats.platform || '-'} />
-                            <InfoRow label={t('basicInfo.uptime')} value={stats.uptime_formatted || '-'} />
-                            <InfoRow label={t('basicInfo.webuiPort')} value={stats.webui_port ? String(stats.webui_port) : '-'} />
-                            <InfoRow label={t('basicInfo.wsConnection')} value={
-                                stats.bot_ws_connected === undefined ? '-'
-                                : stats.bot_ws_connected ? t('basicInfo.wsOnline') : t('basicInfo.wsOffline')
-                            } />
-                            {stats.bot_nickname && <InfoRow label={t('basicInfo.botNickname')} value={stats.bot_nickname} />}
-                            {stats.bot_last_seen ? <InfoRow label={t('basicInfo.lastSeen')} value={new Date(stats.bot_last_seen * 1000).toLocaleString()} /> : null}
-                        </Box>
-                    </Grid>
-
-                    {/* ── 中列：CPU / 内存数值统计 ── */}
-                    <Grid item xs={12} md={4} sx={{
-                        p: 3,
-                        borderRight: { md: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` },
-                        borderBottom: { xs: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`, md: 'none' },
-                    }}>
-                        {/* CPU 区块 */}
-                        <Box sx={{ mb: 3 }}>
-                            <Typography variant="caption" sx={{ fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', color: '#3b82f6', display: 'block', mb: 1.5 }}>
-                                CPU
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                <StatRow label={t('basicInfo.cpuUsage')} value={`${cpuPct.toFixed(1)}%`} valueColor={cpuPct > 80 ? '#ef4444' : cpuPct > 50 ? '#f59e0b' : '#10b981'} />
-                            </Box>
-                        </Box>
-                        {/* 内存 区块 */}
-                        <Box>
-                            <Typography variant="caption" sx={{ fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', color: '#10b981', display: 'block', mb: 1.5 }}>
-                                {t('basicInfo.memory')}
-                            </Typography>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                <StatRow label={t('basicInfo.memTotal')} value={formatMB(stats.mem_limit || 0)} />
-                                <StatRow label={t('basicInfo.memUsed')} value={formatMB(stats.mem_usage || 0)} valueColor={memPct > 80 ? '#ef4444' : memPct > 60 ? '#f59e0b' : undefined} />
-                            </Box>
-                        </Box>
-                    </Grid>
-
-                    {/* ── 右列：圆形仪表盘 ── */}
-                    <Grid item xs={12} md={4} sx={{ p: 3, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
-                        <CircularGauge value={cpuPct} label={t('basicInfo.cpuUsage')} color="#3b82f6" trackColor={isDark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.08)'} />
-                        <CircularGauge value={memPct} label={t('basicInfo.memUsage')} color="#ec4899" trackColor={isDark ? 'rgba(236,72,153,0.12)' : 'rgba(236,72,153,0.08)'} />
-                    </Grid>
-                </Grid>
-
-                {/* ── 底部网络端点统计栏 ── */}
-                <Box sx={{
-                    display: 'flex', flexWrap: 'wrap',
-                    borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}`,
-                }}>
-                    {netStats.map((s, i) => (
-                        <Box key={i} sx={{
-                            flex: '1 1 0', minWidth: 80, py: 1.8, px: 1, textAlign: 'center',
-                            borderRight: i < netStats.length - 1 ? `1px solid ${isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)'}` : 'none',
-                            transition: 'background 0.2s',
-                            '&:hover': { background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)' },
-                        }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.6, mb: 0.5, color: s.color }}>
-                                {s.icon}
-                                <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1, color: s.color }}>{s.value}</Typography>
-                            </Box>
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.68rem', fontWeight: 600 }}>{s.label}</Typography>
-                        </Box>
-                    ))}
+                    </Box>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <InfoRow label={t('basicInfo.napcatVersion')} value={stats.version || '-'} />
+                        <InfoRow label={t('basicInfo.platform')} value={stats.platform || '-'} />
+                        <InfoRow label={t('basicInfo.uptime')} value={stats.uptime_formatted || '-'} />
+                        <InfoRow label={t('basicInfo.webuiPort')} value={stats.webui_port ? String(stats.webui_port) : '-'} />
+                        <InfoRow label={t('basicInfo.wsConnection')} value={
+                            stats.bot_ws_connected === undefined ? '-'
+                            : stats.bot_ws_connected ? t('basicInfo.wsOnline') : t('basicInfo.wsOffline')
+                        } />
+                        {stats.bot_nickname && <InfoRow label={t('basicInfo.botNickname')} value={stats.bot_nickname} />}
+                        {stats.bot_last_seen ? <InfoRow label={t('basicInfo.lastSeen')} value={new Date(stats.bot_last_seen * 1000).toLocaleString()} /> : null}
+                    </Box>
                 </Box>
+
+                {/* 右侧：资源监控区域 */}
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {/* CPU + 内存 横排 */}
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                        {/* CPU 卡片 */}
+                        <Box sx={{ ...glass, borderRadius: 3, p: 2.5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                            <CircularGauge value={cpuPct} label="CPU" color="#3b82f6" trackColor={isDark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.08)'} />
+                        </Box>
+                        {/* 内存卡片 */}
+                        <Box sx={{ ...glass, borderRadius: 3, p: 2.5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                            <CircularGauge value={memPct} label={t('basicInfo.memory')} color="#ec4899" trackColor={isDark ? 'rgba(236,72,153,0.12)' : 'rgba(236,72,153,0.08)'} />
+                            <Box sx={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                <StatRow label={t('basicInfo.memUsed')} value={formatMB(stats.mem_usage || 0)} />
+                                <StatRow label={t('basicInfo.memTotal')} value={formatMB(stats.mem_limit || 0)} />
+                            </Box>
+                        </Box>
+                    </Box>
+                    {/* 网络 IO 卡片 */}
+                    <Box sx={{ ...glass, borderRadius: 3, p: 2.5 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, letterSpacing: 1, textTransform: 'uppercase', color: '#8b5cf6', display: 'block', mb: 1.5, fontSize: '0.75rem' }}>
+                            Network I/O
+                        </Typography>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1.2, borderRadius: 2, bgcolor: 'rgba(128,128,128,0.04)', border: '1px solid rgba(128,128,128,0.06)' }}>
+                                <ArrowDownwardIcon sx={{ fontSize: 16, color: '#10b981' }} />
+                                <Box>
+                                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '0.75rem', display: 'block' }}>下行 (RX)</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: 'text.primary', fontSize: '0.8rem' }}>{formatBytes(stats.net_rx_bytes || 0)}</Typography>
+                                </Box>
+                            </Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1.2, borderRadius: 2, bgcolor: 'rgba(128,128,128,0.04)', border: '1px solid rgba(128,128,128,0.06)' }}>
+                                <ArrowUpwardIcon sx={{ fontSize: 16, color: '#3b82f6' }} />
+                                <Box>
+                                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '0.75rem', display: 'block' }}>上行 (TX)</Typography>
+                                    <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: 'text.primary', fontSize: '0.8rem' }}>{formatBytes(stats.net_tx_bytes || 0)}</Typography>
+                                </Box>
+                            </Box>
+                        </Box>
+                    </Box>
+                </Box>
+            </Box>
+
+            {/* ── 网络端点统计（悬浮小方块）── */}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(3, 1fr)', sm: 'repeat(5, 1fr)' }, gap: 1.5, mb: 3 }}>
+                {netStats.map((s, i) => (
+                    <Box key={i} sx={{
+                        ...glass, borderRadius: 2.5, py: 1.8, px: 1.5, textAlign: 'center',
+                        transition: 'transform 0.2s, box-shadow 0.2s',
+                        '&:hover': { transform: 'translateY(-2px)', boxShadow: isDark ? '0 4px 20px rgba(0,0,0,0.3)' : '0 4px 20px rgba(0,0,0,0.08)' },
+                    }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.6, mb: 0.5 }}>
+                            <Box sx={{ color: s.color, display: 'flex' }}>{s.icon}</Box>
+                            <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1, fontSize: '1.1rem', color: 'text.primary' }}>{s.value}</Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.75rem', fontWeight: 500 }}>{s.label}</Typography>
+                    </Box>
+                ))}
             </Box>
 
             {/* 删除确认对话框 */}
@@ -499,37 +503,35 @@ export const BasicInfo = ({ name, node_id }: BasicInfoProps) => {
 };
 
 /** 左列：标签 + 值的横向行 */
-const InfoRow = ({ label, value, accent }: { label: string; value: string; accent?: boolean }) => (
+const InfoRow = ({ label, value }: { label: string; value: string; accent?: boolean }) => (
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.8 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600, flexShrink: 0, mr: 1 }}>{label}</Typography>
-        <Typography variant="caption" sx={{
-            fontWeight: 700, fontFamily: 'monospace', textAlign: 'right',
-            color: accent ? '#3b82f6' : 'text.primary',
-            bgcolor: accent ? 'rgba(59,130,246,0.08)' : 'transparent',
-            px: accent ? 1 : 0, borderRadius: 1,
+        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, flexShrink: 0, mr: 1, fontSize: '0.8rem' }}>{label}</Typography>
+        <Typography variant="body2" sx={{
+            fontWeight: 600, fontFamily: 'monospace', textAlign: 'right', fontSize: '0.8rem',
+            color: 'text.primary',
         }}>{value}</Typography>
     </Box>
 );
 
 /** 中列：数值统计行 */
-const StatRow = ({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) => (
+const StatRow = ({ label, value }: { label: string; value: string; valueColor?: string }) => (
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         px: 1.5, py: 1, borderRadius: 2, bgcolor: 'rgba(128,128,128,0.04)',
         border: '1px solid rgba(128,128,128,0.06)' }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 600 }}>{label}</Typography>
-        <Typography variant="caption" sx={{ fontWeight: 700, fontFamily: 'monospace', color: valueColor || 'text.primary' }}>{value}</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 500, fontSize: '0.8rem' }}>{label}</Typography>
+        <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: 'text.primary', fontSize: '0.8rem' }}>{value}</Typography>
     </Box>
 );
 
-/** 右列：圆形仪表盘 */
+/** 圆形仪表盘 */
 const CircularGauge = ({ value, label, color, trackColor }: { value: number; label: string; color: string; trackColor: string }) => (
-    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-        <Box sx={{ position: 'relative', display: 'inline-flex', width: 100, height: 100 }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.8 }}>
+        <Box sx={{ position: 'relative', display: 'inline-flex', width: 88, height: 88 }}>
             {/* 轨道 */}
-            <CircularProgress variant="determinate" value={100} size={100} thickness={5}
+            <CircularProgress variant="determinate" value={100} size={88} thickness={4.5}
                 sx={{ color: trackColor, position: 'absolute', left: 0, top: 0 }} />
             {/* 进度 */}
-            <CircularProgress variant="determinate" value={value} size={100} thickness={5}
+            <CircularProgress variant="determinate" value={value} size={88} thickness={4.5}
                 sx={{
                     color,
                     position: 'absolute', left: 0, top: 0,
@@ -537,11 +539,12 @@ const CircularGauge = ({ value, label, color, trackColor }: { value: number; lab
                     '& .MuiCircularProgress-circle': { strokeLinecap: 'round' },
                 }} />
             {/* 中心数值 */}
-            <Box sx={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                <Typography sx={{ fontWeight: 800, fontSize: '1.2rem', lineHeight: 1, color }}>{Math.round(value)}</Typography>
-                <Typography variant="caption" sx={{ fontWeight: 600, color, opacity: 0.8, fontSize: '0.6rem' }}>%</Typography>
+            <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.1rem', lineHeight: 1, color: 'text.primary' }}>
+                    {Math.round(value)}<Typography component="span" sx={{ fontSize: '0.7rem', fontWeight: 600, color: 'text.secondary' }}>%</Typography>
+                </Typography>
             </Box>
         </Box>
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, letterSpacing: 0.5 }}>{label}</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>{label}</Typography>
     </Box>
 );

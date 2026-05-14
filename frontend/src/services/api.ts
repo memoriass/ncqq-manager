@@ -29,6 +29,8 @@ export interface ContainerStats {
     webui_port: number;
     platform: string;
     uptime_formatted: string;
+    net_rx_bytes?: number;
+    net_tx_bytes?: number;
     network_endpoints: {
         http: number;
         ws: number;

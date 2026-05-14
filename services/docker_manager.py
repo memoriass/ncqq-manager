@@ -270,12 +270,19 @@ class DockerManager(LoginMixin, LifecycleMixin):
                 percpu = stats.get("cpu_stats", {}).get("cpu_usage", {}).get("percpu_usage", [1])
                 cpu_percent = (cpu_delta / system_delta) * len(percpu) * 100.0
 
+            # 网络 IO（累计字节）
+            networks = stats.get("networks", {})
+            net_rx = sum(v.get("rx_bytes", 0) for v in networks.values())
+            net_tx = sum(v.get("tx_bytes", 0) for v in networks.values())
+
             result = {
                 "status": c.status,
                 "created": c.attrs.get("Created", ""),
                 "cpu_percent": round(cpu_percent, 2),
                 "mem_usage": round(mem_usage / 1024 / 1024, 2),
                 "mem_limit": round(mem_limit / 1024 / 1024, 2),
+                "net_rx_bytes": net_rx,
+                "net_tx_bytes": net_tx,
             }
             _stats_cache[name] = {**result, "_ts": now}
             return result

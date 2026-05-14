@@ -1,9 +1,9 @@
 /**
- * Bot 后端页面 — NCQQ 卡片风格，管理对端 Bot 框架端点，弹窗编辑，多选注入
+ * Bot 后端页面 — 现代扁平化设计，管理对端 Bot 框架端点，弹窗编辑，多选注入
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-    Box, Typography, Paper, Grid, Button, TextField, IconButton,
+    Box, Typography, Grid, Button, TextField, IconButton,
     Chip, CircularProgress, Alert, Tooltip, Dialog, DialogTitle,
     DialogContent, DialogActions, Checkbox, Pagination, useTheme,
 } from '@mui/material';
@@ -298,7 +298,7 @@ function InjectNCDialog({ open, entry, containers, onClose, onConfirm }: InjectN
 }
 
 
-// ─── EndpointCard：NCQQ 卡片风格 ─────────────────────────────────────────────
+// ─── EndpointCard：现代扁平化设计 ─────────────────────────────────────────────
 
 interface EndpointCardProps {
     entry: EndpointEntry;
@@ -322,6 +322,7 @@ function EndpointCard({
     const [editOpen, setEditOpen] = useState(false);
     const [bsOpen, setBsOpen] = useState(false);
     const [ncOpen, setNcOpen] = useState(false);
+    const isDark = theme.palette.mode === 'dark';
 
     const isHandshakeRejected = entry.online === true && entry.note === 'handshake_rejected';
     const statusColor = entry.online === null ? '#9ca3af'
@@ -334,80 +335,124 @@ function EndpointCard({
         : t('botRadar.offline');
     const StatusIcon = (entry.online && !isHandshakeRejected) ? WifiTetheringIcon : WifiTetheringOffIcon;
 
-    const cardBg = theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)';
-    const cardBorder = theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-
     return (
         <>
-            <Paper elevation={0} sx={{
-                borderRadius: 3, border: `1px solid ${cardBorder}`, overflow: 'hidden',
-                background: cardBg,
-                backdropFilter: 'blur(16px) saturate(1.2)',
-                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+            <Box sx={{
+                borderRadius: 4, overflow: 'hidden',
+                background: isDark
+                    ? 'linear-gradient(145deg, rgba(30,30,36,0.6) 0%, rgba(24,24,28,0.4) 100%)'
+                    : 'linear-gradient(145deg, rgba(255,255,255,0.7) 0%, rgba(248,250,252,0.5) 100%)',
+                backdropFilter: 'blur(20px) saturate(1.3)',
+                WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
                 display: 'flex', flexDirection: 'column',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                '&:hover': {
+                    transform: 'translateY(-2px)',
+                    boxShadow: isDark
+                        ? '0 8px 32px rgba(0,0,0,0.3)'
+                        : '0 8px 32px rgba(0,0,0,0.08)',
+                },
             }}>
+                {/* 顶部状态条 */}
+                <Box sx={{
+                    height: 3,
+                    background: entry.probing
+                        ? 'linear-gradient(90deg, #3b82f6, #8b5cf6, #3b82f6)'
+                        : statusColor,
+                    opacity: 0.8,
+                }} />
+
                 {/* 卡片主体 */}
-                <Box sx={{ p: 2, flex: 1 }}>
-                    {/* 顶栏：昵称 + 编辑 + 删除 */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <Typography sx={{
-                            flex: 1, fontWeight: 700, fontSize: '0.95rem',
-                            color: entry.alias ? 'text.primary' : 'text.disabled',
+                <Box sx={{ p: 2.5, flex: 1 }}>
+                    {/* 顶栏：状态图标 + 昵称 + 操作 */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                        <Box sx={{
+                            width: 36, height: 36, borderRadius: 2,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            bgcolor: `${statusColor}15`,
+                            border: `1px solid ${statusColor}30`,
                         }}>
-                            {entry.alias || t('botRadar.aliasPlaceholder')}
-                        </Typography>
-                        <Tooltip title={t('botRadar.editEndpoint')}>
-                            <IconButton size="small" onClick={() => setEditOpen(true)} sx={{ opacity: 0.6 }}>
-                                <SettingsIcon sx={{ fontSize: 18 }} />
-                            </IconButton>
-                        </Tooltip>
-                        <Tooltip title={t('botRadar.deleteEndpoint')}>
-                            <IconButton size="small" color="error" onClick={() => onDelete(index)} sx={{ opacity: 0.6 }}>
-                                <DeleteOutlineIcon sx={{ fontSize: 18 }} />
-                            </IconButton>
-                        </Tooltip>
+                            <StatusIcon sx={{ color: statusColor, fontSize: 20 }} />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography sx={{
+                                fontWeight: 700, fontSize: '0.9rem', lineHeight: 1.3,
+                                color: entry.alias ? 'text.primary' : 'text.disabled',
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}>
+                                {entry.alias || t('botRadar.aliasPlaceholder')}
+                            </Typography>
+                            <Typography sx={{ fontSize: '0.68rem', color: 'text.secondary' }}>
+                                {entry.probing ? t('botRadar.probing') : statusLabel}
+                                {entry.latency_ms !== null && ` · ${entry.latency_ms}ms`}
+                            </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 0.3 }}>
+                            <Tooltip title={t('botRadar.probe')}>
+                                <span>
+                                    <IconButton size="small" onClick={() => onProbe(index)} disabled={entry.probing}
+                                        sx={{ width: 28, height: 28 }}>
+                                        {entry.probing ? <CircularProgress size={14} /> : <RadarIcon sx={{ fontSize: 15 }} />}
+                                    </IconButton>
+                                </span>
+                            </Tooltip>
+                            <Tooltip title={t('botRadar.editEndpoint')}>
+                                <IconButton size="small" onClick={() => setEditOpen(true)}
+                                    sx={{ width: 28, height: 28, opacity: 0.6, '&:hover': { opacity: 1 } }}>
+                                    <SettingsIcon sx={{ fontSize: 15 }} />
+                                </IconButton>
+                            </Tooltip>
+                            <Tooltip title={t('botRadar.deleteEndpoint')}>
+                                <IconButton size="small" onClick={() => onDelete(index)}
+                                    sx={{ width: 28, height: 28, opacity: 0.6, '&:hover': { opacity: 1, color: '#ef4444' } }}>
+                                    <DeleteOutlineIcon sx={{ fontSize: 15 }} />
+                                </IconButton>
+                            </Tooltip>
+                        </Box>
                     </Box>
 
                     {/* URL */}
-                    <Typography sx={{
-                        fontFamily: 'monospace', fontSize: '0.75rem',
-                        color: 'text.secondary', wordBreak: 'break-all', mb: 1.5,
+                    <Box sx={{
+                        px: 1.5, py: 1, borderRadius: 2, mb: 1.5,
+                        bgcolor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'}`,
                     }}>
-                        {entry.url}
-                    </Typography>
-
-                    {/* 状态行 */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                        <StatusIcon sx={{ color: statusColor, fontSize: 18 }} />
-                        <Chip size="small" label={entry.probing ? t('botRadar.probing') : statusLabel}
-                            sx={{ bgcolor: `${statusColor}22`, color: statusColor, fontWeight: 600, fontSize: '0.7rem' }} />
-                        {entry.latency_ms !== null && (
-                            <Chip size="small" label={`${entry.latency_ms}ms`} variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                        )}
-                        <Tooltip title={t('botRadar.probe')}>
-                            <span>
-                                <IconButton size="small" onClick={() => onProbe(index)} disabled={entry.probing}>
-                                    {entry.probing ? <CircularProgress size={14} /> : <RadarIcon sx={{ fontSize: 16 }} />}
-                                </IconButton>
-                            </span>
-                        </Tooltip>
+                        <Typography sx={{
+                            fontFamily: 'monospace', fontSize: '0.72rem',
+                            color: 'text.secondary', wordBreak: 'break-all', lineHeight: 1.5,
+                        }}>
+                            {entry.url}
+                        </Typography>
                     </Box>
                 </Box>
 
-                {/* 卡片底部 footer */}
+                {/* 卡片底部操作 */}
                 <Box sx={{
-                    display: 'flex', gap: 1, px: 2, pb: 2, pt: 0,
+                    display: 'flex', gap: 1, px: 2.5, pb: 2, pt: 0,
                 }}>
-                    <Button size="small" variant="contained" sx={{ flex: 1, fontSize: '0.75rem' }}
+                    <Button size="small" variant="contained" disableElevation
+                        sx={{
+                            flex: 1, fontSize: '0.72rem', fontWeight: 600,
+                            borderRadius: 2, textTransform: 'none', height: 32,
+                            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                            '&:hover': { background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' },
+                        }}
                         onClick={() => setBsOpen(true)}>
                         {t('botRadar.injectToBS')}
                     </Button>
-                    <Button size="small" variant="outlined" sx={{ flex: 1, fontSize: '0.75rem' }}
+                    <Button size="small" variant="outlined" disableElevation
+                        sx={{
+                            flex: 1, fontSize: '0.72rem', fontWeight: 600,
+                            borderRadius: 2, textTransform: 'none', height: 32,
+                            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
+                            '&:hover': { borderColor: '#3b82f6', color: '#3b82f6' },
+                        }}
                         onClick={() => setNcOpen(true)}>
                         {t('botRadar.injectToNC')}
                     </Button>
                 </Box>
-            </Paper>
+            </Box>
 
             <EditDialog open={editOpen} entry={entry} allAliases={allAliases}
                 onClose={() => setEditOpen(false)}
@@ -584,55 +629,127 @@ export default function BotBackend() {
     }, [endpoints, containers, t, toast]);
 
 
+    const isDark = theme.palette.mode === 'dark';
+    const onlineCount = endpoints.filter(e => e.online === true && e.note !== 'handshake_rejected').length;
+    const offlineCount = endpoints.filter(e => e.online === false).length;
+    const unknownCount = endpoints.filter(e => e.online === null).length;
+
     return (
-        <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
-            {/* 页头 */}
-            <Box sx={{ mb: 3 }}>
-                <Typography variant="h5" sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <RadarIcon sx={{ color: '#60a5fa' }} />
-                    {t('botRadar.title')}
-                </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                    {t('botRadar.subtitle')}
-                </Typography>
+        <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1200, mx: 'auto' }}>
+            {/* 页头 + 统计概览 */}
+            <Box sx={{ mb: 3, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                <Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
+                        <Box sx={{
+                            width: 40, height: 40, borderRadius: 2.5,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+                            boxShadow: '0 4px 14px rgba(59,130,246,0.25)',
+                        }}>
+                            <RadarIcon sx={{ color: '#fff', fontSize: 22 }} />
+                        </Box>
+                        <Box>
+                            <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                                {t('botRadar.title')}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                                {t('botRadar.subtitle')}
+                            </Typography>
+                        </Box>
+                    </Box>
+                </Box>
+                {endpoints.length > 0 && (
+                    <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                        {[
+                            { label: t('botRadar.online'), value: onlineCount, color: '#22c55e' },
+                            { label: t('botRadar.offline'), value: offlineCount, color: '#ef4444' },
+                            { label: t('botRadar.unknown'), value: unknownCount, color: '#9ca3af' },
+                        ].map(s => (
+                            <Box key={s.label} sx={{
+                                px: 2, py: 1, borderRadius: 2.5,
+                                bgcolor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                                border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+                                display: 'flex', alignItems: 'center', gap: 1,
+                            }}>
+                                <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: s.color }} />
+                                <Typography sx={{ fontSize: '0.78rem', fontWeight: 600 }}>{s.value}</Typography>
+                                <Typography sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>{s.label}</Typography>
+                            </Box>
+                        ))}
+                    </Box>
+                )}
             </Box>
 
             {/* 工具栏 */}
-            <Paper elevation={1} sx={{ p: 2, mb: 3, borderRadius: 3,
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
-                backdropFilter: 'blur(16px) saturate(1.2)',
-                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
-                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}` }}>
+            <Box sx={{
+                p: 2, mb: 3, borderRadius: 3,
+                bgcolor: isDark ? 'rgba(30,30,36,0.4)' : 'rgba(255,255,255,0.5)',
+                backdropFilter: 'blur(20px) saturate(1.3)',
+                WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
+                border: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`,
+            }}>
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                     <TextField
-                        size="small" label={t('botRadar.endpointUrl')}
+                        size="small"
                         placeholder={t('botRadar.urlPlaceholder')}
                         value={newUrl} onChange={e => setNewUrl(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && handleAdd()}
-                        sx={{ flex: 1, minWidth: 260 }}
+                        sx={{
+                            flex: 1, minWidth: 240,
+                            '& .MuiOutlinedInput-root': {
+                                borderRadius: 2, fontSize: '0.85rem',
+                                bgcolor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+                            },
+                        }}
                     />
-                    <Button variant="contained" startIcon={<AddCircleOutlineIcon />} onClick={handleAdd}>
+                    <Button variant="contained" disableElevation startIcon={<AddCircleOutlineIcon />}
+                        onClick={handleAdd}
+                        sx={{
+                            borderRadius: 2, textTransform: 'none', fontWeight: 600, height: 38,
+                            background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
+                            '&:hover': { background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' },
+                        }}>
                         {t('botRadar.addEndpoint')}
                     </Button>
-                    <Button variant="outlined" startIcon={<AutoAwesomeIcon />}
-                        onClick={handleAutoCollect} disabled={collectingBS}>
-                        {collectingBS ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
+                    <Button variant="outlined" disableElevation startIcon={<AutoAwesomeIcon />}
+                        onClick={handleAutoCollect} disabled={collectingBS}
+                        sx={{
+                            borderRadius: 2, textTransform: 'none', fontWeight: 600, height: 38,
+                            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
+                        }}>
+                        {collectingBS ? <CircularProgress size={14} sx={{ mr: 0.5 }} /> : null}
                         {t('botRadar.autoCollect')}
                     </Button>
                     {endpoints.length > 0 && (
-                        <Button variant="outlined" color="secondary" startIcon={<RadarIcon />}
-                            onClick={handleProbeAll}>
+                        <Button variant="outlined" disableElevation startIcon={<RadarIcon />}
+                            onClick={handleProbeAll}
+                            sx={{
+                                borderRadius: 2, textTransform: 'none', fontWeight: 600, height: 38,
+                                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
+                            }}>
                             {t('botRadar.probeAll')}
                         </Button>
                     )}
                 </Box>
-            </Paper>
+            </Box>
 
             {/* 端点卡片列表 */}
             {endpoints.length === 0 ? (
-                <Alert severity="info" sx={{ borderRadius: 3 }}>{t('botRadar.noEndpoints')}</Alert>
+                <Box sx={{
+                    py: 8, textAlign: 'center', borderRadius: 4,
+                    bgcolor: isDark ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)',
+                    border: `2px dashed ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                }}>
+                    <RadarIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1.5 }} />
+                    <Typography color="text.secondary" sx={{ fontSize: '0.9rem' }}>
+                        {t('botRadar.noEndpoints')}
+                    </Typography>
+                    <Typography color="text.disabled" sx={{ fontSize: '0.78rem', mt: 0.5 }}>
+                        {t('botRadar.urlPlaceholder')}
+                    </Typography>
+                </Box>
             ) : (
-                <Grid container spacing={2}>
+                <Grid container spacing={2.5}>
                     {endpoints.map((entry, i) => (
                         <Grid item xs={12} sm={6} lg={4} key={entry.url + i}>
                             <EndpointCard
