@@ -180,6 +180,79 @@ async def ws_container_logs(
         logger.debug("WS logs 连接异常 [%s]: %s", name, e)
 
 
+@router.websocket("/ws/bot_messages/{name}")
+async def ws_bot_messages(ws: WebSocket, name: str):
+    """Bot 消息实时推送 — 仅在管理页面打开时连接，离开即断开。
+
+    连接后先推送缓冲区全量历史，之后每当有新消息到达时实时推送增量。
+    无新消息时每 15s 发心跳保活。
+    """
+    effective_token = _resolve_ws_token(ws)
+    session = validate_token_value(effective_token) if effective_token else None
+    if not session:
+        await ws.close(code=4001, reason="Unauthorized")
+        return
+
+    await ws.accept()
+
+    from services.napcat_ws_service import napcat_ws_service
+
+    # 先推送当前缓冲区全量（oldest-first）
+    messages = napcat_ws_service.get_messages(name, 200)
+    messages.reverse()  # get_messages 返回 newest-first，翻转为 oldest-first
+    try:
+        await asyncio.wait_for(
+            ws.send_json({"type": "history", "messages": messages}), timeout=5
+        )
+    except (asyncio.TimeoutError, Exception):
+        return
+
+    # 记录已推送的最新 message_id，用于增量推送
+    last_pushed_id = messages[-1]["message_id"] if messages else None
+
+    try:
+        while True:
+            has_new = await napcat_ws_service.wait_for_message(name, timeout=15.0)
+            if not has_new:
+                # 超时无新消息 → 发心跳保活
+                try:
+                    await asyncio.wait_for(
+                        ws.send_json({"type": "heartbeat"}), timeout=5
+                    )
+                except (asyncio.TimeoutError, Exception):
+                    break
+                continue
+
+            # 有新消息，取增量
+            all_msgs = napcat_ws_service.get_messages(name, 200)
+            all_msgs.reverse()
+            if last_pushed_id is not None:
+                new_msgs = []
+                found = False
+                for m in all_msgs:
+                    if found:
+                        new_msgs.append(m)
+                    elif m["message_id"] == last_pushed_id:
+                        found = True
+                if not found:
+                    new_msgs = all_msgs
+            else:
+                new_msgs = all_msgs
+
+            if new_msgs:
+                last_pushed_id = new_msgs[-1]["message_id"]
+                try:
+                    await asyncio.wait_for(
+                        ws.send_json({"type": "messages", "messages": new_msgs}), timeout=5
+                    )
+                except (asyncio.TimeoutError, Exception):
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug("WS bot_messages 连接异常 [%s]: %s", name, e)
+
+
 # ============ 公开 WS — 无需认证，推送容器列表 + QR 状态 ============
 
 
@@ -491,7 +564,7 @@ async def ws_plugin_link(ws: WebSocket, name: str, key: str = Query(default=""))
     断连时立即置 bot_online=False，无需等待 90s 超时兜底。
     """
     expected_key = app_config.get("internal_api_key", "")
-    if not expected_key or key != expected_key:
+    if expected_key and key != expected_key:
         await ws.close(code=4003, reason="Invalid key")
         return
     if not _PLUGIN_NAME_RE.match(name or ""):

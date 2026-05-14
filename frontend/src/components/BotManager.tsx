@@ -23,9 +23,13 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import VolumeUpIcon from '@mui/icons-material/VolumeUp';
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings';
 import AddCommentIcon from '@mui/icons-material/AddComment';
+import AnnouncementIcon from '@mui/icons-material/Announcement';
+import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
+import HowToRegIcon from '@mui/icons-material/HowToReg';
 import { useTranslate } from '../i18n';
 import { botApi, type BotMessage } from '../services/api';
 import { useToast } from './Toast';
+import { useWebSocket } from '../hooks/useWebSocket';
 
 interface BotManagerProps {
     name: string;
@@ -165,27 +169,45 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
             } catch { /* ignore */ }
         };
         fetchCached();
-        const timer = setInterval(fetchCached, 5000);
+        const timer = setInterval(fetchCached, 15000);
         return () => clearInterval(timer);
     }, [name]);
 
-    // 切换会话时加载消息
+    // 从 WS 消息更新会话列表的 lastMsg
     useEffect(() => {
-        if (!activeConv) { setMessages([]); return; }
-        const fetchMsgs = async () => {
-            try {
-                const data = await botApi.getMessages(name, 200);
-                const filtered = (data.messages || []).filter(m => {
-                    if (activeConv.type === 'group') return String(m.group_id) === activeConv.id;
-                    return m.message_type === 'private' && (String(m.user_id) === activeConv.id || String(m.self_id) === activeConv.id);
-                });
-                setMessages(filtered);
-            } catch { /* ignore */ }
-        };
-        fetchMsgs();
-        const timer = setInterval(fetchMsgs, 5000);
-        return () => clearInterval(timer);
-    }, [name, activeConv?.id, activeConv?.type]);
+        if (!wsData || !wsData.messages || wsData.messages.length === 0) return;
+        setConversations(prev => {
+            const updated = [...prev];
+            for (const msg of wsData.messages!) {
+                const convId = msg.message_type === 'group' ? String(msg.group_id) : String(msg.user_id);
+                const conv = updated.find(c => c.id === convId);
+                if (conv && msg.time > conv.lastTime) {
+                    conv.lastMsg = msg.raw_message?.slice(0, 30) || '';
+                    conv.lastTime = msg.time;
+                }
+            }
+            return updated.sort((a, b) => b.lastTime - a.lastTime);
+        });
+    }, [wsData]);
+
+    // 实时消息 WebSocket — 仅在 ChatPanel 挂载时连接
+    interface WsMsg { type: string; messages?: BotMessage[] }
+    const { data: wsData } = useWebSocket<WsMsg>({ path: `/ws/bot_messages/${name}` });
+
+    // WS 推送到达时更新消息列表
+    useEffect(() => {
+        if (!wsData) return;
+        if (wsData.type === 'history') {
+            setMessages(wsData.messages || []);
+        } else if (wsData.type === 'messages') {
+            setMessages(prev => [...prev, ...(wsData.messages || [])]);
+        }
+    }, [wsData]);
+
+    // 切换会话时清空（消息按会话过滤在渲染层处理）
+    useEffect(() => {
+        if (!activeConv) setMessages([]);
+    }, [activeConv?.id, activeConv?.type]);
 
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -195,7 +217,22 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
         if (!input.trim() || !activeConv) return;
         setSending(true);
         try {
-            await botApi.send(name, activeConv.type, activeConv.id, input.trim());
+            const res = await botApi.send(name, activeConv.type, activeConv.id, input.trim());
+            const now = Math.floor(Date.now() / 1000);
+            const msgId = res.message_id || now;
+            // user_id === self_id 触发 isSelf 判断
+            const selfMsg: BotMessage = {
+                time: now,
+                message_id: msgId,
+                message_type: activeConv.type,
+                user_id: msgId,
+                self_id: msgId,
+                sender: { nickname: '', card: '' },
+                raw_message: input.trim(),
+                group_id: activeConv.type === 'group' ? activeConv.id : '',
+                sub_type: '',
+            };
+            setMessages(prev => [...prev, selfMsg]);
             setInput('');
         } catch {
             toast.error(t('botManager.sendFailed'));
@@ -317,8 +354,17 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
                         >
                             <ListItemIcon sx={{ minWidth: 32 }}>
                                 {conv.type === 'group'
-                                    ? <GroupIcon sx={{ fontSize: 18, color: '#6366f1' }} />
-                                    : <PersonIcon sx={{ fontSize: 18, color: '#10b981' }} />}
+                                    ? <Box component="img" src={`/api/resource/group_avatar/${conv.id}`}
+                                        sx={{ width: 24, height: 24, borderRadius: 1, objectFit: 'cover' }}
+                                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling && ((e.currentTarget.nextElementSibling as HTMLElement).style.display = 'inline-flex'); }}
+                                      />
+                                    : <Box component="img" src={`/api/resource/avatar/${conv.id}`}
+                                        sx={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }}
+                                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling && ((e.currentTarget.nextElementSibling as HTMLElement).style.display = 'inline-flex'); }}
+                                      />}
+                                {conv.type === 'group'
+                                    ? <GroupIcon sx={{ fontSize: 18, color: '#6366f1', display: 'none' }} />
+                                    : <PersonIcon sx={{ fontSize: 18, color: '#10b981', display: 'none' }} />}
                             </ListItemIcon>
                             <ListItemText
                                 primary={conv.name}
@@ -347,8 +393,14 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
                         {/* 头部 */}
                         <Box sx={{ p: 1.5, borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', gap: 1 }}>
                             {activeConv.type === 'group'
-                                ? <GroupIcon sx={{ fontSize: 18, color: '#6366f1' }} />
-                                : <PersonIcon sx={{ fontSize: 18, color: '#10b981' }} />}
+                                ? <Box component="img" src={`/api/resource/group_avatar/${activeConv.id}`}
+                                    sx={{ width: 28, height: 28, borderRadius: 1, objectFit: 'cover' }}
+                                    onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                                  />
+                                : <Box component="img" src={`/api/resource/avatar/${activeConv.id}`}
+                                    sx={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }}
+                                    onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                                  />}
                             <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{activeConv.name}</Typography>
                             <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{activeConv.id}</Typography>
                         </Box>
@@ -364,7 +416,11 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
                                     </Button>
                                 </Box>
                             )}
-                            {messages.slice(-MAX_RENDER_MESSAGES).map((msg, i) => {
+                            {messages.filter(msg => {
+                                if (!activeConv) return false;
+                                if (activeConv.type === 'group') return String(msg.group_id) === activeConv.id;
+                                return msg.message_type === 'private' && (String(msg.user_id) === activeConv.id || String(msg.self_id) === activeConv.id);
+                            }).slice(-MAX_RENDER_MESSAGES).map((msg, i) => {
                                 const isSelf = msg.user_id === msg.self_id;
                                 return (
                                     <Box key={msg.message_id || i} sx={{ display: 'flex', flexDirection: isSelf ? 'row-reverse' : 'row', gap: 1, alignItems: 'flex-end' }}>
@@ -380,7 +436,7 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
                                                 </Typography>
                                             )}
                                             <Typography sx={{ fontSize: '0.82rem', wordBreak: 'break-word' }}>
-                                                {msg.raw_message || ''}
+                                                {(msg.raw_message || '').replace(/\[CQ:image[^\]]*\]/g, '[图片]').replace(/\[CQ:face[^\]]*\]/g, '[表情]').replace(/\[CQ:record[^\]]*\]/g, '[语音]').replace(/\[CQ:video[^\]]*\]/g, '[视频]').replace(/\[CQ:at[^\]]*\]/g, '[@]').replace(/\[CQ:[^\]]*\]/g, '[消息]')}
                                             </Typography>
                                             <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', mt: 0.3, textAlign: isSelf ? 'left' : 'right' }}>
                                                 {formatTime(msg.time)}
@@ -504,6 +560,12 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
     const [groups, setGroups] = useState<GroupItem[]>([]);
     const [loading, setLoading] = useState(false);
     const [selectedGroup, setSelectedGroup] = useState<GroupItem | null>(null);
+    const [renameDialog, setRenameDialog] = useState<{ open: boolean; group_id: number; current: string }>({ open: false, group_id: 0, current: '' });
+    const [newGroupName, setNewGroupName] = useState('');
+    const [noticeDialog, setNoticeDialog] = useState<{ open: boolean; group_id: number; group_name: string }>({ open: false, group_id: 0, group_name: '' });
+    const [notices, setNotices] = useState<Array<{ notice_id: string; sender_id: number; publish_time: number; message: { text: string } }>>([]);
+    const [newNotice, setNewNotice] = useState('');
+    const [noticeLoading, setNoticeLoading] = useState(false);
     const t = useTranslate();
     const toast = useToast();
 
@@ -536,6 +598,40 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
         } catch { toast.error(t('botManager.operationFailed')); }
     };
 
+    const handleRenameGroup = async () => {
+        if (!newGroupName.trim()) return;
+        try {
+            await botApi.call(name, 'set_group_name', { group_id: renameDialog.group_id, group_name: newGroupName.trim() });
+            toast.success(t('botManager.renameGroupSuccess'));
+            setGroups(prev => prev.map(g => g.group_id === renameDialog.group_id ? { ...g, group_name: newGroupName.trim() } : g));
+        } catch { toast.error(t('botManager.operationFailed')); }
+        setRenameDialog({ open: false, group_id: 0, current: '' });
+    };
+
+    const openNoticeDialog = async (group_id: number, group_name: string) => {
+        setNoticeDialog({ open: true, group_id, group_name });
+        setNoticeLoading(true);
+        setNotices([]);
+        try {
+            const res = await botApi.call(name, '_get_group_notice', { group_id });
+            if (Array.isArray(res.data)) {
+                setNotices(res.data as typeof notices);
+            }
+        } catch { /* ignore */ }
+        setNoticeLoading(false);
+    };
+
+    const handleSendNotice = async () => {
+        if (!newNotice.trim()) return;
+        try {
+            await botApi.call(name, '_send_group_notice', { group_id: noticeDialog.group_id, content: newNotice.trim() });
+            toast.success(t('botManager.sendNoticeSuccess'));
+            setNewNotice('');
+            // 刷新公告列表
+            openNoticeDialog(noticeDialog.group_id, noticeDialog.group_name);
+        } catch { toast.error(t('botManager.operationFailed')); }
+    };
+
     if (selectedGroup) {
         return <GroupMembersView name={name} group={selectedGroup} glass={glass} onBack={() => setSelectedGroup(null)} />;
     }
@@ -560,7 +656,7 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
                             <TableCell sx={{ fontWeight: 600 }}>{t('botManager.groupName')}</TableCell>
                             <TableCell sx={{ fontWeight: 600 }}>{t('botManager.memberCount')}</TableCell>
                             <TableCell sx={{ fontWeight: 600 }}>{t('botManager.maxMembers')}</TableCell>
-                            <TableCell sx={{ fontWeight: 600, width: 160 }}>{t('botManager.actions')}</TableCell>
+                            <TableCell sx={{ fontWeight: 600, width: 220 }}>{t('botManager.actions')}</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -572,7 +668,15 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
                             </TableRow>
                         ) : groups.map((g) => (
                             <TableRow key={g.group_id} hover>
-                                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{g.group_id}</TableCell>
+                                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <Box component="img" src={`/api/resource/group_avatar/${g.group_id}`}
+                                            sx={{ width: 24, height: 24, borderRadius: 1, objectFit: 'cover' }}
+                                            onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                                        />
+                                        {g.group_id}
+                                    </Box>
+                                </TableCell>
                                 <TableCell sx={{ fontSize: '0.85rem' }}>{g.group_name}</TableCell>
                                 <TableCell>{g.member_count}</TableCell>
                                 <TableCell>{g.max_member_count}</TableCell>
@@ -581,6 +685,16 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
                                         <Tooltip title={t('botManager.viewMembers')}>
                                             <IconButton size="small" onClick={() => setSelectedGroup(g)}>
                                                 <PersonIcon sx={{ fontSize: 16 }} />
+                                            </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title={t('botManager.renameGroup')}>
+                                            <IconButton size="small" onClick={() => { setRenameDialog({ open: true, group_id: g.group_id, current: g.group_name }); setNewGroupName(g.group_name); }}>
+                                                <DriveFileRenameOutlineIcon sx={{ fontSize: 16 }} />
+                                            </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title={t('botManager.groupNotice')}>
+                                            <IconButton size="small" onClick={() => openNoticeDialog(g.group_id, g.group_name)}>
+                                                <AnnouncementIcon sx={{ fontSize: 16 }} />
                                             </IconButton>
                                         </Tooltip>
                                         <Tooltip title={t('botManager.muteAll')}>
@@ -605,6 +719,64 @@ function GroupsPanel({ name, glass }: { name: string; glass: Record<string, unkn
                     </TableBody>
                 </Table>
             </TableContainer>
+
+            {/* 修改群名对话框 */}
+            <Dialog open={renameDialog.open} onClose={() => setRenameDialog({ open: false, group_id: 0, current: '' })}
+                PaperProps={{ sx: { borderRadius: 3, minWidth: 360 } }}>
+                <DialogTitle sx={{ fontWeight: 700, fontSize: '1rem' }}>{t('botManager.renameGroup')}</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        fullWidth size="small" label={t('botManager.groupName')}
+                        value={newGroupName} onChange={(e) => setNewGroupName(e.target.value)}
+                        sx={{ mt: 1 }}
+                    />
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setRenameDialog({ open: false, group_id: 0, current: '' })} color="inherit" sx={{ borderRadius: 2 }}>{t('botManager.cancel')}</Button>
+                    <Button onClick={handleRenameGroup} variant="contained" sx={{ borderRadius: 2 }}>{t('botManager.save')}</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* 群公告对话框 */}
+            <Dialog open={noticeDialog.open} onClose={() => setNoticeDialog({ open: false, group_id: 0, group_name: '' })}
+                PaperProps={{ sx: { borderRadius: 3, minWidth: 480, maxHeight: '70vh' } }}>
+                <DialogTitle sx={{ fontWeight: 700, fontSize: '1rem' }}>
+                    {t('botManager.groupNotice')} - {noticeDialog.group_name}
+                </DialogTitle>
+                <DialogContent sx={{ px: 2, pb: 2 }}>
+                    <Box sx={{ mb: 2 }}>
+                        <TextField
+                            fullWidth size="small" multiline rows={3}
+                            placeholder={t('botManager.noticePlaceholder')}
+                            value={newNotice} onChange={(e) => setNewNotice(e.target.value)}
+                        />
+                        <Button onClick={handleSendNotice} variant="contained" size="small"
+                            sx={{ mt: 1, borderRadius: 2, textTransform: 'none' }}
+                            disabled={!newNotice.trim()}>
+                            {t('botManager.publishNotice')}
+                        </Button>
+                    </Box>
+                    {noticeLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box>
+                    ) : notices.length === 0 ? (
+                        <Typography sx={{ py: 2, textAlign: 'center', color: 'text.secondary', fontSize: '0.8rem' }}>{t('botManager.noNotices')}</Typography>
+                    ) : (
+                        <List sx={{ maxHeight: 300, overflow: 'auto', py: 0 }}>
+                            {notices.map((n, i) => (
+                                <Paper key={n.notice_id || i} sx={{ p: 1.5, mb: 1, borderRadius: 2, bgcolor: 'action.hover' }}>
+                                    <Typography sx={{ fontSize: '0.82rem', whiteSpace: 'pre-wrap' }}>{n.message?.text || ''}</Typography>
+                                    <Typography sx={{ fontSize: '0.65rem', color: 'text.secondary', mt: 0.5 }}>
+                                        {n.sender_id} · {n.publish_time ? new Date(n.publish_time * 1000).toLocaleString() : ''}
+                                    </Typography>
+                                </Paper>
+                            ))}
+                        </List>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setNoticeDialog({ open: false, group_id: 0, group_name: '' })} color="inherit" sx={{ borderRadius: 2 }}>{t('botManager.cancel')}</Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }

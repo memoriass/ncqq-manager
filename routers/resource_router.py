@@ -90,3 +90,30 @@ async def get_avatar(uin: str = Path(..., pattern=r"^\d{5,12}$")):
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url=f"https://q1.qlogo.cn/g?b=qq&nk={uin}&s=640")
 
+
+_GROUP_AVATAR_DIR = os.path.join(_RESOURCE_DIR, "group_avatars")
+os.makedirs(_GROUP_AVATAR_DIR, exist_ok=True)
+
+
+@router.get("/group_avatar/{group_id}", dependencies=[Depends(public_speed_limit(2.0))])
+async def get_group_avatar(group_id: str = Path(..., pattern=r"^\d{5,12}$")):
+    """代理并缓存群头像到 resource/group_avatars/{group_id}.jpg。"""
+    cache_path = os.path.join(_GROUP_AVATAR_DIR, f"{group_id}.jpg")
+    if os.path.exists(cache_path):
+        return FileResponse(cache_path, media_type="image/jpeg")
+
+    try:
+        url = f"https://p.qlogo.cn/gh/{group_id}/{group_id}/640/"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = resp.read()
+        if len(data) > 500:
+            with open(cache_path, "wb") as f:
+                f.write(data)
+            return Response(content=data, media_type="image/jpeg")
+    except Exception as exc:
+        logger.debug("群头像下载失败 group_id=%s: %s", group_id, exc)
+
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url=f"https://p.qlogo.cn/gh/{group_id}/{group_id}/640/")
+

@@ -210,9 +210,13 @@ export const plugin_init = async (ctx) => {
   _ctx = ctx;
   _initTs = Date.now();
   _loginFailReported = false;
-  const savedConfig = _readConfigFile(ctx.configPath);
+  let savedConfig = _readConfigFile(ctx.configPath);
+  // 降级：ctx.configPath 可能是框架分配的目录路径，尝试已知固定位置
+  if (!savedConfig) {
+    savedConfig = _readConfigFile('/app/napcat/config/ncqq-interlink.json');
+  }
   _config = resolveConfig(savedConfig);
-  console.log(`[ManagerLink] init: url=${_config.managerUrl} name=${_config.containerName}`);
+  console.log(`[ManagerLink] init: url=${_config.managerUrl} name=${_config.containerName} configPath=${ctx.configPath}`);
 
   // 建立持久 WS 连接（连接后会自动上报登录状态）
   await connectWS();

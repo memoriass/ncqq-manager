@@ -267,10 +267,14 @@ class LifecycleMixin:
                 )
                 return
 
-            # 合并 target_endpoints（保持原有顺序，去重）
-            merged_targets = [named_endpoint]
-            for t in existing_targets + targets:
-                if t not in merged_targets and t != compat_endpoint:
+            # 合并 target_endpoints（保持原有顺序，去重，保留用户自定义端点）
+            merged_targets = list(existing_targets)
+            # 确保管理器端点在列表中（插入到首位）
+            if named_endpoint not in merged_targets:
+                merged_targets.insert(0, named_endpoint)
+            # 追加 init_bs_targets 中的额外端点
+            for t in targets:
+                if t not in merged_targets:
                     merged_targets.append(t)
 
             conn_config = {

@@ -164,6 +164,8 @@ class NapCatWsService:
         self._proxies: Dict[str, NapCatApiProxy] = {}
         # 消息监控缓冲区：{name: deque[dict]}
         self._msg_buffers: Dict[str, collections.deque] = {}
+        # 消息通知事件：前端 WS 订阅者等待新消息
+        self._msg_events: Dict[str, asyncio.Event] = {}
 
     # ------------------------------------------------------------------
     # 内部辅助
@@ -341,7 +343,29 @@ class NapCatWsService:
         if not proxy:
             logger.warning("send_message 失败: Bot [%s] 未连接", name)
             return None
-        return await proxy.send_message(msg_type, target_id, message)
+        msg_id = await proxy.send_message(msg_type, target_id, message)
+        # 将自己发送的消息也写入环形缓冲区，使前端能看到
+        if msg_id is not None:
+            import time as _time
+            e = self._table.get(name)
+            self_id = int(e.uin) if e and e.uin else 0
+            buf = self._msg_buffers.get(name)
+            if buf is None:
+                buf = collections.deque(maxlen=_MESSAGE_BUFFER_SIZE)
+                self._msg_buffers[name] = buf
+            buf.append({
+                "time": int(_time.time()),
+                "message_id": msg_id,
+                "message_type": msg_type,
+                "user_id": self_id,
+                "self_id": self_id,
+                "sender": {"nickname": name, "card": ""},
+                "raw_message": message,
+                "group_id": int(target_id) if msg_type == "group" else "",
+                "sub_type": "",
+            })
+            self._notify_msg_waiters(name)
+        return msg_id
 
     # ------------------------------------------------------------------
     # 读取（供 container_state / docker_async 调用）
@@ -373,11 +397,13 @@ class NapCatWsService:
             "message_id": event.message_id,
             "message_type": event.message_type,
             "user_id": event.user_id,
+            "self_id": getattr(event, "self_id", ""),
             "sender": event.sender,
             "raw_message": event.raw_message,
             "group_id": getattr(event, "group_id", ""),
             "sub_type": getattr(event, "sub_type", ""),
         })
+        self._notify_msg_waiters(name)
 
     def get_messages(self, name: str, limit: int = 50) -> List[Dict[str, Any]]:
         """获取指定容器最近 N 条消息（最新在前）。"""
@@ -396,6 +422,25 @@ class NapCatWsService:
             if msgs:
                 result[name] = msgs
         return result
+
+    def _notify_msg_waiters(self, name: str) -> None:
+        """通知等待该 bot 新消息的 WS 订阅者。"""
+        ev = self._msg_events.get(name)
+        if ev:
+            ev.set()
+
+    async def wait_for_message(self, name: str, timeout: float = 15.0) -> bool:
+        """等待指定 bot 的新消息到达，返回 True 表示有新消息，False 表示超时。"""
+        ev = self._msg_events.get(name)
+        if ev is None:
+            ev = asyncio.Event()
+            self._msg_events[name] = ev
+        ev.clear()
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=timeout)
+            return True
+        except asyncio.TimeoutError:
+            return False
 
     def all_names(self) -> list:
         return list(self._table.keys())
