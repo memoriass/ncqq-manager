@@ -33,7 +33,6 @@ from routers.image_router import router as image_router
 from routers.ws_router import router as ws_router
 from routers.alert_router import router as alert_router
 from routers.backup_router import router as backup_router
-from routers.scheduler_router import router as scheduler_router
 from routers.resource_router import router as resource_router
 from routers.botshepherd_router import router as botshepherd_router
 from routers.bot_api_router import router as bot_api_router
@@ -130,10 +129,6 @@ async def lifespan(app: FastAPI):
     from services.container_state import state_engine
     await state_engine.start()
 
-    # 启动定时任务调度器
-    from services.scheduler import scheduler
-    await scheduler.start()
-
     # 自动启动 BotShepherd（如已安装且配置为自动启动）
     from services.botshepherd import botshepherd_manager
     if botshepherd_manager.installed and botshepherd_manager._auto_start:
@@ -156,7 +151,6 @@ async def lifespan(app: FastAPI):
     await state_engine.stop()
     await async_docker_manager.stop()
     await cluster_manager.stop_session()
-    await scheduler.stop()
     botshepherd_manager.stop()
     await bs_activation_service.stop()
     operation_logger.flush()
@@ -229,7 +223,6 @@ app.include_router(image_router)
 app.include_router(ws_router)
 app.include_router(alert_router)
 app.include_router(backup_router)
-app.include_router(scheduler_router)
 app.include_router(resource_router)
 app.include_router(botshepherd_router)
 app.include_router(bot_api_router)
@@ -261,14 +254,8 @@ async def health_check():
     from services.container_state import state_engine
     from services.docker_async import async_docker_manager
     from services.ws_manager import ws_manager
-    from services.scheduler import scheduler
     from services.botshepherd import botshepherd_manager
     from services.metrics import metrics
-
-    scheduler_tasks = scheduler.list_tasks()
-    scheduler_failed_count = sum(1 for t in scheduler_tasks if t.get("last_result") == "error")
-    scheduler_timeout_count = sum(1 for t in scheduler_tasks if t.get("last_result") == "timeout")
-    last_task = max(scheduler_tasks, key=lambda x: x.get("last_run", 0), default=None)
 
     botshepherd_status = botshepherd_manager.status()
     state_health = state_engine.health_info
@@ -278,10 +265,6 @@ async def health_check():
         degraded_reasons.append("async_docker_disconnected")
     if not state_health.get("running", False):
         degraded_reasons.append("state_engine_not_running")
-    if scheduler_failed_count > 0:
-        degraded_reasons.append("scheduler_task_failed")
-    if scheduler_timeout_count > 0:
-        degraded_reasons.append("scheduler_task_timeout")
     if botshepherd_status.get("installed") and botshepherd_status.get("auto_start") and not botshepherd_status.get("running"):
         degraded_reasons.append("botshepherd_not_running")
 
@@ -297,18 +280,6 @@ async def health_check():
         "operation_logger_flush_fails": operation_logger.flush_fail_count,
         "operation_logger_last_flush_ms": round(operation_logger.last_flush_duration * 1000, 1),
         "metrics": metrics.snapshot(),
-        "scheduler": {
-            "total": len(scheduler_tasks),
-            "failed": scheduler_failed_count,
-            "timeout": scheduler_timeout_count,
-            "last_task": {
-                "id": last_task.get("id"),
-                "name": last_task.get("name"),
-                "last_run": last_task.get("last_run"),
-                "last_result": last_task.get("last_result"),
-                "last_error": last_task.get("last_error"),
-            } if last_task else None,
-        },
         "botshepherd": {
             "installed": botshepherd_status.get("installed"),
             "initialized": botshepherd_status.get("initialized"),

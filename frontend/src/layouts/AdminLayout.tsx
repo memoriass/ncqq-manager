@@ -16,7 +16,6 @@ import PeopleIcon from '@mui/icons-material/People';
 import ImageIcon from '@mui/icons-material/Image';
 import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import BackupIcon from '@mui/icons-material/Backup';
-import ScheduleIcon from '@mui/icons-material/Schedule';
 import PetsIcon from '@mui/icons-material/Pets';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import { ThemeModeContext, LanguageContext } from '../App';
@@ -164,7 +163,6 @@ export default function AdminLayout() {
                             { path: '/admin/images', icon: <ImageIcon />, label: t('admin.imageManager') },
                             { path: '/admin/alerts', icon: <NotificationsActiveIcon />, label: t('admin.alerts') },
                             { path: '/admin/backup', icon: <BackupIcon />, label: t('admin.backup') },
-                            { path: '/admin/scheduler', icon: <ScheduleIcon />, label: t('admin.scheduler') },
                             { path: '/admin/botshepherd', icon: <PetsIcon />, label: t('admin.botshepherd') },
                             { path: '/admin/bot-radar', icon: <TrackChangesIcon />, label: t('admin.botRadar') },
                         ] as { path: string; icon: React.ReactNode; label: string }[]).map(item => {

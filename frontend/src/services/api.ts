@@ -502,39 +502,6 @@ export const backupApi = {
     },
 };
 
-// ============ 定时任务 API ============
-
-export interface ScheduledTask {
-    id: string;
-    name: string;
-    type: string;
-    enabled: boolean;
-    interval_seconds: number;
-    config: Record<string, unknown>;
-    last_run: number;
-    created_at: number;
-}
-
-export const schedulerApi = {
-    list: () =>
-        request<{ status: string; tasks: ScheduledTask[] }>('/scheduler/tasks'),
-
-    create: (data: { name: string; type: string; interval_seconds: number; config?: Record<string, unknown> }) =>
-        request<{ status: string; task_id: string }>('/scheduler/tasks', {
-            method: 'POST',
-            body: JSON.stringify(data),
-        }),
-
-    update: (taskId: string, data: Partial<{ name: string; enabled: boolean; interval_seconds: number; config: Record<string, unknown> }>) =>
-        request<{ status: string }>(`/scheduler/tasks/${taskId}`, {
-            method: 'PUT',
-            body: JSON.stringify(data),
-        }),
-
-    delete: (taskId: string) =>
-        request<{ status: string }>(`/scheduler/tasks/${taskId}`, { method: 'DELETE' }),
-};
-
 // ============ 认证相关 API ============
 
 export const authApi = {
