@@ -145,7 +145,7 @@ class LifecycleMixin:
         if bs_enabled:
             bs_host = str(app_config.get("init_bs_host") or app_config.get("manager_host", "127.0.0.1"))
             bs_base_port = int(app_config.get("init_bs_client_base_port", 6100))
-            bs_port = self.allocate_port(bs_base_port)  # type: ignore[attr-defined]
+            bs_port = await asyncio.to_thread(self.allocate_port, bs_base_port)  # type: ignore[attr-defined]
             bs_bind_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
             ws_url = f"ws://{bs_host}:{bs_port}/onebot/v11/ws"
         else:
@@ -224,7 +224,6 @@ class LifecycleMixin:
                         )
 
             asyncio.create_task(_auto_notify_groups(name, uin, auto_groups))
-            logger.info("已调度自动加群通知: name=%s groups=%s", name, auto_groups)
             logger.info("已调度自动加群通知: name=%s groups=%s", name, auto_groups)
 
     async def _async_sync_bs_connection(

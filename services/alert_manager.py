@@ -395,7 +395,7 @@ class AlertManager:
         return True
 
     async def notify_login_lost(
-        self, name: str, uin: str = "", node_id: str = "local",
+        self, name: str, uin: str = "", node_id: str = "local", reason: str = "",
     ):
         """掉线扫码通知 — 登录态丢失时触发，附带 QR 扫码链接。
 
@@ -421,6 +421,8 @@ class AlertManager:
             f"🖥️ 节点: {node_id}",
             f"⏰ 掉线时间: {lost_time}",
         ]
+        if reason:
+            lines.append(f"📝 原因: {reason}")
         if qr_url:
             lines.append(f"📱 扫码链接: {qr_url}")
         message = "\n".join(lines)

@@ -3,7 +3,6 @@ NapCat QQ Manager - 精简入口点
 所有路由已拆分到 routers/ 目录，服务层在 services/，中间件在 middleware/
 """
 import sys
-import asyncio
 import os
 import uvicorn
 from contextlib import asynccontextmanager
@@ -132,7 +131,7 @@ async def lifespan(app: FastAPI):
     # 自动启动 BotShepherd（如已安装且配置为自动启动）
     from services.botshepherd import botshepherd_manager
     if botshepherd_manager.installed and botshepherd_manager._auto_start:
-        botshepherd_manager.start()
+        await asyncio.to_thread(botshepherd_manager.start)
 
     # 连接健康监控跟随 BS 生命周期：BS 在运行则自动启动监控
     from services.bs_activation_service import bs_activation_service

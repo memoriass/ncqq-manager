@@ -31,10 +31,11 @@ class WSManager:
             return len(self._connections) < limit
 
     async def connect_if_available(self, ws: WebSocket, limit: int) -> bool:
-        await ws.accept()
         async with self._lock:
             if len(self._connections) >= limit:
                 return False
+        await ws.accept()
+        async with self._lock:
             self._connections.add(ws)
             return True
 

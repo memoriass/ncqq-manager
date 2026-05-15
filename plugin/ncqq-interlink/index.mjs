@@ -53,9 +53,15 @@ function resolveConfig(savedConfig) {
   };
 }
 
-async function postLoginEvent(event, uin, nickname = '') {
-  const sent = sendWS({ type: event === 'login' ? 'login' : 'logout', uin, nickname });
-  if (!sent) console.log(`[ManagerLink] WS not ready, ${event} uin=${uin} dropped`);
+async function postLoginEvent(event, uin, nickname = '', reason = '') {
+  const payload = { type: event === 'login' ? 'login' : 'logout', uin, nickname };
+  if (reason) payload.reason = reason;
+  const sent = sendWS(payload);
+  if (sent) {
+    console.log(`[ManagerLink] 已推送 ${payload.type}: uin=${uin} reason=${reason || '(无)'}`);
+  } else {
+    console.log(`[ManagerLink] WS 未就绪，${payload.type} 事件丢弃: uin=${uin} reason=${reason || '(无)'}`);
+  }
 }
 
 async function checkAndReportLogin() {
@@ -132,7 +138,7 @@ async function connectWS() {
     _ws = new WSClass(wsUrl);
 
     _ws.onopen = () => {
-      console.log(`[ManagerLink] WS 已连接 ${wsUrl}`);
+      console.log(`[ManagerLink] WS 已连接 ${managerUrl}/ws/plugin/${containerName}`);
       _wsReconnectAttempt = 0;
       if (_wsPingTimer) clearInterval(_wsPingTimer);
       _wsPingTimer = setInterval(() => sendWS({ type: 'ping' }), 30000);
@@ -142,11 +148,35 @@ async function connectWS() {
     _ws.onclose = (evt) => {
       _ws = null;
       if (_wsPingTimer) { clearInterval(_wsPingTimer); _wsPingTimer = null; }
-      _scheduleReconnect(`close code=${evt?.code ?? '?'}`);
+      const code = evt?.code ?? 0;
+      const reason = evt?.reason || '';
+      if (code === 4003) {
+        console.log(`[ManagerLink] WS 鉴权失败 (code=4003): internal_api_key 不匹配。请检查容器环境变量 NCQQ_INTERNAL_KEY 或插件配置 internalKey 是否与管理器一致。当前 key 前缀: ${_config.internalKey?.slice(0, 6) || '(空)'}...`);
+      } else if (code === 4400) {
+        console.log(`[ManagerLink] WS 拒绝连接 (code=4400): 容器名无效。containerName="${_config.containerName}"`);
+      } else if (code === 4429) {
+        console.log(`[ManagerLink] WS 拒绝连接 (code=4429): 连接数超限或被限速`);
+      } else if (code >= 4000) {
+        console.log(`[ManagerLink] WS 被服务端关闭: code=${code} reason="${reason}"`);
+      } else if (code === 1006) {
+        console.log(`[ManagerLink] WS 异常断开 (code=1006): 网络不可达或管理器未运行。目标: ${managerUrl}`);
+      } else {
+        console.log(`[ManagerLink] WS 断开: code=${code} reason="${reason}"`);
+      }
+      _scheduleReconnect(`close code=${code}`);
     };
 
     _ws.onerror = (e) => {
-      console.log(`[ManagerLink] WS 错误: ${e.message || e}`);
+      const errMsg = e.message || String(e);
+      if (errMsg.includes('ECONNREFUSED')) {
+        console.log(`[ManagerLink] WS 连接被拒绝: 管理器 ${managerUrl} 未运行或端口未监听`);
+      } else if (errMsg.includes('ENOTFOUND') || errMsg.includes('getaddrinfo')) {
+        console.log(`[ManagerLink] WS DNS 解析失败: 无法解析主机名。请检查 managerUrl 配置: ${managerUrl}`);
+      } else if (errMsg.includes('ETIMEDOUT') || errMsg.includes('EHOSTUNREACH')) {
+        console.log(`[ManagerLink] WS 连接超时: 管理器 ${managerUrl} 不可达，请检查网络/防火墙`);
+      } else {
+        console.log(`[ManagerLink] WS 错误: ${errMsg}`);
+      }
       // 兜底：握手失败时某些 WS 实现只触发 onerror 不触发 onclose
       if (!_wsReconnectTimer) {
         if (_ws) { _ws = null; }
@@ -230,6 +260,16 @@ export const plugin_init = async (ctx) => {
   _config = resolveConfig(savedConfig);
   console.log(`[ManagerLink] init: url=${_config.managerUrl} name=${_config.containerName} configPath=${ctx.configPath}`);
 
+  if (!_config.managerUrl) {
+    console.log('[ManagerLink] ⚠ managerUrl 为空，插件无法连接管理器。请检查: 1) 插件配置文件 ncqq-interlink.json 2) 环境变量 NCQQ_MANAGER_URL');
+  }
+  if (!_config.containerName) {
+    console.log('[ManagerLink] ⚠ containerName 为空，插件无法注册。请检查: 1) 环境变量 NCQQ_CONTAINER_NAME 2) 插件配置文件 containerName 字段');
+  }
+  if (!_config.internalKey) {
+    console.log('[ManagerLink] ⚠ internalKey 为空，连接将被管理器拒绝 (4003)。请检查: 1) 插件配置文件 internalKey 2) 环境变量 NCQQ_INTERNAL_KEY');
+  }
+
   // 建立持久 WS 连接（连接后会自动上报登录状态）
   await connectWS();
 
@@ -299,7 +339,12 @@ export const plugin_onevent = async (ctx, event) => {
   // lifecycle.connect — NapCat 连接成功，检查登录状态
   if (event.post_type === 'meta_event' && event.meta_event_type === 'lifecycle') {
     if (event.sub_type === 'connect') {
+      console.log('[ManagerLink] NapCat lifecycle.connect 事件，2s 后检查登录状态');
       setTimeout(() => checkAndReportLogin(), 2000);
+    } else if (event.sub_type === 'disconnect') {
+      // lifecycle.disconnect 仅表示 NapCat WS 层断开，不等于 QQ 掉线
+      // 掉线判定由 heartbeat_timeout 和 bot_offline 事件负责
+      console.log('[ManagerLink] NapCat lifecycle.disconnect 事件（WS 层断开，等待心跳超时判定）');
     }
   }
 
@@ -313,19 +358,33 @@ export const plugin_onevent = async (ctx, event) => {
     sendWS({ type: 'heartbeat', message_sent: _msgSent, message_received: _msgReceived });
   }
 
-  // 登录成功事件（部分 NapCat 版本会发送 notice.login）
+  // 登录成功事件（部分 NapCat 版本会发送 notice.bot_online）
   if (event.post_type === 'notice' && event.notice_type === 'bot_online') {
     const uid = String(event.self_id || '');
     if (uid && uid !== '0') {
+      _botOnline = true;
+      _lastHbTs = Date.now();
       await postLoginEvent('login', uid);
     }
   }
 
-  // 掉线/登出事件
+  // 掉线/登出事件 — 携带详细 reason
   if (event.post_type === 'notice' &&
       (event.notice_type === 'bot_offline' || event.sub_type === 'bot_offline')) {
     const uid = String(event.self_id || '');
-    await postLoginEvent('logout', uid);
+    const tag = event.tag || event.notice_type || '';
+    const message = event.message || '';
+    const reason = message || tag || 'bot_offline_notice';
+    _botOnline = false;
+    console.log(`[ManagerLink] Bot 掉线事件: uin=${uid} tag=${tag} message=${message}`);
+    await postLoginEvent('logout', uid, '', reason);
+  }
+
+  // 好友/群变动通知 — 仅本地日志记录，不推送管理器（职能边界外）
+  if (event.post_type === 'notice' && event.notice_type === 'group_decrease') {
+    if (event.sub_type === 'kick_me') {
+      console.log(`[ManagerLink] Bot 被踢出群: group=${event.group_id} operator=${event.operator_id}`);
+    }
   }
 };
 

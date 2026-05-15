@@ -142,7 +142,7 @@ class BSActivationService:
             return {"success": True, "message": "already running", "activation": self.status()}
 
         # ★ 确保 BS 中间件已启动
-        bs_started = self._ensure_bs_running()
+        bs_started = await asyncio.to_thread(self._ensure_bs_running)
 
         self._running = True
         self._state.update({
@@ -166,7 +166,7 @@ class BSActivationService:
             if not botshepherd_manager.installed or not botshepherd_manager.initialized:
                 logger.debug("BS 未安装或未初始化，跳过自动启动")
                 return False
-            result = botshepherd_manager.start()
+            result = await asyncio.to_thread(botshepherd_manager.start)
             if result.get("status") == "ok":
                 logger.info("连接健康监控自动启动了 BS 中间件: %s", result.get("message"))
                 return True
@@ -219,7 +219,7 @@ class BSActivationService:
                     await asyncio.sleep(wait)
                     if not self._running:
                         break
-                    result = botshepherd_manager.start()
+                    result = await asyncio.to_thread(botshepherd_manager.start)
                     if result.get("status") == "ok":
                         logger.info("BS 自动重启成功: %s", result.get("message"))
                         _restart_backoff = 0

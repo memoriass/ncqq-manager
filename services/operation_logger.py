@@ -71,7 +71,9 @@ class OperationLogger:
         if not self._buffer:
             return
         start = time.monotonic()
+        # 原子交换：取出当前缓冲区全部内容，避免 popleft 竞态
         snapshot = list(self._buffer)
+        self._buffer.clear()
         for attempt in range(1, self._FLUSH_MAX_RETRIES + 1):
             try:
                 for entry in snapshot:
@@ -85,10 +87,6 @@ class OperationLogger:
                          json.dumps(entry["payload"], ensure_ascii=False)),
                     )
                 db.commit()
-                # 写入成功，清除已写条目
-                for _ in range(len(snapshot)):
-                    if self._buffer:
-                        self._buffer.popleft()
                 self._last_flush_duration = time.monotonic() - start
                 return
             except Exception as e:
@@ -96,6 +94,8 @@ class OperationLogger:
                     logger.warning("操作日志写入失败(第%d次重试): %s", attempt, e)
                     time.sleep(self._FLUSH_RETRY_DELAY)
                 else:
+                    # 写入最终失败，将 snapshot 放回缓冲区头部以便下次重试
+                    self._buffer.extendleft(reversed(snapshot))
                     self._flush_fail_count += 1
                     metrics.op_log_flush_fails.inc()
                     self._last_flush_duration = time.monotonic() - start

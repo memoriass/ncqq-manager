@@ -33,6 +33,10 @@ class PluginReport(BaseModel):
 async def plugin_report(name: str, body: PluginReport, key: str = Query(default="")):
     expected_key = app_config.get("internal_api_key", "")
     if not expected_key or key != expected_key:
+        logger.warning(
+            "Plugin HTTP [%s] 鉴权失败: 提供的 key 前缀=%s 与 internal_api_key 不匹配",
+            name, key[:6] + "..." if key else "(空)",
+        )
         raise HTTPException(status_code=403, detail="Invalid key")
 
     inst = instance_subsystem.get(name)
