@@ -688,14 +688,12 @@ async def get_qr_code(name: str, node_id: str = "local"):
 
     # 兜底：instance_subsystem 判定未登录时，不再信任 _login_cache 的旧状态
     _QR_MAX_AGE = 120
-    qr_file_fresh = False
     try:
         qr_path = os.path.join(get_data_dir(), name, "cache", "qrcode.png")
         if os.path.exists(qr_path):
             qr_mtime = os.path.getmtime(qr_path)
             age = time.time() - qr_mtime
             if age < _QR_MAX_AGE:
-                qr_file_fresh = True
                 with open(qr_path, "rb") as file_handle:
                     data = base64.b64encode(file_handle.read()).decode("utf-8")
                 expires_in = max(0, int(_QR_MAX_AGE - age))

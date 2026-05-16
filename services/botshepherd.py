@@ -373,8 +373,6 @@ class BotShepherdManager:
                                 timeout=5,
                             )
             else:
-                import re as _re
-
                 r = subprocess.run(
                     ["ps", "aux"],
                     capture_output=True,

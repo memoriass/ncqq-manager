@@ -60,8 +60,6 @@ class BotHeartbeatService:
         online = bool(status.get("online", True))
 
         # 检测状态翻转：在线 → 离线（心跳本身上报 online=False）
-        prev_entry = self._table.get(key)
-        was_online = prev_entry.get("online", False) if prev_entry else False
 
         self._table[key] = {
             "self_id": key,

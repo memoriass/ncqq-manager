@@ -24,6 +24,7 @@ export default function Nodes() {
     const [nodes, setNodes] = useState<Node[]>([]);
     const [remoteLoading, setRemoteLoading] = useState(true);  // 远程节点状态加载中
     const [openDialog, setOpenDialog] = useState(false);
+    const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: string; name: string }>({ open: false, id: '', name: '' });
 
     // form state
     const [editNodeId, setEditNodeId] = useState<string | null>(null);
@@ -139,14 +140,15 @@ export default function Nodes() {
         setOpenDialog(true);
     };
 
-    const handleDelete = async (id: string, name: string) => {
-        if (!window.confirm(t('admin.confirmDelete').replace('{name}', name))) return;
+    const handleDelete = async () => {
+        if (!deleteDialog.id) return;
         try {
-            await nodeApi.delete(id);
-            toast.success(`${name} ${t('admin.deleteText')} ✓`);
+            await nodeApi.delete(deleteDialog.id);
+            toast.success(`${deleteDialog.name} ${t('admin.deleteText')} ✓`);
+            setDeleteDialog({ open: false, id: '', name: '' });
             fetchNodes();
         } catch (e) {
-            toast.error(`${name} ${t('admin.deleteText')} ✗`);
+            toast.error(`${deleteDialog.name} ${t('admin.deleteText')} ✗`);
         }
     };
 
@@ -225,7 +227,7 @@ export default function Nodes() {
                                     <IconButton size="small" title={t('nodePanel.console')} onClick={() => handleOpenConsole(node)}><TerminalIcon fontSize="small" /></IconButton>
                                     <IconButton size="small" title={t('nodePanel.nodeSettings')} onClick={() => handleOpenEdit(node)}><SettingsIcon fontSize="small" /></IconButton>
                                     {node.id !== 'local' && (
-                                        <IconButton size="small" title={t('nodePanel.deleteNode')} onClick={() => handleDelete(node.id, node.name)} color="error"><DeleteOutlineIcon fontSize="small" /></IconButton>
+                                        <IconButton size="small" title={t('nodePanel.deleteNode')} onClick={() => setDeleteDialog({ open: true, id: node.id, name: node.name })} color="error"><DeleteOutlineIcon fontSize="small" /></IconButton>
                                     )}
                                 </Box>
                             </Box>
@@ -425,6 +427,30 @@ export default function Nodes() {
                         )}
                     </Box>
                 </DialogContent>
+            </Dialog>
+
+            <Dialog
+                open={deleteDialog.open}
+                onClose={() => setDeleteDialog({ open: false, id: '', name: '' })}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}
+            >
+                <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningAmberIcon sx={{ color: '#ef4444' }} />
+                    {t('admin.confirmDeleteInstance')}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2">
+                        {t('admin.confirmDelete').replace('{name}', deleteDialog.name)}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setDeleteDialog({ open: false, id: '', name: '' })} color="inherit" sx={{ borderRadius: 2 }}>
+                        {t('nodePanel.cancel')}
+                    </Button>
+                    <Button onClick={handleDelete} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
+                        {t('admin.deleteText')}
+                    </Button>
+                </DialogActions>
             </Dialog>
         </Box>
     );

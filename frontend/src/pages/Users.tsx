@@ -8,6 +8,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import KeyIcon from '@mui/icons-material/Key';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SearchIcon from '@mui/icons-material/Search';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useTranslate } from '../i18n';
 import { containerApi, userApi, type User, type Container, type InstanceRef, type UserEditPayload } from '../services/api';
 
@@ -22,6 +23,15 @@ export default function Users() {
     const [openDialog, setOpenDialog] = useState(false);
     const [openInstancesDialog, setOpenInstancesDialog] = useState(false);
     const [editUuid, setEditUuid] = useState<string | null>(null);
+    const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; uuid: string; name: string }>({
+        open: false,
+        uuid: '',
+        name: '',
+    });
+    const [keyDialog, setKeyDialog] = useState<{ open: boolean; uuid: string }>({
+        open: false,
+        uuid: '',
+    });
 
     // Form state
     const [username, setUsername] = useState('');
@@ -94,18 +104,20 @@ export default function Users() {
         } catch (e) { console.error(e); }
     };
 
-    const handleDeleteUser = async (uuid: string, name: string) => {
-        if (!window.confirm(t('user.confirmDeleteUser').replace('{name}', name))) return;
+    const handleDeleteUser = async () => {
+        if (!deleteDialog.uuid) return;
         try {
-            await userApi.delete(uuid);
+            await userApi.delete(deleteDialog.uuid);
+            setDeleteDialog({ open: false, uuid: '', name: '' });
             fetchUsers();
         } catch (e) { console.error(e); }
     };
 
-    const handleRegenerateKey = async (uuid: string) => {
-        if (!window.confirm(t('user.confirmRegenerateKey'))) return;
+    const handleRegenerateKey = async () => {
+        if (!keyDialog.uuid) return;
         try {
-            await userApi.regenerateApiKey(uuid);
+            await userApi.regenerateApiKey(keyDialog.uuid);
+            setKeyDialog({ open: false, uuid: '' });
             fetchUsers();
         } catch (e) { console.error(e); }
     };
@@ -195,7 +207,13 @@ export default function Users() {
                                     <Typography variant="caption" color="text.secondary" display="block">{t('userMgmt.apiKeyHint')}</Typography>
                                     <Typography variant="body2" sx={{ fontFamily: 'monospace', display: 'flex', alignItems: 'center', gap: 1 }}>
                                         {u.hasApiKey ? t('userMgmt.apiKeySet') : t('userMgmt.apiKeyNotSet')}
-                                        <IconButton size="small" onClick={() => handleRegenerateKey(u.uuid)} sx={{ color: '#3b82f6' }}><KeyIcon fontSize="small" /></IconButton>
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => setKeyDialog({ open: true, uuid: u.uuid })}
+                                            sx={{ color: '#3b82f6' }}
+                                        >
+                                            <KeyIcon fontSize="small" />
+                                        </IconButton>
                                     </Typography>
                                 </Box>
                                 <Box>
@@ -213,7 +231,13 @@ export default function Users() {
                                         {t('userMgmt.assignInstances')}
                                     </Button>
                                 )}
-                                <Button variant="outlined" size="small" color="error" onClick={() => handleDeleteUser(u.uuid, u.userName)} sx={{ flex: 1, borderRadius: 2 }}>
+                                <Button
+                                    variant="outlined"
+                                    size="small"
+                                    color="error"
+                                    onClick={() => setDeleteDialog({ open: true, uuid: u.uuid, name: u.userName })}
+                                    sx={{ flex: 1, borderRadius: 2 }}
+                                >
                                     {t('userMgmt.delete')}
                                 </Button>
                             </Box>
@@ -345,6 +369,54 @@ export default function Users() {
                     <Button onClick={() => setOpenInstancesDialog(false)} color="inherit" sx={{ borderRadius: 2 }}>{t('userMgmt.cancel')}</Button>
                     <Button onClick={handleSaveInstances} variant="contained" sx={{ borderRadius: 2, boxShadow: 'none' }}>
                         {t('userMgmt.saveAssign')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={deleteDialog.open}
+                onClose={() => setDeleteDialog({ open: false, uuid: '', name: '' })}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}
+            >
+                <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningAmberIcon sx={{ color: '#ef4444' }} />
+                    {t('userMgmt.delete')}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2">
+                        {t('user.confirmDeleteUser').replace('{name}', deleteDialog.name)}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setDeleteDialog({ open: false, uuid: '', name: '' })} color="inherit" sx={{ borderRadius: 2 }}>
+                        {t('userMgmt.cancel')}
+                    </Button>
+                    <Button onClick={handleDeleteUser} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
+                        {t('userMgmt.delete')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={keyDialog.open}
+                onClose={() => setKeyDialog({ open: false, uuid: '' })}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}
+            >
+                <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningAmberIcon sx={{ color: '#ef4444' }} />
+                    {t('userMgmt.apiKeyHint')}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2">
+                        {t('user.confirmRegenerateKey')}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setKeyDialog({ open: false, uuid: '' })} color="inherit" sx={{ borderRadius: 2 }}>
+                        {t('userMgmt.cancel')}
+                    </Button>
+                    <Button onClick={handleRegenerateKey} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
+                        {t('userMgmt.regenerateKey')}
                     </Button>
                 </DialogActions>
             </Dialog>

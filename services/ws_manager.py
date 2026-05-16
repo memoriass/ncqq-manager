@@ -4,9 +4,8 @@ WebSocket 连接管理器 - 实时事件推送
 """
 import json
 import asyncio
-from typing import Dict, Set
+from typing import Set
 from fastapi import WebSocket
-from services.log import logger
 from services.metrics import metrics
 
 

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Box, Typography, Button, Paper, useTheme, CircularProgress, Chip } from '@mui/material';
+import { Box, Typography, Button, Paper, useTheme, CircularProgress, Chip, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
 import BackupIcon from '@mui/icons-material/Backup';
 import DownloadIcon from '@mui/icons-material/Download';
 import UploadIcon from '@mui/icons-material/Upload';
 import StorageIcon from '@mui/icons-material/Storage';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { backupApi } from '../services/api';
 import { useTranslate } from '../i18n';
 
@@ -14,6 +15,8 @@ export default function BackupRestore() {
     const [uploading, setUploading] = useState(false);
     const [info, setInfo] = useState<{ exists: boolean; size: number; modified: string; path: string } | null>(null);
     const [msg, setMsg] = useState('');
+    const [pendingFile, setPendingFile] = useState<File | null>(null);
+    const [restoreDialogOpen, setRestoreDialogOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const fetchInfo = async () => {
@@ -26,21 +29,28 @@ export default function BackupRestore() {
 
     useEffect(() => { fetchInfo(); }, []);
 
-    const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (!confirm(t('backup.confirmRestore'))) return;
+        setPendingFile(file);
+        setRestoreDialogOpen(true);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const handleRestoreConfirm = async () => {
+        if (!pendingFile) return;
+        setRestoreDialogOpen(false);
         setUploading(true);
         setMsg('');
         try {
-            const result = await backupApi.upload(file);
+            const result = await backupApi.upload(pendingFile);
             setMsg(result.message || t('backup.restoreSuccess'));
             fetchInfo();
         } catch (err) {
             setMsg(t('backup.restoreFailed'));
         } finally {
             setUploading(false);
-            if (fileInputRef.current) fileInputRef.current.value = '';
+            setPendingFile(null);
         }
     };
 
@@ -102,6 +112,30 @@ export default function BackupRestore() {
             <Typography variant="caption" color="text.secondary" sx={{ mt: 3, display: 'block' }}>
                 {t('backup.hint')}
             </Typography>
+
+            <Dialog
+                open={restoreDialogOpen}
+                onClose={() => { setRestoreDialogOpen(false); setPendingFile(null); }}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}
+            >
+                <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningAmberIcon sx={{ color: '#ef4444' }} />
+                    {t('backup.restore')}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2">
+                        {t('backup.confirmRestore')}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => { setRestoreDialogOpen(false); setPendingFile(null); }} color="inherit" sx={{ borderRadius: 2 }}>
+                        {t('admin.cancelText')}
+                    </Button>
+                    <Button onClick={handleRestoreConfirm} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
+                        {t('backup.restore')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }

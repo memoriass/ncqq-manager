@@ -8,7 +8,7 @@ AsyncDockerManager — aiodocker 替代 docker-py 热路径，零线程池开销
 import asyncio
 import time
 from collections import defaultdict
-from typing import Dict, List, Optional
+from typing import AsyncIterator, Dict, List, Optional
 
 import aiodocker
 
@@ -418,6 +418,21 @@ class AsyncDockerManager:
         except aiodocker.exceptions.DockerError as e:
             logger.error("异步镜像拉取失败 %s: %s", image_name, e)
             return False
+
+    async def pull_image_stream(self, image_name: str) -> AsyncIterator[Dict]:
+        """异步流式拉取 Docker 镜像，逐条返回 Docker pull 事件。"""
+        if not self._docker:
+            yield {"error": "Docker engine not available", "status": "error"}
+            return
+        try:
+            async for item in self._docker.images.pull(image_name, stream=True):
+                if isinstance(item, dict):
+                    yield item
+                else:
+                    yield {"status": str(item)}
+        except aiodocker.exceptions.DockerError as e:
+            logger.error("异步镜像流式拉取失败 %s: %s", image_name, e)
+            yield {"error": str(e), "status": "error"}
 
     async def delete_image(self, image_id: str, force: bool = False) -> bool:
         """异步删除 Docker 镜像。"""

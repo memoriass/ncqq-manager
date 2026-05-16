@@ -230,14 +230,18 @@ class AlertManager:
                     webhook_url: str = None) -> bool:
         updates, params = [], []
         if name is not None:
-            updates.append("name=?"); params.append(name)
+            updates.append("name=?")
+            params.append(name)
         if enabled is not None:
-            updates.append("enabled=?"); params.append(1 if enabled else 0)
+            updates.append("enabled=?")
+            params.append(1 if enabled else 0)
         if config is not None:
-            updates.append("config=?"); params.append(json.dumps(config))
+            updates.append("config=?")
+            params.append(json.dumps(config))
         if webhook_url is not None:
             webhook_url = _validate_webhook_url(webhook_url, allow_local=self._is_local_allowed())
-            updates.append("webhook_url=?"); params.append(webhook_url)
+            updates.append("webhook_url=?")
+            params.append(webhook_url)
         if not updates:
             return False
         params.append(rule_id)
@@ -540,7 +544,6 @@ class AlertManager:
           "target_id": "12345678"              # 旧字段，兼容保留
         }
         """
-        from services.napcat_ws_service import napcat_ws_service
         from services.instance_subsystem import instance_subsystem
         rules = self.list_rules()
         for rule in rules:

@@ -6,7 +6,7 @@ import json
 import uuid
 import hashlib
 import time
-from typing import Optional, Dict
+from typing import Optional
 import bcrypt
 
 from services.log import logger
@@ -90,15 +90,20 @@ class UserManager:
             existing = self.get_user_by_username(kwargs["userName"])
             if existing and existing["uuid"] != user_uuid:
                 return False
-            sets.append("userName=?"); params.append(kwargs["userName"])
+            sets.append("userName=?")
+            params.append(kwargs["userName"])
         if "permission" in kwargs and kwargs["permission"] is not None:
-            sets.append("permission=?"); params.append(kwargs["permission"])
+            sets.append("permission=?")
+            params.append(kwargs["permission"])
         if "passWord" in kwargs and kwargs["passWord"]:
-            sets.append("passWord=?"); params.append(self._hash_password(kwargs["passWord"]))
+            sets.append("passWord=?")
+            params.append(self._hash_password(kwargs["passWord"]))
         if "instances" in kwargs:
-            sets.append("instances=?"); params.append(json.dumps(kwargs["instances"]))
+            sets.append("instances=?")
+            params.append(json.dumps(kwargs["instances"]))
         if "apiKey" in kwargs:
-            sets.append("apiKey=?"); params.append(kwargs["apiKey"])
+            sets.append("apiKey=?")
+            params.append(kwargs["apiKey"])
         if not sets:
             return True
         params.append(user_uuid)

@@ -10,7 +10,7 @@ LifecycleMixin 提供给 DockerManager 使用，封装：
 import asyncio
 import json
 import os
-from typing import Any, Dict
+from typing import Dict
 
 from services.log import logger
 
@@ -254,7 +254,6 @@ class LifecycleMixin:
             manager_host = str(app_config.get("manager_host", "127.0.0.1"))
             manager_port = int(app_config.get("manager_port", 8000))
             named_endpoint = f"ws://{manager_host}:{manager_port}/ws/napcat/{name}"
-            compat_endpoint = f"ws://{manager_host}:{manager_port}/ws/onebot/v11/ws"
 
             logger.info("BS 自动注入/更新管理器端点: %s", named_endpoint)
 

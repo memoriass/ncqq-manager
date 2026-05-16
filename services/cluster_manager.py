@@ -2,10 +2,9 @@
 集群/节点管理器 — SQLite 持久化，aiohttp 全异步通信（节点状态/代理/操作）。
 """
 import json
-import os
 import time
 import asyncio
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Tuple
 
 import aiohttp
 
@@ -167,7 +166,6 @@ class ClusterManager:
         node_copy = node.copy()
         if node.get("id") == "local":
             import sys
-            from services.config import app_config
             from services.daemon_monitor import daemon_monitor
             node_copy["status"] = "online"
             node_copy["ping"] = 0
@@ -251,18 +249,6 @@ class ClusterManager:
         return all_containers
 
     # ============ 异步节点代理 ============
-
-    async def proxy_to_node_async(
-        self, node_id: str, method: str, path: str,
-        timeout: float = 5.0, **kwargs,
-    ) -> Tuple[int, Optional[bytes], str]:
-        return await self._proxy_to_node_async(
-            node_id,
-            method,
-            path,
-            timeout=timeout,
-            **kwargs,
-        )
 
     async def proxy_to_node_async(
         self, node_id: str, method: str, path: str,

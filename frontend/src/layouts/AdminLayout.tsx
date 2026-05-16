@@ -35,6 +35,7 @@ export default function AdminLayout() {
     const { toggleLanguage } = useContext(LanguageContext);
     const t = useTranslate();
     const [containers, setContainers] = useState<Container[]>([]);
+    const [userPermission, setUserPermission] = useState<number>(10);
     const toast = useToast();
     const [bgUrl, setBgUrl] = useState('');
 
@@ -110,6 +111,42 @@ export default function AdminLayout() {
         navigate('/login');
     };
 
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const data = await authApi.getStatus();
+                if (!cancelled) {
+                    setUserPermission(data.user?.permission ?? 1);
+                }
+            } catch {
+                if (!cancelled) {
+                    setUserPermission(1);
+                }
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
+    const isAdmin = userPermission >= 10;
+    const menuItems = isAdmin
+        ? [
+            { path: '/admin', icon: <DashboardIcon />, label: t('admin.managedInstances') },
+            { path: '/admin/cluster-settings', icon: <SettingsIcon />, label: t('admin.instanceSettings') },
+            { path: '/admin/nodes', icon: <HubIcon />, label: t('admin.nodes') },
+            { path: '/admin/users', icon: <PeopleIcon />, label: t('admin.userManagement') },
+            { path: '/admin/operation-logs', icon: <HistoryIcon />, label: t('admin.operationLogs') },
+            { path: '/admin/images', icon: <ImageIcon />, label: t('admin.imageManager') },
+            { path: '/admin/alerts', icon: <NotificationsActiveIcon />, label: t('admin.alerts') },
+            { path: '/admin/backup', icon: <BackupIcon />, label: t('admin.backup') },
+            { path: '/admin/botshepherd', icon: <PetsIcon />, label: t('admin.botshepherd') },
+            { path: '/admin/bot-backend', icon: <TrackChangesIcon />, label: t('admin.botBackend') },
+        ]
+        : [
+            { path: '/admin', icon: <DashboardIcon />, label: t('admin.managedInstances') },
+            { path: '/admin/alerts', icon: <NotificationsActiveIcon />, label: t('admin.alerts') },
+        ];
+
     return (
         <Box sx={{ display: 'flex', minHeight: '100vh', position: 'relative' }}>
             {/* 绠＄悊鍛樺悗鍙拌儗鏅绾革細zIndex:-1 纭繚绌块€忔墍鏈?fixed stacking context锛堝寘鎷?Drawer paper锛?*/}
@@ -154,18 +191,7 @@ export default function AdminLayout() {
                 </Box>
                 <Box sx={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
                     <List component="nav" sx={{ px: 2, py: 2 }}>
-                        {([
-                            { path: '/admin', icon: <DashboardIcon />, label: t('admin.managedInstances') },
-                            { path: '/admin/cluster-settings', icon: <SettingsIcon />, label: t('admin.instanceSettings') },
-                            { path: '/admin/nodes', icon: <HubIcon />, label: t('admin.nodes') },
-                            { path: '/admin/users', icon: <PeopleIcon />, label: t('admin.userManagement') },
-                            { path: '/admin/operation-logs', icon: <HistoryIcon />, label: t('admin.operationLogs') },
-                            { path: '/admin/images', icon: <ImageIcon />, label: t('admin.imageManager') },
-                            { path: '/admin/alerts', icon: <NotificationsActiveIcon />, label: t('admin.alerts') },
-                            { path: '/admin/backup', icon: <BackupIcon />, label: t('admin.backup') },
-                            { path: '/admin/botshepherd', icon: <PetsIcon />, label: t('admin.botshepherd') },
-                            { path: '/admin/bot-backend', icon: <TrackChangesIcon />, label: t('admin.botBackend') },
-                        ] as { path: string; icon: React.ReactNode; label: string }[]).map(item => {
+                        {(menuItems as { path: string; icon: React.ReactNode; label: string }[]).map(item => {
                             const isActive = location.pathname === item.path;
                             return (
                                 <ListItem disablePadding sx={{ mb: 1 }} key={item.path}>

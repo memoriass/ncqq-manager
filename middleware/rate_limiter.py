@@ -6,8 +6,6 @@ import time
 from typing import Dict, Tuple
 from fastapi import Request, HTTPException, Depends, WebSocket
 
-from services.log import logger
-
 
 class RateLimiter:
     """内存速率限制器，重启清零。"""

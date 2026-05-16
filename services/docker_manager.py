@@ -6,7 +6,6 @@ Docker 容器管理器
 BS 注入 + 登录事件回调已迁移至 services/docker_lifecycle.py（LifecycleMixin）。
 热路径另见 docker_async.py(AsyncDockerManager)。
 """
-import asyncio
 import os
 import re
 import io

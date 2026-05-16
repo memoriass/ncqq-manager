@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import Optional
 
-from middleware.auth import require_admin, get_current_user, remove_user_tokens
+from middleware.auth import require_admin, remove_user_tokens
 from services.user_manager import user_manager
 from services.operation_logger import operation_logger
 from services.operation_log_context import build_operator_payload

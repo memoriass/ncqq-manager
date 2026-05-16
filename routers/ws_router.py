@@ -28,7 +28,6 @@ from services.log import logger
 from services.container_state import state_engine
 from services.ob11_events import (
     parse_ob11_event,
-    OB11Event,
     HeartbeatEvent,
     LifecycleEvent,
     BotOfflineNotice,

@@ -6,7 +6,6 @@
 
 import json
 import os
-import time
 from typing import Dict
 
 from services.log import logger

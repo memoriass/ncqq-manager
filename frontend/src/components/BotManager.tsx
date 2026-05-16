@@ -118,6 +118,33 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
     // 最大渲染消息数 — 避免过多消息导致性能问题
     const MAX_RENDER_MESSAGES = 50;
 
+    const getMessageUniqueKey = (msg: BotMessage): string => {
+        if (msg.message_id !== undefined && msg.message_id !== null) {
+            return `id:${msg.message_id}`;
+        }
+        return [
+            msg.time || 0,
+            msg.message_type || '',
+            msg.group_id || '',
+            msg.user_id || '',
+            msg.self_id || '',
+            msg.raw_message || '',
+        ].join('|');
+    };
+
+    const mergeUniqueMessages = (base: BotMessage[], incoming: BotMessage[]): BotMessage[] => {
+        if (!incoming.length) return base;
+        const result = [...base];
+        const seen = new Set(base.map(getMessageUniqueKey));
+        for (const msg of incoming) {
+            const key = getMessageUniqueKey(msg);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            result.push(msg);
+        }
+        return result;
+    };
+
     // 加载群列表作为会话
     useEffect(() => {
         (async () => {
@@ -198,9 +225,10 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
     useEffect(() => {
         if (!wsData) return;
         if (wsData.type === 'history') {
-            setMessages(wsData.messages || []);
+            const history = wsData.messages || [];
+            setMessages(mergeUniqueMessages([], history));
         } else if (wsData.type === 'messages') {
-            setMessages(prev => [...prev, ...(wsData.messages || [])]);
+            setMessages(prev => mergeUniqueMessages(prev, wsData.messages || []));
         }
     }, [wsData]);
 
@@ -232,7 +260,7 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
                 group_id: activeConv.type === 'group' ? activeConv.id : '',
                 sub_type: '',
             };
-            setMessages(prev => [...prev, selfMsg]);
+            setMessages(prev => mergeUniqueMessages(prev, [selfMsg]));
             setInput('');
         } catch {
             toast.error(t('botManager.sendFailed'));
@@ -253,7 +281,7 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
             });
             if (res.data && Array.isArray((res.data as { messages?: unknown[] }).messages)) {
                 const hist = (res.data as { messages: BotMessage[] }).messages;
-                setMessages(prev => [...hist, ...prev]);
+                setMessages(prev => mergeUniqueMessages(hist, prev));
             }
         } catch {
             toast.error(t('botManager.operationFailed'));

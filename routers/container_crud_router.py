@@ -18,6 +18,7 @@ from services.container_state import state_engine
 from services.docker_async import async_docker_manager
 from services.log import logger
 from services.operation_logger import operation_logger
+from services.user_manager import ROLE, user_manager
 
 router = APIRouter(prefix="/api", tags=["containers"])
 
@@ -143,6 +144,19 @@ def _generate_onebot11_config_with_ws_client(config_dir: str, ws_client_url: str
 @router.get("/containers")
 async def api_list_containers(session: dict = Depends(get_current_user)):
     containers = state_engine.get_containers()
+    if session.get("permission", 0) < ROLE.ADMIN:
+        user = user_manager.get_user_by_uuid(session.get("uuid", ""))
+        if not user:
+            return {"status": "ok", "containers": []}
+        allowed = {
+            (inst.get("node_id", "local"), inst.get("container_name", ""))
+            for inst in user.get("instances", [])
+            if isinstance(inst, dict)
+        }
+        containers = [
+            c for c in containers
+            if (c.get("node_id", "local"), c.get("name", "")) in allowed
+        ]
     return {"status": "ok", "containers": containers}
 
 

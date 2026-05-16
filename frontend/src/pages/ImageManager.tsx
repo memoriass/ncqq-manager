@@ -8,9 +8,18 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import DownloadIcon from '@mui/icons-material/Download';
 import ImageIcon from '@mui/icons-material/Image';
+import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
+import CloseIcon from '@mui/icons-material/Close';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { imageApi, type DockerImage } from '../services/api';
 import { useTranslate } from '../i18n';
 import { useToast } from '../components/Toast';
+
+interface PullLayerState {
+    id: string;
+    status: string;
+    progress: string;
+}
 
 export default function ImageManager() {
     const theme = useTheme();
@@ -21,6 +30,15 @@ export default function ImageManager() {
     const [pullDialog, setPullDialog] = useState(false);
     const [pullImage, setPullImage] = useState('');
     const [pulling, setPulling] = useState(false);
+    const [pullWindowOpen, setPullWindowOpen] = useState(false);
+    const [pullingImageName, setPullingImageName] = useState('');
+    const [pullLayers, setPullLayers] = useState<Record<string, PullLayerState>>({});
+    const [pullLogs, setPullLogs] = useState<string[]>([]);
+    const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: string; name: string }>({
+        open: false,
+        id: '',
+        name: '',
+    });
 
     const fetchImages = async () => {
         setLoading(true);
@@ -33,23 +51,104 @@ export default function ImageManager() {
 
     useEffect(() => { fetchImages(); }, []);
 
-    const handlePull = async () => {
-        if (!pullImage.trim()) return;
+    const appendLog = (line: string) => {
+        setPullLogs((prev) => {
+            const next = [...prev, line];
+            return next.length > 300 ? next.slice(next.length - 300) : next;
+        });
+    };
+
+    const startPullWithLogs = async (imageName: string) => {
+        if (!imageName.trim()) return;
+        setPullingImageName(imageName.trim());
+        setPullLayers({});
+        setPullLogs([]);
+        setPullWindowOpen(true);
         setPulling(true);
         try {
-            await imageApi.pull(pullImage.trim());
-            toast.success(`${pullImage.trim()} pull ✓`);
+            const response = await imageApi.pullStream(imageName.trim());
+            if (!response.ok || !response.body) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let pullOk = true;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    const event = JSON.parse(line) as {
+                        event?: string;
+                        ok?: boolean;
+                        id?: string;
+                        status?: string;
+                        progress?: string;
+                        error?: string;
+                    };
+
+                    if (event.event === 'done') {
+                        pullOk = Boolean(event.ok);
+                        continue;
+                    }
+
+                    if (event.id && event.status) {
+                        setPullLayers((prev) => ({
+                            ...prev,
+                            [event.id as string]: {
+                                id: event.id as string,
+                                status: event.status as string,
+                                progress: event.progress || '',
+                            },
+                        }));
+                    }
+
+                    const text = [event.id, event.status, event.progress].filter(Boolean).join(' ');
+                    if (text) {
+                        appendLog(text);
+                    }
+                    if (event.error) {
+                        pullOk = false;
+                        appendLog(`ERROR: ${event.error}`);
+                    }
+                }
+            }
+
+            if (pullOk) {
+                toast.success(`${imageName.trim()} pull ✓`);
+                await fetchImages();
+            } else {
+                toast.error(t('imageManager.pullFailed'));
+            }
             setPullDialog(false);
             setPullImage('');
-            fetchImages();
-        } catch (e) { toast.error(`Pull ✗: ${e}`); }
+        } catch (e) {
+            toast.error(`Pull ✗: ${e}`);
+            appendLog(`ERROR: ${String(e)}`);
+        }
         finally { setPulling(false); }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm(t('imageManager.confirmDelete'))) return;
+    const handlePull = async () => {
+        await startPullWithLogs(pullImage);
+    };
+
+    const handleUpdateLatest = async (tag: string) => {
+        await startPullWithLogs(tag);
+    };
+
+    const handleDelete = async () => {
+        if (!deleteDialog.id) return;
         try {
-            await imageApi.delete(id, false);
+            await imageApi.delete(deleteDialog.id, false);
+            setDeleteDialog({ open: false, id: '', name: '' });
             toast.success(`${t('admin.deleteText')} ✓`);
             fetchImages();
         } catch (e) { toast.error(`${t('admin.deleteText')} ✗`); }
@@ -108,8 +207,25 @@ export default function ImageManager() {
                                     ID: {img.id} · {formatSize(img.size)}
                                 </Typography>
                             </Box>
+                            {img.tags.some((tag) => tag.endsWith(':latest')) && (
+                                <Tooltip title={t('imageManager.updateLatest')}>
+                                    <IconButton
+                                        onClick={() => handleUpdateLatest(img.tags.find((tag) => tag.endsWith(':latest')) as string)}
+                                        size="small"
+                                        sx={{ color: 'primary.main' }}
+                                    >
+                                        <SystemUpdateAltIcon fontSize="small" />
+                                    </IconButton>
+                                </Tooltip>
+                            )}
                             <Tooltip title={t('admin.deleteText')}>
-                                <IconButton onClick={() => handleDelete(img.id)} size="small"
+                                <IconButton
+                                    onClick={() => setDeleteDialog({
+                                        open: true,
+                                        id: img.id,
+                                        name: img.tags.length > 0 ? img.tags[0] : img.id,
+                                    })}
+                                    size="small"
                                     sx={{ color: 'error.main' }}>
                                     <DeleteOutlineIcon fontSize="small" />
                                 </IconButton>
@@ -145,6 +261,94 @@ export default function ImageManager() {
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            <Dialog
+                open={deleteDialog.open}
+                onClose={() => setDeleteDialog({ open: false, id: '', name: '' })}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}
+            >
+                <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningAmberIcon sx={{ color: '#ef4444' }} />
+                    {t('admin.deleteText')}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2">
+                        {`${t('imageManager.confirmDelete')} ${deleteDialog.name}`}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setDeleteDialog({ open: false, id: '', name: '' })} color="inherit" sx={{ borderRadius: 2 }}>
+                        {t('admin.cancelText')}
+                    </Button>
+                    <Button onClick={handleDelete} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
+                        {t('admin.deleteText')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {pullWindowOpen && (
+                <Paper sx={{
+                    position: 'fixed',
+                    right: 24,
+                    bottom: 24,
+                    width: { xs: 'calc(100vw - 24px)', sm: 460 },
+                    maxHeight: '70vh',
+                    zIndex: 1600,
+                    borderRadius: 2,
+                    border: `1px solid ${theme.palette.divider}`,
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                }}>
+                    <Box sx={{ p: 1.5, borderBottom: `1px solid ${theme.palette.divider}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Box>
+                            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{t('imageManager.pullLogsTitle')}</Typography>
+                            <Typography variant="caption" color="text.secondary">{pullingImageName}</Typography>
+                        </Box>
+                        <IconButton size="small" onClick={() => { if (!pulling) setPullWindowOpen(false); }} disabled={pulling}>
+                            <CloseIcon fontSize="small" />
+                        </IconButton>
+                    </Box>
+
+                    {pulling && <LinearProgress />}
+
+                    <Box sx={{ p: 1.5, overflow: 'auto' }}>
+                        <Typography variant="caption" color="text.secondary">{t('imageManager.layerStatus')}</Typography>
+                        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            {Object.values(pullLayers).length === 0 ? (
+                                <Typography variant="caption" color="text.secondary">{t('imageManager.noLayersYet')}</Typography>
+                            ) : (
+                                Object.values(pullLayers).slice(-40).map((layer) => (
+                                    <Typography key={layer.id} variant="caption" sx={{ fontFamily: 'monospace' }}>
+                                        {`${layer.id.slice(0, 12)}  ${layer.status} ${layer.progress}`}
+                                    </Typography>
+                                ))
+                            )}
+                        </Box>
+
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1.5, display: 'block' }}>{t('imageManager.rawLogs')}</Typography>
+                        <Box sx={{
+                            mt: 1,
+                            p: 1,
+                            bgcolor: theme.palette.mode === 'dark' ? '#0d1117' : '#f8f9fa',
+                            borderRadius: 1,
+                            maxHeight: 240,
+                            overflow: 'auto',
+                            border: `1px solid ${theme.palette.divider}`,
+                        }}>
+                            {pullLogs.length === 0 ? (
+                                <Typography variant="caption" color="text.secondary">{t('imageManager.noLogsYet')}</Typography>
+                            ) : (
+                                pullLogs.map((line, index) => (
+                                    <Typography key={index} variant="caption" sx={{ display: 'block', fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                                        {line}
+                                    </Typography>
+                                ))
+                            )}
+                        </Box>
+                    </Box>
+                </Paper>
+            )}
         </Box>
     );
 }

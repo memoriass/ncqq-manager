@@ -25,6 +25,7 @@ import WifiIcon from '@mui/icons-material/Wifi';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
 import TerminalIcon from '@mui/icons-material/Terminal';
 import HubIcon from '@mui/icons-material/Hub';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import {
     botshepherdApi, type BotShepherdStatus,
     type BSConnectionsResponse, type BSConnection,
@@ -55,6 +56,8 @@ export default function BotShepherd() {
     // 对话框状态
     const [connDlg, setConnDlg] = useState<{ mode: 'add' | 'edit' | 'copy'; id: string; data: ConnDialogData } | null>(null);
     const [acctDlg, setAcctDlg] = useState<{ id: string; data: Partial<BSAccount> } | null>(null);
+    const [connDeleteDialog, setConnDeleteDialog] = useState<{ open: boolean; id: string }>({ open: false, id: '' });
+    const [acctDeleteDialog, setAcctDeleteDialog] = useState<{ open: boolean; id: string }>({ open: false, id: '' });
 
     // 日志 Dialog 状态
     const [logOpen, setLogOpen] = useState(false);
@@ -159,13 +162,17 @@ export default function BotShepherd() {
         } catch (e: unknown) { toast.error(String(e)); }
     };
 
-    const handleConnDelete = async (id: string) => {
+    const handleConnDelete = (id: string) => {
         if (!isRunning) { toast.error(t('botshepherd.connNeedRunning')); return; }
-        if (!window.confirm(t('botshepherd.confirmDeleteConn').replace('{id}', id))) return;
+        setConnDeleteDialog({ open: true, id });
+    };
+
+    const doConnDelete = async () => {
         try {
-            const r = await botshepherdApi.deleteConnection(id);
+            const r = await botshepherdApi.deleteConnection(connDeleteDialog.id);
             if ((r as any).success) toast.success(t('botshepherd.connDeleteSuccess'));
             else toast.error((r as any).error ?? 'Failed');
+            setConnDeleteDialog({ open: false, id: '' });
             await refreshConnections();
         } catch (e: unknown) { toast.error(String(e)); }
     };
@@ -183,13 +190,17 @@ export default function BotShepherd() {
         } catch (e: unknown) { toast.error(String(e)); }
     };
 
-    const handleAcctDelete = async (id: string) => {
+    const handleAcctDelete = (id: string) => {
         if (!isRunning) { toast.error(t('botshepherd.connNeedRunning')); return; }
-        if (!window.confirm(t('botshepherd.confirmDeleteAccount').replace('{id}', id))) return;
+        setAcctDeleteDialog({ open: true, id });
+    };
+
+    const doAcctDelete = async () => {
         try {
-            const r = await botshepherdApi.deleteAccount(id);
+            const r = await botshepherdApi.deleteAccount(acctDeleteDialog.id);
             if ((r as any).success) toast.success(t('botshepherd.accountDeleteSuccess'));
             else toast.error((r as any).error ?? 'Failed');
+            setAcctDeleteDialog({ open: false, id: '' });
             await refreshAccounts();
         } catch (e: unknown) { toast.error(String(e)); }
     };
@@ -574,6 +585,56 @@ export default function BotShepherd() {
                         {logLines.length} {t('botshepherd.logLineCount')}
                     </Typography>
                     <Button onClick={() => setLogOpen(false)}>{t('botshepherd.close')}</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ---- 连接删除确认 ---- */}
+            <Dialog
+                open={connDeleteDialog.open}
+                onClose={() => setConnDeleteDialog({ open: false, id: '' })}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}
+            >
+                <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningAmberIcon sx={{ color: '#ef4444' }} />
+                    {t('admin.deleteText')}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2">
+                        {t('botshepherd.confirmDeleteConn').replace('{id}', connDeleteDialog.id)}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setConnDeleteDialog({ open: false, id: '' })} color="inherit" sx={{ borderRadius: 2 }}>
+                        {t('botshepherd.connCancel')}
+                    </Button>
+                    <Button onClick={doConnDelete} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
+                        {t('admin.deleteText')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ---- 账号删除确认 ---- */}
+            <Dialog
+                open={acctDeleteDialog.open}
+                onClose={() => setAcctDeleteDialog({ open: false, id: '' })}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}
+            >
+                <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningAmberIcon sx={{ color: '#ef4444' }} />
+                    {t('admin.deleteText')}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2">
+                        {t('botshepherd.confirmDeleteAccount').replace('{id}', acctDeleteDialog.id)}
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setAcctDeleteDialog({ open: false, id: '' })} color="inherit" sx={{ borderRadius: 2 }}>
+                        {t('botshepherd.connCancel')}
+                    </Button>
+                    <Button onClick={doAcctDelete} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
+                        {t('admin.deleteText')}
+                    </Button>
                 </DialogActions>
             </Dialog>
         </Box>
