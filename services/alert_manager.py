@@ -3,6 +3,7 @@
 支持容器状态变化、CPU/内存超限、实例离线等告警场景
 """
 import json
+import html
 import time
 import socket
 import asyncio
@@ -58,11 +59,16 @@ def _smtp_settings() -> Dict[str, Any]:
         "port": int(db.get_setting("smtp_port", 465) or 465),
         "username": db.get_setting("smtp_username", ""),
         "password": db.get_setting("smtp_password", ""),
+        "auth_mode": db.get_setting("smtp_auth_mode", "auto"),
         "sender": db.get_setting("smtp_sender", ""),
         "sender_name": db.get_setting("smtp_sender_name", "NapCat Manager"),
+        "reply_to": db.get_setting("smtp_reply_to", ""),
         "recipients": db.get_setting("smtp_recipients", ""),
         "use_ssl": bool(db.get_setting("smtp_use_ssl", True)),
         "use_tls": bool(db.get_setting("smtp_use_tls", False)),
+        "verify_tls": bool(db.get_setting("smtp_verify_tls", True)),
+        "timeout_sec": int(db.get_setting("smtp_timeout_sec", 15) or 15),
+        "qrcode_inline": bool(db.get_setting("smtp_qrcode", True)),
         "subject_prefix": db.get_setting("smtp_subject_prefix", "[NapCat 掉线告警]"),
     }
 
@@ -95,20 +101,52 @@ def _send_smtp_sync(subject: str, message: str, extra: Optional[Dict] = None, re
     msg["Subject"] = full_subject
     msg["From"] = f'{cfg["sender_name"]} <{sender}>' if cfg["sender_name"] else sender
     msg["To"] = ", ".join(to_list)
+    if cfg["reply_to"]:
+        msg["Reply-To"] = cfg["reply_to"]
     msg.set_content(body)
 
+    # login_lost 邮件附加 HTML 正文：展示扫码链接与二维码图片（依赖 webhook_base_url）
+    qr_url = str((extra or {}).get("qr_url") or "").strip()
+    if qr_url and cfg["qrcode_inline"]:
+        escaped_body = html.escape(body).replace("\n", "<br>")
+        html_body = (
+            "<html><body>"
+            f"<p>{escaped_body}</p>"
+            f"<p><a href=\"{html.escape(qr_url, quote=True)}\">扫码链接</a></p>"
+            f"<p><img src=\"{html.escape(qr_url, quote=True)}\" alt=\"登录二维码\" style=\"max-width:320px;height:auto;\" /></p>"
+            "</body></html>"
+        )
+        msg.add_alternative(html_body, subtype="html")
+
     try:
-        if cfg["use_ssl"]:
+        timeout = max(3, int(cfg["timeout_sec"] or 15))
+        if cfg["verify_tls"]:
             context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=15, context=context) as client:
-                if cfg["username"]:
+        else:
+            context = ssl._create_unverified_context()
+
+        need_login = False
+        if cfg["auth_mode"] == "login":
+            need_login = True
+        elif cfg["auth_mode"] == "none":
+            need_login = False
+        else:
+            need_login = bool(cfg["username"])
+
+        if need_login and not cfg["username"]:
+            logger.warning("SMTP 通知发送失败: 认证模式为 login 但未配置 smtp_username")
+            return False
+
+        if cfg["use_ssl"]:
+            with smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=timeout, context=context) as client:
+                if need_login:
                     client.login(cfg["username"], cfg["password"])
                 client.send_message(msg)
         else:
-            with smtplib.SMTP(cfg["host"], cfg["port"], timeout=15) as client:
+            with smtplib.SMTP(cfg["host"], cfg["port"], timeout=timeout) as client:
                 if cfg["use_tls"]:
-                    client.starttls(context=ssl.create_default_context())
-                if cfg["username"]:
+                    client.starttls(context=context)
+                if need_login:
                     client.login(cfg["username"], cfg["password"])
                 client.send_message(msg)
         logger.info("SMTP 通知发送成功: recipients=%d subject=%s", len(to_list), full_subject)

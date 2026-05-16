@@ -152,11 +152,16 @@ export interface AlertSettings {
     smtp_port: number;
     smtp_username: string;
     smtp_password_set: boolean;
+    smtp_auth_mode: string;
     smtp_sender: string;
     smtp_sender_name: string;
+    smtp_reply_to: string;
     smtp_recipients: string;
     smtp_use_ssl: boolean;
     smtp_use_tls: boolean;
+    smtp_verify_tls: boolean;
+    smtp_timeout_sec: number;
+    smtp_qrcode: boolean;
     smtp_subject_prefix: string;
 }
 

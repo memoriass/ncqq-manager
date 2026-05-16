@@ -25,16 +25,35 @@ const EMPTY_FORM = {
 
 const EMPTY_SMTP = {
     smtp_enabled: false,
-    smtp_host: '',
+    smtp_host: 'smtp.qq.com',
     smtp_port: 465,
     smtp_username: '',
     smtp_password: '',
+    smtp_auth_mode: 'auto',
     smtp_sender: '',
     smtp_sender_name: 'NapCat Manager',
+    smtp_reply_to: '',
     smtp_recipients: '',
     smtp_use_ssl: true,
     smtp_use_tls: false,
+    smtp_verify_tls: true,
+    smtp_timeout_sec: 15,
+    smtp_qrcode: true,
     smtp_subject_prefix: '[NapCat 掉线告警]',
+};
+
+const QQ_SMTP_DEFAULTS = {
+    smtp_host: 'smtp.qq.com',
+    smtp_port: 465,
+    smtp_use_ssl: true,
+    smtp_use_tls: false,
+};
+
+const SMTP_PROVIDER_PRESETS: Record<string, { host: string; port: number; use_ssl: boolean; use_tls: boolean }> = {
+    qq: { host: 'smtp.qq.com', port: 465, use_ssl: true, use_tls: false },
+    netease163: { host: 'smtp.163.com', port: 465, use_ssl: true, use_tls: false },
+    gmail: { host: 'smtp.gmail.com', port: 587, use_ssl: false, use_tls: true },
+    outlook: { host: 'smtp.office365.com', port: 587, use_ssl: false, use_tls: true },
 };
 
 const EMPTY_QQ_NOTIFY = {
@@ -69,6 +88,8 @@ export default function AlertSettings() {
     const [webhookBaseUrl, setWebhookBaseUrl] = useState('');
     const [smtpForm, setSmtpForm] = useState({ ...EMPTY_SMTP });
     const [smtpPasswordSet, setSmtpPasswordSet] = useState(false);
+    const [smtpAdvancedOpen, setSmtpAdvancedOpen] = useState(false);
+    const [smtpProvider, setSmtpProvider] = useState('qq');
     // QQ 通知专用 Dialog
     const [qqNotifyOpen, setQqNotifyOpen] = useState(false);
     const [qqNotifyForm, setQqNotifyForm] = useState({ ...EMPTY_QQ_NOTIFY });
@@ -77,6 +98,17 @@ export default function AlertSettings() {
     const [smtpNotifyForm, setSmtpNotifyForm] = useState({ ...EMPTY_SMTP_NOTIFY });
     const [instances, setInstances] = useState<Container[]>([]);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+    const applyQqDefaultsIfMissing = (prev: typeof EMPTY_SMTP) => {
+        if (prev.smtp_host && prev.smtp_port) return prev;
+        return {
+            ...prev,
+            smtp_host: prev.smtp_host || QQ_SMTP_DEFAULTS.smtp_host,
+            smtp_port: prev.smtp_port || QQ_SMTP_DEFAULTS.smtp_port,
+            smtp_use_ssl: prev.smtp_use_ssl ?? QQ_SMTP_DEFAULTS.smtp_use_ssl,
+            smtp_use_tls: prev.smtp_use_tls ?? QQ_SMTP_DEFAULTS.smtp_use_tls,
+        };
+    };
 
     const fetchData = async () => {
         try {
@@ -89,15 +121,20 @@ export default function AlertSettings() {
             setSmtpPasswordSet(settingsData.smtp_password_set ?? false);
             setSmtpForm({
                 smtp_enabled: settingsData.smtp_enabled ?? false,
-                smtp_host: settingsData.smtp_host ?? '',
-                smtp_port: Number(settingsData.smtp_port ?? 465),
+                smtp_host: settingsData.smtp_host || 'smtp.qq.com',
+                smtp_port: Number(settingsData.smtp_port ?? 465) || 465,
                 smtp_username: settingsData.smtp_username ?? '',
                 smtp_password: '',
+                smtp_auth_mode: settingsData.smtp_auth_mode ?? 'auto',
                 smtp_sender: settingsData.smtp_sender ?? '',
                 smtp_sender_name: settingsData.smtp_sender_name ?? 'NapCat Manager',
+                smtp_reply_to: settingsData.smtp_reply_to ?? '',
                 smtp_recipients: settingsData.smtp_recipients ?? '',
                 smtp_use_ssl: settingsData.smtp_use_ssl ?? true,
                 smtp_use_tls: settingsData.smtp_use_tls ?? false,
+                smtp_verify_tls: settingsData.smtp_verify_tls ?? true,
+                smtp_timeout_sec: Number(settingsData.smtp_timeout_sec ?? 15) || 15,
+                smtp_qrcode: settingsData.smtp_qrcode ?? true,
                 smtp_subject_prefix: settingsData.smtp_subject_prefix ?? '[NapCat 掉线告警]',
             });
         } catch (e) { console.error(e); }
@@ -212,6 +249,10 @@ export default function AlertSettings() {
 
     const saveSmtpSettings = async () => {
         const payload: Record<string, unknown> = { ...smtpForm, webhook_base_url: webhookBaseUrl };
+        // 简洁模式下未填写用户名时，默认使用发件邮箱作为 SMTP 登录用户名
+        if (!smtpForm.smtp_username && smtpForm.smtp_sender) {
+            payload.smtp_username = smtpForm.smtp_sender;
+        }
         if (!smtpForm.smtp_password) delete payload.smtp_password;
         try {
             await alertApi.updateSettings(payload);
@@ -221,6 +262,19 @@ export default function AlertSettings() {
             toast.error(t('alerts.saveFailed'));
             console.error(e);
         }
+    };
+
+    const applyProviderPreset = (provider: string) => {
+        const preset = SMTP_PROVIDER_PRESETS[provider];
+        if (!preset) return;
+        setSmtpProvider(provider);
+        setSmtpForm(prev => ({
+            ...prev,
+            smtp_host: preset.host,
+            smtp_port: preset.port,
+            smtp_use_ssl: preset.use_ssl,
+            smtp_use_tls: preset.use_tls,
+        }));
     };
 
     const alertTypes: Record<string, string> = {
@@ -387,49 +441,55 @@ export default function AlertSettings() {
                             <EmailIcon sx={{ color: '#059669' }} />
                             <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{t('alerts.smtpSection')}</Typography>
                         </Box>
-                        <FormControlLabel
-                            control={<Switch checked={smtpForm.smtp_enabled} onChange={e => setSmtpForm({ ...smtpForm, smtp_enabled: e.target.checked })} color="primary" />}
-                            label={t('alerts.enableSmtp')}
-                            labelPlacement="start"
-                            sx={{ mr: 0 }}
-                        />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Button
+                                variant="outlined"
+                                size="small"
+                                onClick={() => setSmtpAdvancedOpen(true)}
+                                sx={{ borderRadius: 2, textTransform: 'none' }}
+                            >
+                                {t('alerts.smtpAdvancedMode')}
+                            </Button>
+                            <FormControlLabel
+                                control={<Switch checked={smtpForm.smtp_enabled} onChange={e => {
+                                    const enabled = e.target.checked;
+                                    setSmtpForm(prev => {
+                                        const next = { ...prev, smtp_enabled: enabled };
+                                        return enabled ? applyQqDefaultsIfMissing(next) : next;
+                                    });
+                                }} color="primary" />}
+                                label={t('alerts.enableSmtp')}
+                                labelPlacement="start"
+                                sx={{ mr: 0 }}
+                            />
+                        </Box>
                     </Box>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
                         {t('alerts.smtpGuide')}
                     </Typography>
 
-                    {/* SMTP 服务配置 */}
+                    {/* SMTP 基础配置 */}
                     <Stack spacing={1.5} sx={{ mb: 2 }}>
                         <TextField size="small" label={t('alerts.baseUrlLabel')} placeholder="https://nc.example.com" value={webhookBaseUrl}
                             onChange={e => setWebhookBaseUrl(e.target.value)} helperText={t('alerts.baseUrlHint')} />
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                            <TextField size="small" fullWidth label="SMTP Host" placeholder="smtp.qq.com" value={smtpForm.smtp_host}
-                                onChange={e => setSmtpForm({ ...smtpForm, smtp_host: e.target.value })} />
-                            <TextField size="small" sx={{ width: 120 }} label={t('alerts.smtpPort')} type="number" value={smtpForm.smtp_port}
-                                onChange={e => setSmtpForm({ ...smtpForm, smtp_port: Number(e.target.value || 465) })} />
-                        </Box>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                            <TextField size="small" fullWidth label={t('alerts.smtpUsername')} value={smtpForm.smtp_username}
-                                onChange={e => setSmtpForm({ ...smtpForm, smtp_username: e.target.value })} />
-                            <TextField size="small" fullWidth label={t('alerts.smtpPassword')} type="password"
-                                placeholder={smtpPasswordSet ? t('alerts.smtpPasswordPlaceholder') : ''}
-                                value={smtpForm.smtp_password}
-                                onChange={e => setSmtpForm({ ...smtpForm, smtp_password: e.target.value })} />
-                        </Box>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                            <TextField size="small" fullWidth label={t('alerts.smtpSender')} value={smtpForm.smtp_sender}
-                                onChange={e => setSmtpForm({ ...smtpForm, smtp_sender: e.target.value })} />
-                            <TextField size="small" fullWidth label={t('alerts.smtpSenderName')} value={smtpForm.smtp_sender_name}
-                                onChange={e => setSmtpForm({ ...smtpForm, smtp_sender_name: e.target.value })} />
-                        </Box>
-                        <TextField size="small" label={t('alerts.smtpDefaultRecipients')} placeholder={t('alerts.smtpDefaultRecipientsHint')} value={smtpForm.smtp_recipients}
-                            onChange={e => setSmtpForm({ ...smtpForm, smtp_recipients: e.target.value })} />
+                        <TextField size="small" fullWidth label={t('alerts.smtpPassword')} type="password"
+                            placeholder={smtpPasswordSet ? t('alerts.smtpPasswordPlaceholder') : ''}
+                            value={smtpForm.smtp_password}
+                            onChange={e => setSmtpForm({ ...smtpForm, smtp_password: e.target.value })} />
+                        <TextField size="small" fullWidth label={t('alerts.smtpSender')} value={smtpForm.smtp_sender}
+                            onChange={e => setSmtpForm({ ...smtpForm, smtp_sender: e.target.value })} />
+                        <TextField size="small" fullWidth label={t('alerts.smtpSenderName')} value={smtpForm.smtp_sender_name}
+                            onChange={e => setSmtpForm({ ...smtpForm, smtp_sender_name: e.target.value })} />
                         <TextField size="small" label={t('alerts.smtpSubjectPrefix')} value={smtpForm.smtp_subject_prefix}
                             onChange={e => setSmtpForm({ ...smtpForm, smtp_subject_prefix: e.target.value })} />
-                        <Box sx={{ display: 'flex', gap: 2 }}>
+                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                             <FormControlLabel control={<Switch checked={smtpForm.smtp_use_ssl} onChange={e => setSmtpForm({ ...smtpForm, smtp_use_ssl: e.target.checked, smtp_use_tls: e.target.checked ? false : smtpForm.smtp_use_tls })} />} label="SSL" />
                             <FormControlLabel control={<Switch checked={smtpForm.smtp_use_tls} onChange={e => setSmtpForm({ ...smtpForm, smtp_use_tls: e.target.checked, smtp_use_ssl: e.target.checked ? false : smtpForm.smtp_use_ssl })} />} label="STARTTLS" />
+                            <FormControlLabel control={<Switch checked={smtpForm.smtp_qrcode} onChange={e => setSmtpForm({ ...smtpForm, smtp_qrcode: e.target.checked })} />} label={t('alerts.smtpQrcode')} />
                         </Box>
+                        <Typography variant="caption" color="text.secondary">
+                            {t('alerts.smtpQqDefaultHint')}
+                        </Typography>
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                             <Button variant="contained" onClick={saveSmtpSettings} sx={{ borderRadius: 2, background: '#059669' }}>{t('alerts.saveSmtp')}</Button>
                         </Box>
@@ -445,6 +505,9 @@ export default function AlertSettings() {
                             {t('alerts.addSmtpNotify')}
                         </Button>
                     </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                        {t('alerts.smtpRulesHint')}
+                    </Typography>
                     {smtpRules.length === 0 ? (
                         <Typography color="text.secondary" variant="body2" sx={{ textAlign: 'center', py: 2 }}>
                             {t('alerts.noSmtpRules')}
@@ -482,6 +545,125 @@ export default function AlertSettings() {
                     )}
                 </CardContent>
             </Card>
+
+            {/* ── SMTP 高级模式弹窗 ── */}
+            <Dialog
+                open={smtpAdvancedOpen}
+                onClose={() => setSmtpAdvancedOpen(false)}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 520 } }}
+            >
+                <DialogTitle sx={{ fontWeight: 700 }}>{t('alerts.smtpAdvancedMode')}</DialogTitle>
+                <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: '8px !important' }}>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                        <TextField
+                            size="small"
+                            fullWidth
+                            label="SMTP Host"
+                            placeholder="smtp.qq.com"
+                            value={smtpForm.smtp_host}
+                            onChange={e => setSmtpForm({ ...smtpForm, smtp_host: e.target.value })}
+                        />
+                        <TextField
+                            size="small"
+                            sx={{ width: 140 }}
+                            label={t('alerts.smtpPort')}
+                            type="number"
+                            value={smtpForm.smtp_port}
+                            onChange={e => setSmtpForm({ ...smtpForm, smtp_port: Number(e.target.value || 465) })}
+                        />
+                    </Box>
+                    <TextField
+                        size="small"
+                        label={t('alerts.smtpUsername')}
+                        value={smtpForm.smtp_username}
+                        onChange={e => setSmtpForm({ ...smtpForm, smtp_username: e.target.value })}
+                    />
+                    <FormControl size="small">
+                        <InputLabel>{t('alerts.smtpProviderPreset')}</InputLabel>
+                        <Select
+                            label={t('alerts.smtpProviderPreset')}
+                            value={smtpProvider}
+                            onChange={e => applyProviderPreset(String(e.target.value))}
+                            sx={{ borderRadius: 2 }}
+                        >
+                            <MenuItem value="qq">QQ Mail</MenuItem>
+                            <MenuItem value="netease163">163 Mail</MenuItem>
+                            <MenuItem value="gmail">Gmail</MenuItem>
+                            <MenuItem value="outlook">Outlook / Office365</MenuItem>
+                        </Select>
+                    </FormControl>
+                    <FormControl size="small">
+                        <InputLabel>{t('alerts.smtpAuthMode')}</InputLabel>
+                        <Select
+                            label={t('alerts.smtpAuthMode')}
+                            value={smtpForm.smtp_auth_mode}
+                            onChange={e => setSmtpForm({ ...smtpForm, smtp_auth_mode: String(e.target.value) })}
+                            sx={{ borderRadius: 2 }}
+                        >
+                            <MenuItem value="auto">{t('alerts.smtpAuthAuto')}</MenuItem>
+                            <MenuItem value="login">{t('alerts.smtpAuthLogin')}</MenuItem>
+                            <MenuItem value="none">{t('alerts.smtpAuthNone')}</MenuItem>
+                        </Select>
+                    </FormControl>
+                    <TextField
+                        size="small"
+                        label={t('alerts.smtpSenderName')}
+                        value={smtpForm.smtp_sender_name}
+                        onChange={e => setSmtpForm({ ...smtpForm, smtp_sender_name: e.target.value })}
+                    />
+                    <TextField
+                        size="small"
+                        label={t('alerts.smtpReplyTo')}
+                        value={smtpForm.smtp_reply_to}
+                        onChange={e => setSmtpForm({ ...smtpForm, smtp_reply_to: e.target.value })}
+                    />
+                    <TextField
+                        size="small"
+                        label={t('alerts.smtpSubjectPrefix')}
+                        value={smtpForm.smtp_subject_prefix}
+                        onChange={e => setSmtpForm({ ...smtpForm, smtp_subject_prefix: e.target.value })}
+                    />
+                    <TextField
+                        size="small"
+                        label={t('alerts.smtpTimeoutSec')}
+                        type="number"
+                        value={smtpForm.smtp_timeout_sec}
+                        onChange={e => setSmtpForm({ ...smtpForm, smtp_timeout_sec: Number(e.target.value || 15) })}
+                    />
+                    <Box sx={{ display: 'flex', gap: 2 }}>
+                        <FormControlLabel
+                            control={<Switch checked={smtpForm.smtp_use_ssl} onChange={e => setSmtpForm({ ...smtpForm, smtp_use_ssl: e.target.checked, smtp_use_tls: e.target.checked ? false : smtpForm.smtp_use_tls })} />}
+                            label="SSL"
+                        />
+                        <FormControlLabel
+                            control={<Switch checked={smtpForm.smtp_use_tls} onChange={e => setSmtpForm({ ...smtpForm, smtp_use_tls: e.target.checked, smtp_use_ssl: e.target.checked ? false : smtpForm.smtp_use_ssl })} />}
+                            label="STARTTLS"
+                        />
+                        <FormControlLabel
+                            control={<Switch checked={smtpForm.smtp_qrcode} onChange={e => setSmtpForm({ ...smtpForm, smtp_qrcode: e.target.checked })} />}
+                            label={t('alerts.smtpQrcode')}
+                        />
+                        <FormControlLabel
+                            control={<Switch checked={smtpForm.smtp_verify_tls} onChange={e => setSmtpForm({ ...smtpForm, smtp_verify_tls: e.target.checked })} />}
+                            label={t('alerts.smtpVerifyTls')}
+                        />
+                    </Box>
+                    <TextField size="small" label={t('alerts.smtpDefaultRecipients')} placeholder={t('alerts.smtpDefaultRecipientsHint')} value={smtpForm.smtp_recipients}
+                        onChange={e => setSmtpForm({ ...smtpForm, smtp_recipients: e.target.value })} />
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => setSmtpAdvancedOpen(false)} color="inherit" sx={{ borderRadius: 2 }}>
+                        {t('admin.cancelText')}
+                    </Button>
+                    <Button
+                        onClick={() => setSmtpAdvancedOpen(false)}
+                        variant="contained"
+                        sx={{ borderRadius: 2, background: '#059669' }}
+                    >
+                        {t('alerts.saveBtn')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {/* ── Webhook 创建规则对话框 ── */}
             <Dialog open={createOpen} onClose={() => setCreateOpen(false)}

@@ -42,11 +42,16 @@ class AlertSettingsUpdate(BaseModel):
     smtp_port: Optional[int] = None
     smtp_username: Optional[str] = None
     smtp_password: Optional[str] = None
+    smtp_auth_mode: Optional[str] = None
     smtp_sender: Optional[str] = None
     smtp_sender_name: Optional[str] = None
+    smtp_reply_to: Optional[str] = None
     smtp_recipients: Optional[str] = None
     smtp_use_ssl: Optional[bool] = None
     smtp_use_tls: Optional[bool] = None
+    smtp_verify_tls: Optional[bool] = None
+    smtp_timeout_sec: Optional[int] = None
+    smtp_qrcode: Optional[bool] = None
     smtp_subject_prefix: Optional[str] = None
 
 
@@ -63,11 +68,16 @@ def get_alert_settings(session: dict = Depends(require_admin)):
         "smtp_port": db.get_setting("smtp_port", 465),
         "smtp_username": db.get_setting("smtp_username", ""),
         "smtp_password_set": bool(db.get_setting("smtp_password", "")),
+        "smtp_auth_mode": db.get_setting("smtp_auth_mode", "auto"),
         "smtp_sender": db.get_setting("smtp_sender", ""),
         "smtp_sender_name": db.get_setting("smtp_sender_name", "NapCat Manager"),
+        "smtp_reply_to": db.get_setting("smtp_reply_to", ""),
         "smtp_recipients": db.get_setting("smtp_recipients", ""),
         "smtp_use_ssl": db.get_setting("smtp_use_ssl", True),
         "smtp_use_tls": db.get_setting("smtp_use_tls", False),
+        "smtp_verify_tls": db.get_setting("smtp_verify_tls", True),
+        "smtp_timeout_sec": db.get_setting("smtp_timeout_sec", 15),
+        "smtp_qrcode": db.get_setting("smtp_qrcode", True),
         "smtp_subject_prefix": db.get_setting("smtp_subject_prefix", "[NapCat 掉线告警]"),
     }
 
@@ -79,8 +89,9 @@ def update_alert_settings(req: AlertSettingsUpdate, session: dict = Depends(requ
     if req.webhook_base_url is not None:
         db.set_setting("webhook_base_url", req.webhook_base_url.rstrip("/"))
     for key in (
-        "smtp_enabled", "smtp_host", "smtp_port", "smtp_username", "smtp_sender",
-        "smtp_sender_name", "smtp_recipients", "smtp_use_ssl", "smtp_use_tls", "smtp_subject_prefix",
+        "smtp_enabled", "smtp_host", "smtp_port", "smtp_username", "smtp_auth_mode", "smtp_sender",
+        "smtp_sender_name", "smtp_reply_to", "smtp_recipients", "smtp_use_ssl", "smtp_use_tls",
+        "smtp_verify_tls", "smtp_timeout_sec", "smtp_qrcode", "smtp_subject_prefix",
     ):
         val = getattr(req, key)
         if val is not None:
