@@ -143,7 +143,10 @@ class LifecycleMixin:
         bs_bind_url = ""
 
         if bs_enabled:
-            bs_host = str(app_config.get("init_bs_host") or app_config.get("manager_host", "127.0.0.1"))
+            bs_host = str(
+                app_config.get("init_bs_host")
+                or app_config.get("manager_host", "127.0.0.1")
+            )
             bs_base_port = int(app_config.get("init_bs_client_base_port", 6100))
             bs_port = await asyncio.to_thread(self.allocate_port, bs_base_port)  # type: ignore[attr-defined]
             bs_bind_url = f"ws://0.0.0.0:{bs_port}/onebot/v11/ws"
@@ -161,7 +164,10 @@ class LifecycleMixin:
 
                 await asyncio.to_thread(
                     _generate_onebot11_config_with_ws_client,
-                    config_dir, ws_url, ws_token, uin,
+                    config_dir,
+                    ws_url,
+                    ws_token,
+                    uin,
                 )
                 await asyncio.to_thread(self._mark_bs_inject, data_dir_base, name, uin)
                 if bs_enabled:
@@ -188,7 +194,9 @@ class LifecycleMixin:
 
         # ---- ② BS 中间件接管 ----
         if bs_enabled and ws_url and bs_bind_url:
-            await self._async_sync_bs_connection(name, uin, nickname, bs_bind_url, ws_url)
+            await self._async_sync_bs_connection(
+                name, uin, nickname, bs_bind_url, ws_url
+            )
 
         # ---- ③ 自动加群通知（开关：init_auto_join_groups_enabled）----
         if not app_config.get("init_auto_join_groups_enabled", False):

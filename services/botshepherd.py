@@ -347,9 +347,14 @@ class BotShepherdManager:
             if sys.platform == "win32":
                 # 通过 wmic 查找在 BotShepherd 目录下运行 main.py 的 python 进程
                 r = subprocess.run(
-                    ["wmic", "process", "where",
-                     "commandline like '%BotShepherd%main.py%' and name like '%python%'",
-                     "get", "processid"],
+                    [
+                        "wmic",
+                        "process",
+                        "where",
+                        "commandline like '%BotShepherd%main.py%' and name like '%python%'",
+                        "get",
+                        "processid",
+                    ],
                     capture_output=True,
                     text=True,
                     encoding="utf-8",
@@ -362,10 +367,14 @@ class BotShepherdManager:
                         pid = int(line)
                         if pid != os.getpid():
                             logger.warning("杀掉残留 BS 进程 PID=%s", pid)
-                            subprocess.run(["taskkill", "/F", "/PID", str(pid)],
-                                           capture_output=True, timeout=5)
+                            subprocess.run(
+                                ["taskkill", "/F", "/PID", str(pid)],
+                                capture_output=True,
+                                timeout=5,
+                            )
             else:
                 import re as _re
+
                 r = subprocess.run(
                     ["ps", "aux"],
                     capture_output=True,
@@ -375,7 +384,12 @@ class BotShepherdManager:
                     timeout=5,
                 )
                 for line in r.stdout.splitlines():
-                    if "BotShepherd" in line and "main.py" in line and "python" in line.lower():
+                    lower_line = line.lower()
+                    if (
+                        "botshepherd" in lower_line
+                        and "main.py" in lower_line
+                        and "python" in lower_line
+                    ):
                         parts = line.split()
                         if len(parts) > 1:
                             pid = int(parts[1])
@@ -440,8 +454,11 @@ class BotShepherdManager:
         except subprocess.TimeoutExpired:
             # 强杀整个进程树（Windows 上 kill() 不杀子进程）
             if sys.platform == "win32":
-                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)],
-                               capture_output=True, timeout=5)
+                subprocess.run(
+                    ["taskkill", "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=5,
+                )
             else:
                 self._process.kill()
             try:

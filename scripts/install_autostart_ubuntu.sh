@@ -6,6 +6,7 @@ SERVICE_NAME="ncqq-manager"
 SERVICE_USER="${SUDO_USER:-$USER}"
 SYSTEMD_DIR="/etc/systemd/system"
 SERVICE_FILE="${SYSTEMD_DIR}/${SERVICE_NAME}.service"
+ENV_FILE="/etc/default/${SERVICE_NAME}"
 UV_BIN="${UV_BIN:-$(command -v uv || true)}"
 VENV_PYTHON="${PROJECT_DIR}/.venv/bin/python"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
@@ -31,6 +32,23 @@ fi
 
 mkdir -p "${PROJECT_DIR}/config/logs"
 
+if [[ -z "${BOTSHEPHERD_SECRET_KEY:-}" ]]; then
+  if command -v openssl >/dev/null 2>&1; then
+    BOTSHEPHERD_SECRET_KEY="$(openssl rand -hex 32)"
+  else
+    BOTSHEPHERD_SECRET_KEY="$(python3 - <<'PY'
+import secrets
+print(secrets.token_hex(32))
+PY
+)"
+  fi
+fi
+
+cat > "${ENV_FILE}" <<EOF
+BOTSHEPHERD_SECRET_KEY=${BOTSHEPHERD_SECRET_KEY}
+EOF
+chmod 600 "${ENV_FILE}"
+
 cat > "${SERVICE_FILE}" <<EOF
 [Unit]
 Description=NCQQ Manager
@@ -46,7 +64,7 @@ Environment=LC_ALL=C.UTF-8
 Environment=PYTHONIOENCODING=utf-8
 Environment=PYTHONUTF8=1
 Environment=UV_PROJECT_ENVIRONMENT=${PROJECT_DIR}/.venv
-Environment=BOTSHEPHERD_SECRET_KEY=systemd-autostart-managed
+EnvironmentFile=-${ENV_FILE}
 ExecStart=${UV_BIN} run ${PYTHON_BIN} ${PROJECT_DIR}/start.py --skip-build
 Restart=always
 RestartSec=5
@@ -64,6 +82,7 @@ systemctl restart "${SERVICE_NAME}"
 echo "已安装并启动 systemd 服务: ${SERVICE_NAME}"
 echo "uv 路径: ${UV_BIN}"
 echo "python 路径: ${PYTHON_BIN}"
+echo "密钥文件: ${ENV_FILE}"
 echo "启动命令: ${UV_BIN} run ${PYTHON_BIN} ${PROJECT_DIR}/start.py --skip-build"
 echo "查看状态: sudo systemctl status ${SERVICE_NAME}"
 echo "查看日志: sudo journalctl -u ${SERVICE_NAME} -f"

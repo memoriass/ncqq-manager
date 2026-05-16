@@ -8,6 +8,7 @@ NapCat QQ Manager - 一键启动部署脚本
     python start.py --force-build # 强制重新构建前端
     python start.py --dev        # 开发模式 (热重载)
 """
+
 import os
 import sys
 import subprocess
@@ -73,7 +74,11 @@ def ensure_uv_runtime() -> None:
     else:
         info("检测到项目已有 .venv，跳过创建")
 
-    target_python = os.path.join(PROJECT_VENV_DIR, "Scripts", "python.exe") if sys.platform == "win32" else os.path.join(PROJECT_VENV_DIR, "bin", "python")
+    target_python = (
+        os.path.join(PROJECT_VENV_DIR, "Scripts", "python.exe")
+        if sys.platform == "win32"
+        else os.path.join(PROJECT_VENV_DIR, "bin", "python")
+    )
     info(f"目标解释器: {target_python}")
     info("使用 uv 重新拉起 start.py")
     env = {**os.environ, UV_BOOTSTRAP_MARK: "1"}
@@ -91,17 +96,29 @@ def _resolve_botshepherd_dir() -> str:
     # fallback：扫描目录匹配（适配任意大小写）
     try:
         for entry in os.listdir(BASE_DIR):
-            if entry.lower() == "botshepherd" and os.path.isdir(os.path.join(BASE_DIR, entry)):
+            if entry.lower() == "botshepherd" and os.path.isdir(
+                os.path.join(BASE_DIR, entry)
+            ):
                 return os.path.join(BASE_DIR, entry)
     except OSError:
         pass
     return os.path.join(BASE_DIR, "BotShepherd")  # 默认回退
 
+
 # 关键 Python 依赖（安装后验证可导入）
 REQUIRED_MODULES = [
-    "fastapi", "uvicorn", "docker", "aiohttp", "aiodocker", "orjson",
-    "multipart", "PIL", "websockets", "wsproto"
+    "fastapi",
+    "uvicorn",
+    "docker",
+    "aiohttp",
+    "aiodocker",
+    "orjson",
+    "multipart",
+    "PIL",
+    "websockets",
+    "wsproto",
 ]
+
 
 # ─── 终端彩色输出 ───
 def _c(text: str, code: str) -> str:
@@ -109,10 +126,22 @@ def _c(text: str, code: str) -> str:
         _ = os.system("")  # 启用 Windows ANSI
     return f"\033[{code}m{text}\033[0m"
 
-def info(msg: str) -> None:  print(_c(f"[✓] {msg}", "32"))
-def warn(msg: str) -> None:  print(_c(f"[!] {msg}", "33"))
-def fail(msg: str) -> None:  print(_c(f"[✗] {msg}", "31"))
-def step(msg: str) -> None:  print(_c(f"\n>>> {msg}", "36;1"))
+
+def info(msg: str) -> None:
+    print(_c(f"[✓] {msg}", "32"))
+
+
+def warn(msg: str) -> None:
+    print(_c(f"[!] {msg}", "33"))
+
+
+def fail(msg: str) -> None:
+    print(_c(f"[✗] {msg}", "31"))
+
+
+def step(msg: str) -> None:
+    print(_c(f"\n>>> {msg}", "36;1"))
+
 
 BANNER = r"""
  _   _             ____      _     __  __
@@ -124,6 +153,7 @@ BANNER = r"""
 """
 
 # ─── 检查项 ───
+
 
 def check_python():
     """检查 Python 版本 >= 3.10"""
@@ -191,7 +221,9 @@ def check_pip_deps():
     if missing:
         fail(f"以下模块安装后仍无法导入: {', '.join(missing)}")
         fail("请执行: uv sync")
-        fail("Ubuntu 常见依赖: uvicorn[standard]（websockets/wsproto）、python-multipart、pillow、wsproto")
+        fail(
+            "Ubuntu 常见依赖: uvicorn[standard]（websockets/wsproto）、python-multipart、pillow、wsproto"
+        )
         fail("若 Node.js < 18，请升级后再构建前端（建议 Node.js 20 LTS）")
         sys.exit(1)
 
@@ -372,7 +404,9 @@ def check_botshepherd():
     if uv_bin:
         if not _ensure_bs_deps(uv_bin):
             warn("BotShepherd 依赖安装失败，可在管理面板中重试")
-            warn("手动修复: cd BotShepherd && uv venv venv --seed && uv pip install -r requirements.txt")
+            warn(
+                "手动修复: cd BotShepherd && uv venv venv --seed && uv pip install -r requirements.txt"
+            )
     else:
         warn("未检测到 uv，跳过 BotShepherd 依赖管理（若缺少依赖将在启动时报错）")
 
@@ -405,6 +439,7 @@ def start_server(port: int, dev: bool):
     """启动后端服务"""
     # 从配置读取 host（首次初始化设置中用户选择的绑定地址）
     from services.config import app_config, APP_VERSION
+
     host = app_config.get("host", "0.0.0.0")
     configured_port = app_config.get("port", 8000)
     # 命令行 --port 优先；否则使用配置文件中的端口
@@ -433,6 +468,7 @@ def start_server(port: int, dev: bool):
     info("\n按 Ctrl+C 停止服务\n")
     try:
         import uvicorn
+
         uvicorn.run(
             "main:app",
             host=host,
@@ -445,6 +481,7 @@ def start_server(port: int, dev: bool):
 
 
 # ─── 主流程 ───
+
 
 def main():
     print(BANNER)

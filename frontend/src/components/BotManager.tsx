@@ -314,166 +314,166 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
 
     return (
         <>
-        <Box sx={{ ...glass, borderRadius: 3, display: 'flex', height: 560, overflow: 'hidden' }}>
-            {/* 左侧会话列表 */}
-            <Box sx={{ width: 260, borderRight: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', flexDirection: 'column' }}>
-                <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>{t('botManager.chat')}</Typography>
-                    <Tooltip title={t('botManager.newPrivateChat')}>
-                        <IconButton size="small" onClick={openContactDialog}>
-                            <AddCommentIcon sx={{ fontSize: 18 }} />
-                        </IconButton>
-                    </Tooltip>
-                </Box>
-                {showNewChat && (
-                    <Box sx={{ px: 1.5, pb: 1 }}>
-                        <TextField
-                            size="small" fullWidth
-                            placeholder={t('botManager.inputQQ')}
-                            value={newQQ}
-                            onChange={e => setNewQQ(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') addPrivateChat(); }}
-                            InputProps={{
-                                endAdornment: (
-                                    <InputAdornment position="end">
-                                        <IconButton size="small" onClick={addPrivateChat}><SendIcon sx={{ fontSize: 14 }} /></IconButton>
-                                    </InputAdornment>
-                                ),
-                            }}
-                            sx={{ '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
-                        />
+            <Box sx={{ ...glass, borderRadius: 3, display: 'flex', height: 560, overflow: 'hidden' }}>
+                {/* 左侧会话列表 */}
+                <Box sx={{ width: 260, borderRight: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', flexDirection: 'column' }}>
+                    <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 700, flex: 1 }}>{t('botManager.chat')}</Typography>
+                        <Tooltip title={t('botManager.newPrivateChat')}>
+                            <IconButton size="small" onClick={openContactDialog}>
+                                <AddCommentIcon sx={{ fontSize: 18 }} />
+                            </IconButton>
+                        </Tooltip>
                     </Box>
-                )}
-                <List sx={{ flex: 1, overflow: 'auto', py: 0 }}>
-                    {conversations.map(conv => (
-                        <ListItemButton
-                            key={`${conv.type}-${conv.id}`}
-                            selected={activeConv?.id === conv.id && activeConv?.type === conv.type}
-                            onClick={() => setActiveConv(conv)}
-                            sx={{ py: 1, px: 1.5, borderRadius: 1, mx: 0.5, mb: 0.3 }}
-                        >
-                            <ListItemIcon sx={{ minWidth: 32 }}>
-                                {conv.type === 'group'
-                                    ? <Box component="img" src={`/api/resource/group_avatar/${conv.id}`}
-                                        sx={{ width: 24, height: 24, borderRadius: 1, objectFit: 'cover' }}
-                                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling && ((e.currentTarget.nextElementSibling as HTMLElement).style.display = 'inline-flex'); }}
-                                      />
-                                    : <Box component="img" src={`/api/resource/avatar/${conv.id}`}
-                                        sx={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }}
-                                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling && ((e.currentTarget.nextElementSibling as HTMLElement).style.display = 'inline-flex'); }}
-                                      />}
-                                {conv.type === 'group'
-                                    ? <GroupIcon sx={{ fontSize: 18, color: '#6366f1', display: 'none' }} />
-                                    : <PersonIcon sx={{ fontSize: 18, color: '#10b981', display: 'none' }} />}
-                            </ListItemIcon>
-                            <ListItemText
-                                primary={conv.name}
-                                secondary={conv.lastMsg || undefined}
-                                primaryTypographyProps={{ fontSize: '0.82rem', fontWeight: 500, noWrap: true }}
-                                secondaryTypographyProps={{ fontSize: '0.7rem', noWrap: true }}
-                            />
-                            {conv.lastTime > 0 && (
-                                <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'text.secondary', ml: 0.5 }}>
-                                    {formatTime(conv.lastTime)}
-                                </Typography>
-                            )}
-                        </ListItemButton>
-                    ))}
-                </List>
-            </Box>
-
-            {/* 右侧聊天区域 */}
-            <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                {!activeConv ? (
-                    <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        <Typography color="text.secondary" fontSize="0.85rem">{t('botManager.noConversation')}</Typography>
-                    </Box>
-                ) : (
-                    <>
-                        {/* 头部 */}
-                        <Box sx={{ p: 1.5, borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', gap: 1 }}>
-                            {activeConv.type === 'group'
-                                ? <Box component="img" src={`/api/resource/group_avatar/${activeConv.id}`}
-                                    sx={{ width: 28, height: 28, borderRadius: 1, objectFit: 'cover' }}
-                                    onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
-                                  />
-                                : <Box component="img" src={`/api/resource/avatar/${activeConv.id}`}
-                                    sx={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }}
-                                    onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
-                                  />}
-                            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{activeConv.name}</Typography>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{activeConv.id}</Typography>
-                        </Box>
-
-                        {/* 消息区域 */}
-                        <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                            {activeConv.type === 'group' && (
-                                <Box sx={{ textAlign: 'center', mb: 1 }}>
-                                    <Button size="small" onClick={handleLoadMore} disabled={loadingMore}
-                                        sx={{ fontSize: '0.7rem', textTransform: 'none' }}>
-                                        {loadingMore ? <CircularProgress size={12} sx={{ mr: 0.5 }} /> : null}
-                                        {t('botManager.loadMore')}
-                                    </Button>
-                                </Box>
-                            )}
-                            {messages.filter(msg => {
-                                if (!activeConv) return false;
-                                if (activeConv.type === 'group') return String(msg.group_id) === activeConv.id;
-                                return msg.message_type === 'private' && (String(msg.user_id) === activeConv.id || String(msg.self_id) === activeConv.id);
-                            }).slice(-MAX_RENDER_MESSAGES).map((msg, i) => {
-                                const isSelf = msg.user_id === msg.self_id;
-                                return (
-                                    <Box key={msg.message_id || i} sx={{ display: 'flex', flexDirection: isSelf ? 'row-reverse' : 'row', gap: 1, alignItems: 'flex-end' }}>
-                                        <Box sx={{
-                                            maxWidth: '70%', px: 1.5, py: 0.8, borderRadius: 2,
-                                            bgcolor: isSelf
-                                                ? (isDark ? 'rgba(59,130,246,0.25)' : '#dbeafe')
-                                                : (isDark ? 'rgba(255,255,255,0.08)' : '#f3f4f6'),
-                                        }}>
-                                            {!isSelf && activeConv.type === 'group' && (
-                                                <Typography sx={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 600, mb: 0.2 }}>
-                                                    {msg.sender?.card || msg.sender?.nickname || msg.user_id}
-                                                </Typography>
-                                            )}
-                                            <Typography sx={{ fontSize: '0.82rem', wordBreak: 'break-word' }}>
-                                                {(msg.raw_message || '').replace(/\[CQ:image[^\]]*\]/g, '[图片]').replace(/\[CQ:face[^\]]*\]/g, '[表情]').replace(/\[CQ:record[^\]]*\]/g, '[语音]').replace(/\[CQ:video[^\]]*\]/g, '[视频]').replace(/\[CQ:at[^\]]*\]/g, '[@]').replace(/\[CQ:[^\]]*\]/g, '[消息]')}
-                                            </Typography>
-                                            <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', mt: 0.3, textAlign: isSelf ? 'left' : 'right' }}>
-                                                {formatTime(msg.time)}
-                                            </Typography>
-                                        </Box>
-                                    </Box>
-                                );
-                            })}
-                            <div ref={messagesEndRef} />
-                        </Box>
-
-                        {/* 输入区域 */}
-                        <Box sx={{ p: 1.5, borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', gap: 1 }}>
+                    {showNewChat && (
+                        <Box sx={{ px: 1.5, pb: 1 }}>
                             <TextField
-                                fullWidth size="small" multiline maxRows={3}
-                                placeholder={t('botManager.messagePlaceholder')}
-                                value={input}
-                                onChange={e => setInput(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter' && !e.shiftKey) {
-                                        e.preventDefault();
-                                        handleSend();
-                                    }
+                                size="small" fullWidth
+                                placeholder={t('botManager.inputQQ')}
+                                value={newQQ}
+                                onChange={e => setNewQQ(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') addPrivateChat(); }}
+                                InputProps={{
+                                    endAdornment: (
+                                        <InputAdornment position="end">
+                                            <IconButton size="small" onClick={addPrivateChat}><SendIcon sx={{ fontSize: 14 }} /></IconButton>
+                                        </InputAdornment>
+                                    ),
                                 }}
-                                sx={{ '& .MuiInputBase-root': { fontSize: '0.85rem' } }}
+                                sx={{ '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
                             />
-                            <Button
-                                variant="contained" onClick={handleSend} disabled={sending || !input.trim()}
-                                sx={{ minWidth: 40, px: 1.5 }}
-                            >
-                                {sending ? <CircularProgress size={16} color="inherit" /> : <SendIcon sx={{ fontSize: 18 }} />}
-                            </Button>
                         </Box>
-                    </>
-                )}
+                    )}
+                    <List sx={{ flex: 1, overflow: 'auto', py: 0 }}>
+                        {conversations.map(conv => (
+                            <ListItemButton
+                                key={`${conv.type}-${conv.id}`}
+                                selected={activeConv?.id === conv.id && activeConv?.type === conv.type}
+                                onClick={() => setActiveConv(conv)}
+                                sx={{ py: 1, px: 1.5, borderRadius: 1, mx: 0.5, mb: 0.3 }}
+                            >
+                                <ListItemIcon sx={{ minWidth: 32 }}>
+                                    {conv.type === 'group'
+                                        ? <Box component="img" src={`/api/resource/group_avatar/${conv.id}`}
+                                            sx={{ width: 24, height: 24, borderRadius: 1, objectFit: 'cover' }}
+                                            onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling && ((e.currentTarget.nextElementSibling as HTMLElement).style.display = 'inline-flex'); }}
+                                        />
+                                        : <Box component="img" src={`/api/resource/avatar/${conv.id}`}
+                                            sx={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }}
+                                            onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; e.currentTarget.nextElementSibling && ((e.currentTarget.nextElementSibling as HTMLElement).style.display = 'inline-flex'); }}
+                                        />}
+                                    {conv.type === 'group'
+                                        ? <GroupIcon sx={{ fontSize: 18, color: '#6366f1', display: 'none' }} />
+                                        : <PersonIcon sx={{ fontSize: 18, color: '#10b981', display: 'none' }} />}
+                                </ListItemIcon>
+                                <ListItemText
+                                    primary={conv.name}
+                                    secondary={conv.lastMsg || undefined}
+                                    primaryTypographyProps={{ fontSize: '0.82rem', fontWeight: 500, noWrap: true }}
+                                    secondaryTypographyProps={{ fontSize: '0.7rem', noWrap: true }}
+                                />
+                                {conv.lastTime > 0 && (
+                                    <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'text.secondary', ml: 0.5 }}>
+                                        {formatTime(conv.lastTime)}
+                                    </Typography>
+                                )}
+                            </ListItemButton>
+                        ))}
+                    </List>
+                </Box>
+
+                {/* 右侧聊天区域 */}
+                <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    {!activeConv ? (
+                        <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Typography color="text.secondary" fontSize="0.85rem">{t('botManager.noConversation')}</Typography>
+                        </Box>
+                    ) : (
+                        <>
+                            {/* 头部 */}
+                            <Box sx={{ p: 1.5, borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {activeConv.type === 'group'
+                                    ? <Box component="img" src={`/api/resource/group_avatar/${activeConv.id}`}
+                                        sx={{ width: 28, height: 28, borderRadius: 1, objectFit: 'cover' }}
+                                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                                    />
+                                    : <Box component="img" src={`/api/resource/avatar/${activeConv.id}`}
+                                        sx={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }}
+                                        onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display = 'none'; }}
+                                    />}
+                                <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>{activeConv.name}</Typography>
+                                <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>{activeConv.id}</Typography>
+                            </Box>
+
+                            {/* 消息区域 */}
+                            <Box sx={{ flex: 1, overflow: 'auto', p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                {activeConv.type === 'group' && (
+                                    <Box sx={{ textAlign: 'center', mb: 1 }}>
+                                        <Button size="small" onClick={handleLoadMore} disabled={loadingMore}
+                                            sx={{ fontSize: '0.7rem', textTransform: 'none' }}>
+                                            {loadingMore ? <CircularProgress size={12} sx={{ mr: 0.5 }} /> : null}
+                                            {t('botManager.loadMore')}
+                                        </Button>
+                                    </Box>
+                                )}
+                                {messages.filter(msg => {
+                                    if (!activeConv) return false;
+                                    if (activeConv.type === 'group') return String(msg.group_id) === activeConv.id;
+                                    return msg.message_type === 'private' && (String(msg.user_id) === activeConv.id || String(msg.self_id) === activeConv.id);
+                                }).slice(-MAX_RENDER_MESSAGES).map((msg, i) => {
+                                    const isSelf = msg.user_id === msg.self_id;
+                                    return (
+                                        <Box key={msg.message_id || i} sx={{ display: 'flex', flexDirection: isSelf ? 'row-reverse' : 'row', gap: 1, alignItems: 'flex-end' }}>
+                                            <Box sx={{
+                                                maxWidth: '70%', px: 1.5, py: 0.8, borderRadius: 2,
+                                                bgcolor: isSelf
+                                                    ? (isDark ? 'rgba(59,130,246,0.25)' : '#dbeafe')
+                                                    : (isDark ? 'rgba(255,255,255,0.08)' : '#f3f4f6'),
+                                            }}>
+                                                {!isSelf && activeConv.type === 'group' && (
+                                                    <Typography sx={{ fontSize: '0.65rem', color: '#6366f1', fontWeight: 600, mb: 0.2 }}>
+                                                        {msg.sender?.card || msg.sender?.nickname || msg.user_id}
+                                                    </Typography>
+                                                )}
+                                                <Typography sx={{ fontSize: '0.82rem', wordBreak: 'break-word' }}>
+                                                    {(msg.raw_message || '').replace(/\[CQ:image[^\]]*\]/g, '[图片]').replace(/\[CQ:face[^\]]*\]/g, '[表情]').replace(/\[CQ:record[^\]]*\]/g, '[语音]').replace(/\[CQ:video[^\]]*\]/g, '[视频]').replace(/\[CQ:at[^\]]*\]/g, '[@]').replace(/\[CQ:[^\]]*\]/g, '[消息]')}
+                                                </Typography>
+                                                <Typography sx={{ fontSize: '0.6rem', color: 'text.secondary', mt: 0.3, textAlign: isSelf ? 'left' : 'right' }}>
+                                                    {formatTime(msg.time)}
+                                                </Typography>
+                                            </Box>
+                                        </Box>
+                                    );
+                                })}
+                                <div ref={messagesEndRef} />
+                            </Box>
+
+                            {/* 输入区域 */}
+                            <Box sx={{ p: 1.5, borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)'}`, display: 'flex', gap: 1 }}>
+                                <TextField
+                                    fullWidth size="small" multiline maxRows={3}
+                                    placeholder={t('botManager.messagePlaceholder')}
+                                    value={input}
+                                    onChange={e => setInput(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter' && !e.shiftKey) {
+                                            e.preventDefault();
+                                            handleSend();
+                                        }
+                                    }}
+                                    sx={{ '& .MuiInputBase-root': { fontSize: '0.85rem' } }}
+                                />
+                                <Button
+                                    variant="contained" onClick={handleSend} disabled={sending || !input.trim()}
+                                    sx={{ minWidth: 40, px: 1.5 }}
+                                >
+                                    {sending ? <CircularProgress size={16} color="inherit" /> : <SendIcon sx={{ fontSize: 18 }} />}
+                                </Button>
+                            </Box>
+                        </>
+                    )}
+                </Box>
             </Box>
-        </Box>
 
             {/* 联系人选择对话框 */}
             <Dialog open={contactDialogOpen} onClose={() => setContactDialogOpen(false)}
@@ -821,8 +821,8 @@ function GroupMembersView({ name, group, glass, onBack }: {
         const conf = role === 'owner'
             ? { label: t('botManager.roleOwner'), color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' }
             : role === 'admin'
-            ? { label: t('botManager.roleAdmin'), color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' }
-            : { label: t('botManager.roleMember'), color: '#64748b', bg: 'rgba(100,116,139,0.1)' };
+                ? { label: t('botManager.roleAdmin'), color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' }
+                : { label: t('botManager.roleMember'), color: '#64748b', bg: 'rgba(100,116,139,0.1)' };
         return <Chip label={conf.label} size="small" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 600, color: conf.color, bgcolor: conf.bg }} />;
     };
 
