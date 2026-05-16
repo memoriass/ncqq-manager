@@ -56,7 +56,7 @@ export const translations = {
             deleteInstanceOnly: '仅删除实例',
             deleteInstanceAndData: '删除实例和数据',
             userManagement: '用户管理',
-            operationLogs: '操作日志',
+            operationLogs: '日志中心',
             userSpaceBoard: '用户面板',
             nodesOnline: '{count} 个节点在线',
             nodesOffline: '{count} 个节点离线',
@@ -80,7 +80,7 @@ export const translations = {
                 unknown: '未知原因'
             },
             botshepherd: 'BS 中间件',
-            botRadar: 'Bot 后端'
+            botBackend: 'Bot后端'
         },
         imageManager: {
             title: '镜像管理',
@@ -473,7 +473,18 @@ export const translations = {
             saveAssign: '保存分配'
         },
         opLogs: {
-            title: '操作日志',
+            title: '日志中心',
+            operationTitle: '操作日志',
+            managerTitle: '管理器日志',
+            managerLines: '行数',
+            noManagerLogs: '暂无管理器日志',
+            managerFetchFailed: '获取管理器日志失败',
+            autoRefreshOn: '自动刷新: 开',
+            autoRefreshOff: '自动刷新: 关',
+            tabs: {
+                operation: '操作日志',
+                manager: '管理器日志'
+            },
             records: '条',
             operator: '操作者',
             type: '类型',
@@ -781,7 +792,7 @@ export const translations = {
             close: '关闭',
             addEndpoint: '添加目标端点'
         },
-        botRadar: {
+        botBackend: {
             title: 'Bot 后端',
             subtitle: '管理对端 Bot 框架端点，探测在线状态，一键注入到 BS 或 NCQQ',
             addEndpoint: '添加端点',
@@ -889,7 +900,7 @@ export const translations = {
             deleteInstanceOnly: 'Delete Instance Only',
             deleteInstanceAndData: 'Delete Instance & Data',
             userManagement: 'User Management',
-            operationLogs: 'Operation Logs',
+            operationLogs: 'Logs Center',
             userSpaceBoard: 'User Panel',
             nodesOnline: '{count} node(s) online',
             nodesOffline: '{count} node(s) offline',
@@ -913,7 +924,7 @@ export const translations = {
                 unknown: 'Unknown reason'
             },
             botshepherd: 'BS Middleware',
-            botRadar: 'Bot Backend'
+            botBackend: 'Bot Backend'
         },
         imageManager: {
             title: 'Image Manager',
@@ -1306,7 +1317,18 @@ export const translations = {
             saveAssign: 'Save Assignment'
         },
         opLogs: {
-            title: 'Operation Logs',
+            title: 'Logs Center',
+            operationTitle: 'Operation Logs',
+            managerTitle: 'Manager Logs',
+            managerLines: 'Lines',
+            noManagerLogs: 'No manager logs',
+            managerFetchFailed: 'Failed to fetch manager logs',
+            autoRefreshOn: 'Auto Refresh: ON',
+            autoRefreshOff: 'Auto Refresh: OFF',
+            tabs: {
+                operation: 'Operation Logs',
+                manager: 'Manager Logs'
+            },
             records: 'records',
             operator: 'Operator',
             type: 'Type',
@@ -1614,7 +1636,7 @@ export const translations = {
             close: 'Close',
             addEndpoint: 'Add Target Endpoint'
         },
-        botRadar: {
+        botBackend: {
             title: 'Bot Backend',
             subtitle: 'Manage Bot framework endpoints, probe status, inject to BS or NCQQ',
             addEndpoint: 'Add Endpoint',

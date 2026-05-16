@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext, useCallback } from 'react';
+﻿import React, { useEffect, useState, useContext, useCallback } from 'react';
 import { Box, Typography, IconButton, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Drawer, useTheme } from '@mui/material';
 import { useNavigate, Outlet, useLocation } from 'react-router-dom';
 import PublicIcon from '@mui/icons-material/Public';
@@ -38,7 +38,7 @@ export default function AdminLayout() {
     const toast = useToast();
     const [bgUrl, setBgUrl] = useState('');
 
-    // WS 驱动容器列表（替代 HTTP 轮询，后端 3s 推送一次含 uin）
+    // WS 椹卞姩瀹瑰櫒鍒楄〃锛堟浛浠?HTTP 杞锛屽悗绔?3s 鎺ㄩ€佷竴娆″惈 uin锛?
     const {
         data: wsData,
         connected: wsConnected,
@@ -48,14 +48,14 @@ export default function AdminLayout() {
         path: '/ws/events',
     });
 
-    // WS 推送到达时同步 containers state
+    // WS 鎺ㄩ€佸埌杈炬椂鍚屾 containers state
     useEffect(() => {
         if (wsData?.type === 'containers' && Array.isArray(wsData.data)) {
             setContainers(wsData.data);
         }
     }, [wsData]);
 
-    // 手动刷新（操作后立即反馈，不等 WS 3s 推送）
+    // 鎵嬪姩鍒锋柊锛堟搷浣滃悗绔嬪嵆鍙嶉锛屼笉绛?WS 3s 鎺ㄩ€侊級
     const refreshContainers = useCallback(async () => {
         try {
             const data = await containerApi.list();
@@ -65,7 +65,7 @@ export default function AdminLayout() {
         }
     }, []);
 
-    // WS 未连接时回退到 HTTP 轮询（首次加载 + 断线容灾，指数退避 5s→60s）
+    // WS 鏈繛鎺ユ椂鍥為€€鍒?HTTP 杞锛堥娆″姞杞?+ 鏂嚎瀹圭伨锛屾寚鏁伴€€閬?5s鈫?0s锛?
     useEffect(() => {
         if (wsConnected) return;
         let timer: ReturnType<typeof setTimeout>;
@@ -80,7 +80,7 @@ export default function AdminLayout() {
         return () => clearTimeout(timer);
     }, [wsConnected, refreshContainers]);
 
-    // 加载管理员后台背景壁纸
+    // 鍔犺浇绠＄悊鍛樺悗鍙拌儗鏅绾?
     useEffect(() => {
         let cancelled = false;
         let picked: { landscape: string; portrait: string } | null = null;
@@ -112,7 +112,7 @@ export default function AdminLayout() {
 
     return (
         <Box sx={{ display: 'flex', minHeight: '100vh', position: 'relative' }}>
-            {/* 管理员后台背景壁纸：zIndex:-1 确保穿透所有 fixed stacking context（包括 Drawer paper） */}
+            {/* 绠＄悊鍛樺悗鍙拌儗鏅绾革細zIndex:-1 纭繚绌块€忔墍鏈?fixed stacking context锛堝寘鎷?Drawer paper锛?*/}
             {bgUrl && (
                 <Box aria-hidden="true" sx={{
                     position: 'fixed', inset: 0, zIndex: -1,
@@ -132,7 +132,7 @@ export default function AdminLayout() {
                     '& .MuiDrawer-paper': {
                         width: drawerWidth,
                         boxSizing: 'border-box',
-                        // 不再在 paper 上重复绘制壁纸；通过半透明背景 + backdropFilter 复用根层全屏壁纸
+                        // 涓嶅啀鍦?paper 涓婇噸澶嶇粯鍒跺绾革紱閫氳繃鍗婇€忔槑鑳屾櫙 + backdropFilter 澶嶇敤鏍瑰眰鍏ㄥ睆澹佺焊
                         backgroundImage: 'none',
                         backgroundColor: theme.palette.mode === 'dark'
                             ? 'rgba(30,30,32,0.35)'
@@ -164,7 +164,7 @@ export default function AdminLayout() {
                             { path: '/admin/alerts', icon: <NotificationsActiveIcon />, label: t('admin.alerts') },
                             { path: '/admin/backup', icon: <BackupIcon />, label: t('admin.backup') },
                             { path: '/admin/botshepherd', icon: <PetsIcon />, label: t('admin.botshepherd') },
-                            { path: '/admin/bot-radar', icon: <TrackChangesIcon />, label: t('admin.botRadar') },
+                            { path: '/admin/bot-backend', icon: <TrackChangesIcon />, label: t('admin.botBackend') },
                         ] as { path: string; icon: React.ReactNode; label: string }[]).map(item => {
                             const isActive = location.pathname === item.path;
                             return (
@@ -191,7 +191,7 @@ export default function AdminLayout() {
                         </ListItemButton>
                     </ListItem>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 2, pb: 1 }}>
-                        {/* WS 连接状态指示 */}
+                        {/* WS 杩炴帴鐘舵€佹寚绀?*/}
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <FiberManualRecordIcon sx={{ fontSize: 10, color: wsConnected ? '#22c55e' : '#ef4444' }} />
                             <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
@@ -230,3 +230,4 @@ export default function AdminLayout() {
         </Box>
     );
 }
+

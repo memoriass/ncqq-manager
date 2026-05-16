@@ -20,7 +20,7 @@ const ImageManager = lazy(() => import('./pages/ImageManager'));
 const AlertSettings = lazy(() => import('./pages/AlertSettings'));
 const BackupRestore = lazy(() => import('./pages/BackupRestore'));
 const BotShepherd = lazy(() => import('./pages/BotShepherd'));
-const BotRadar = lazy(() => import('./pages/BotRadar'));
+const BotBackend = lazy(() => import('./pages/BotBackend'));
 
 export const ThemeModeContext = createContext({ toggleTheme: () => { } });
 export const LanguageContext = createContext({ language: 'zh', toggleLanguage: () => { } });
@@ -142,7 +142,7 @@ function App() {
                   <Route path="alerts" element={<ErrorBoundary><AlertSettings /></ErrorBoundary>} />
                   <Route path="backup" element={<ErrorBoundary><BackupRestore /></ErrorBoundary>} />
                   <Route path="botshepherd" element={<ErrorBoundary><BotShepherd /></ErrorBoundary>} />
-                  <Route path="bot-radar" element={<ErrorBoundary><BotRadar /></ErrorBoundary>} />
+                  <Route path="bot-backend" element={<ErrorBoundary><BotBackend /></ErrorBoundary>} />
                   <Route path="operation-logs" element={<ErrorBoundary><OperationLogs /></ErrorBoundary>} />
                 </Route>
                 <Route path="*" element={<Navigate to={initialized ? "/" : "/setup"} replace />} />

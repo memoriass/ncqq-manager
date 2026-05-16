@@ -1,5 +1,5 @@
-/**
- * Bot 后端页面 — 现代扁平化设计，管理对端 Bot 框架端点，弹窗编辑，多选注入
+﻿/**
+ * Bot 鍚庣椤甸潰 鈥?鐜颁唬鎵佸钩鍖栬璁★紝绠＄悊瀵圭 Bot 妗嗘灦绔偣锛屽脊绐楃紪杈戯紝澶氶€夋敞鍏?
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
@@ -17,11 +17,11 @@ import SettingsIcon from '@mui/icons-material/Settings';
 import { useTranslate } from '../i18n';
 import {
     botshepherdApi, containerApi, instanceNetworkApi,
-    type Container, type BSConnection, type RadarEndpoint,
+    type Container, type BSConnection, type BackendEndpoint,
 } from '../services/api';
 import { useToast } from '../components/Toast';
 
-// ─── 类型 ──────────────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ 绫诲瀷 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 interface EndpointEntry {
     url: string;
@@ -37,7 +37,7 @@ function isValidWsUrl(url: string): boolean {
     return /^wss?:\/\/.+/.test(url.trim());
 }
 
-// ─── EditDialog：右上角编辑弹窗 ──────────────────────────────────────────────
+// 鈹€鈹€鈹€ EditDialog锛氬彸涓婅缂栬緫寮圭獥 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 interface EditDialogProps {
     open: boolean;
@@ -60,11 +60,11 @@ function EditDialog({ open, entry, allAliases, onClose, onSave }: EditDialogProp
 
     const handleSave = () => {
         const trimUrl = url.trim();
-        if (!isValidWsUrl(trimUrl)) { toast.error(t('botRadar.invalidUrl')); return; }
+        if (!isValidWsUrl(trimUrl)) { toast.error(t('botBackend.invalidUrl')); return; }
         const trimAlias = alias.trim();
         if (trimAlias && trimAlias !== entry.alias &&
             allAliases.filter(a => a === trimAlias).length > 0) {
-            toast.warning(t('botRadar.aliasDuplicate')); return;
+            toast.warning(t('botBackend.aliasDuplicate')); return;
         }
         onSave({ url: trimUrl, alias: trimAlias, token: token.trim() });
         onClose();
@@ -72,25 +72,25 @@ function EditDialog({ open, entry, allAliases, onClose, onSave }: EditDialogProp
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
-            <DialogTitle sx={{ fontWeight: 700 }}>{t('botRadar.editEndpoint')}</DialogTitle>
+            <DialogTitle sx={{ fontWeight: 700 }}>{t('botBackend.editEndpoint')}</DialogTitle>
             <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '16px !important' }}>
-                <TextField label="WebSocket URL" placeholder={t('botRadar.urlPlaceholder')}
+                <TextField label="WebSocket URL" placeholder={t('botBackend.urlPlaceholder')}
                     value={url} onChange={e => setUrl(e.target.value)} fullWidth size="small"
                     inputProps={{ style: { fontFamily: 'monospace' } }} />
-                <TextField label={t('botRadar.alias')} placeholder={t('botRadar.aliasPlaceholder')}
+                <TextField label={t('botBackend.alias')} placeholder={t('botBackend.aliasPlaceholder')}
                     value={alias} onChange={e => setAlias(e.target.value)} fullWidth size="small" />
-                <TextField label={t('botRadar.token')} placeholder="Bearer token / access_token"
+                <TextField label={t('botBackend.token')} placeholder="Bearer token / access_token"
                     value={token} onChange={e => setToken(e.target.value)} fullWidth size="small" />
             </DialogContent>
             <DialogActions>
-                <Button onClick={onClose}>{t('botRadar.cancelText')}</Button>
-                <Button variant="contained" onClick={handleSave}>保存 / Save</Button>
+                <Button onClick={onClose}>{t('botBackend.cancelText')}</Button>
+                <Button variant="contained" onClick={handleSave}>淇濆瓨 / Save</Button>
             </DialogActions>
         </Dialog>
     );
 }
 
-// ─── InjectBSDialog：注入到 BS 连接（多选 + 分页） ────────────────────────────
+// 鈹€鈹€鈹€ InjectBSDialog锛氭敞鍏ュ埌 BS 杩炴帴锛堝閫?+ 鍒嗛〉锛?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 interface InjectBSDialogProps {
     open: boolean;
@@ -144,17 +144,17 @@ function InjectBSDialog({ open, entry, bsConnections, onClose, onConfirm }: Inje
     return (
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
             <DialogTitle sx={{ fontWeight: 700 }}>
-                {t('botRadar.injectBSTitle')}
+                {t('botBackend.injectBSTitle')}
                 <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                     {entry.alias || entry.url}
                 </Typography>
             </DialogTitle>
             <DialogContent>
                 {allOptions.length === 0 ? (
-                    <Alert severity="warning" sx={{ mt: 1 }}>{t('botRadar.noBS')}</Alert>
+                    <Alert severity="warning" sx={{ mt: 1 }}>{t('botBackend.noBS')}</Alert>
                 ) : (
                     <>
-                        <TextField size="small" fullWidth placeholder={t('botRadar.searchPlaceholder')}
+                        <TextField size="small" fullWidth placeholder={t('botBackend.searchPlaceholder')}
                             value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
                             sx={{ mb: 1.5 }} />
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
@@ -162,7 +162,7 @@ function InjectBSDialog({ open, entry, bsConnections, onClose, onConfirm }: Inje
                                 indeterminate={pageIds.some(id => selected.includes(id)) && !allPageChecked}
                                 onChange={toggleAll} />
                             <Typography variant="caption" color="text.secondary">
-                                {t('botRadar.selected').replace('{n}', String(selected.length))}
+                                {t('botBackend.selected').replace('{n}', String(selected.length))}
                             </Typography>
                         </Box>
                         {pageItems.map(o => (
@@ -182,10 +182,10 @@ function InjectBSDialog({ open, entry, bsConnections, onClose, onConfirm }: Inje
                 )}
             </DialogContent>
             <DialogActions>
-                <Button onClick={onClose}>{t('botRadar.cancelText')}</Button>
+                <Button onClick={onClose}>{t('botBackend.cancelText')}</Button>
                 <Button variant="contained" disabled={selected.length === 0 || loading}
                     onClick={handleConfirm} startIcon={loading ? <CircularProgress size={16} /> : undefined}>
-                    {t('botRadar.confirmInject')}
+                    {t('botBackend.confirmInject')}
                 </Button>
             </DialogActions>
         </Dialog>
@@ -194,7 +194,7 @@ function InjectBSDialog({ open, entry, bsConnections, onClose, onConfirm }: Inje
 
 
 
-// ─── InjectNCDialog：注入到 NCQQ 实例（多选 + 分页） ────────────────────────────
+// 鈹€鈹€鈹€ InjectNCDialog锛氭敞鍏ュ埌 NCQQ 瀹炰緥锛堝閫?+ 鍒嗛〉锛?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 interface InjectNCDialogProps {
     open: boolean;
@@ -214,7 +214,7 @@ function InjectNCDialog({ open, entry, containers, onClose, onConfirm }: InjectN
     useEffect(() => { if (open) { setSelected([]); setSearch(''); setPage(1); } }, [open]);
 
     const allOptions = containers
-        .filter(c => c.uin && c.uin !== '未登录 / Not Logged In')
+        .filter(c => c.uin && c.uin !== '鏈櫥褰?/ Not Logged In')
         .map(c => ({ name: c.name, label: `${c.name}  (${c.uin})` }));
     const filtered = allOptions.filter(o =>
         o.label.toLowerCase().includes(search.toLowerCase())
@@ -246,17 +246,17 @@ function InjectNCDialog({ open, entry, containers, onClose, onConfirm }: InjectN
     return (
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
             <DialogTitle sx={{ fontWeight: 700 }}>
-                {t('botRadar.injectNCTitle')}
+                {t('botBackend.injectNCTitle')}
                 <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
                     {entry.alias || entry.url}
                 </Typography>
             </DialogTitle>
             <DialogContent>
                 {allOptions.length === 0 ? (
-                    <Alert severity="warning" sx={{ mt: 1 }}>{t('botRadar.noNC')}</Alert>
+                    <Alert severity="warning" sx={{ mt: 1 }}>{t('botBackend.noNC')}</Alert>
                 ) : (
                     <>
-                        <TextField size="small" fullWidth placeholder={t('botRadar.searchPlaceholder')}
+                        <TextField size="small" fullWidth placeholder={t('botBackend.searchPlaceholder')}
                             value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
                             sx={{ mb: 1.5 }} />
                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
@@ -264,7 +264,7 @@ function InjectNCDialog({ open, entry, containers, onClose, onConfirm }: InjectN
                                 indeterminate={pageNames.some(n => selected.includes(n)) && !allPageChecked}
                                 onChange={toggleAll} />
                             <Typography variant="caption" color="text.secondary">
-                                {t('botRadar.selected').replace('{n}', String(selected.length))}
+                                {t('botBackend.selected').replace('{n}', String(selected.length))}
                             </Typography>
                         </Box>
                         {pageItems.map(o => (
@@ -281,16 +281,16 @@ function InjectNCDialog({ open, entry, containers, onClose, onConfirm }: InjectN
                             </Box>
                         )}
                         <Alert severity="warning" sx={{ mt: 1.5, fontSize: '0.75rem' }}>
-                            {t('botRadar.ncReloadHint')}
+                            {t('botBackend.ncReloadHint')}
                         </Alert>
                     </>
                 )}
             </DialogContent>
             <DialogActions>
-                <Button onClick={onClose}>{t('botRadar.cancelText')}</Button>
+                <Button onClick={onClose}>{t('botBackend.cancelText')}</Button>
                 <Button variant="contained" disabled={selected.length === 0 || loading}
                     onClick={handleConfirm} startIcon={loading ? <CircularProgress size={16} /> : undefined}>
-                    {t('botRadar.confirmInject')}
+                    {t('botBackend.confirmInject')}
                 </Button>
             </DialogActions>
         </Dialog>
@@ -298,7 +298,7 @@ function InjectNCDialog({ open, entry, containers, onClose, onConfirm }: InjectN
 }
 
 
-// ─── EndpointCard：现代扁平化设计 ─────────────────────────────────────────────
+// 鈹€鈹€鈹€ EndpointCard锛氱幇浠ｆ墎骞冲寲璁捐 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 interface EndpointCardProps {
     entry: EndpointEntry;
@@ -329,10 +329,10 @@ function EndpointCard({
         : isHandshakeRejected ? '#f59e0b'
         : entry.online ? '#22c55e'
         : '#ef4444';
-    const statusLabel = entry.online === null ? t('botRadar.unknown')
-        : isHandshakeRejected ? t('botRadar.handshakeRejected')
-        : entry.online ? t('botRadar.online')
-        : t('botRadar.offline');
+    const statusLabel = entry.online === null ? t('botBackend.unknown')
+        : isHandshakeRejected ? t('botBackend.handshakeRejected')
+        : entry.online ? t('botBackend.online')
+        : t('botBackend.offline');
     const StatusIcon = (entry.online && !isHandshakeRejected) ? WifiTetheringIcon : WifiTetheringOffIcon;
 
     return (
@@ -354,7 +354,7 @@ function EndpointCard({
                         : '0 8px 32px rgba(0,0,0,0.08)',
                 },
             }}>
-                {/* 顶部状态条 */}
+                {/* 椤堕儴鐘舵€佹潯 */}
                 <Box sx={{
                     height: 3,
                     background: entry.probing
@@ -363,9 +363,9 @@ function EndpointCard({
                     opacity: 0.8,
                 }} />
 
-                {/* 卡片主体 */}
+                {/* 鍗＄墖涓讳綋 */}
                 <Box sx={{ p: 2.5, flex: 1 }}>
-                    {/* 顶栏：状态图标 + 昵称 + 操作 */}
+                    {/* 椤舵爮锛氱姸鎬佸浘鏍?+ 鏄电О + 鎿嶄綔 */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
                         <Box sx={{
                             width: 36, height: 36, borderRadius: 2,
@@ -381,15 +381,15 @@ function EndpointCard({
                                 color: entry.alias ? 'text.primary' : 'text.disabled',
                                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             }}>
-                                {entry.alias || t('botRadar.aliasPlaceholder')}
+                                {entry.alias || t('botBackend.aliasPlaceholder')}
                             </Typography>
                             <Typography sx={{ fontSize: '0.68rem', color: 'text.secondary' }}>
-                                {entry.probing ? t('botRadar.probing') : statusLabel}
-                                {entry.latency_ms !== null && ` · ${entry.latency_ms}ms`}
+                                {entry.probing ? t('botBackend.probing') : statusLabel}
+                                {entry.latency_ms !== null && ` 路 ${entry.latency_ms}ms`}
                             </Typography>
                         </Box>
                         <Box sx={{ display: 'flex', gap: 0.3 }}>
-                            <Tooltip title={t('botRadar.probe')}>
+                            <Tooltip title={t('botBackend.probe')}>
                                 <span>
                                     <IconButton size="small" onClick={() => onProbe(index)} disabled={entry.probing}
                                         sx={{ width: 28, height: 28 }}>
@@ -397,13 +397,13 @@ function EndpointCard({
                                     </IconButton>
                                 </span>
                             </Tooltip>
-                            <Tooltip title={t('botRadar.editEndpoint')}>
+                            <Tooltip title={t('botBackend.editEndpoint')}>
                                 <IconButton size="small" onClick={() => setEditOpen(true)}
                                     sx={{ width: 28, height: 28, opacity: 0.6, '&:hover': { opacity: 1 } }}>
                                     <SettingsIcon sx={{ fontSize: 15 }} />
                                 </IconButton>
                             </Tooltip>
-                            <Tooltip title={t('botRadar.deleteEndpoint')}>
+                            <Tooltip title={t('botBackend.deleteEndpoint')}>
                                 <IconButton size="small" onClick={() => onDelete(index)}
                                     sx={{ width: 28, height: 28, opacity: 0.6, '&:hover': { opacity: 1, color: '#ef4444' } }}>
                                     <DeleteOutlineIcon sx={{ fontSize: 15 }} />
@@ -427,7 +427,7 @@ function EndpointCard({
                     </Box>
                 </Box>
 
-                {/* 卡片底部操作 */}
+                {/* 鍗＄墖搴曢儴鎿嶄綔 */}
                 <Box sx={{
                     display: 'flex', gap: 1, px: 2.5, pb: 2, pt: 0,
                 }}>
@@ -439,7 +439,7 @@ function EndpointCard({
                             '&:hover': { background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' },
                         }}
                         onClick={() => setBsOpen(true)}>
-                        {t('botRadar.injectToBS')}
+                        {t('botBackend.injectToBS')}
                     </Button>
                     <Button size="small" variant="outlined" disableElevation
                         sx={{
@@ -449,7 +449,7 @@ function EndpointCard({
                             '&:hover': { borderColor: '#3b82f6', color: '#3b82f6' },
                         }}
                         onClick={() => setNcOpen(true)}>
-                        {t('botRadar.injectToNC')}
+                        {t('botBackend.injectToNC')}
                     </Button>
                 </Box>
             </Box>
@@ -468,7 +468,7 @@ function EndpointCard({
 }
 
 
-// ─── 主页面 ────────────────────────────────────────────────────────────────────
+// 鈹€鈹€鈹€ 涓婚〉闈?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 export default function BotBackend() {
     const t = useTranslate();
@@ -482,11 +482,11 @@ export default function BotBackend() {
     const [collectingBS, setCollectingBS] = useState(false);
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // 初始化：加载持久化端点 + BS 连接 + 容器列表
+    // 鍒濆鍖栵細鍔犺浇鎸佷箙鍖栫鐐?+ BS 杩炴帴 + 瀹瑰櫒鍒楄〃
     useEffect(() => {
-        botshepherdApi.radarEndpoints().then(res => {
+        botshepherdApi.backendEndpoints().then(res => {
             if (res.endpoints?.length) {
-                setEndpoints(res.endpoints.map((ep: RadarEndpoint) => ({
+                setEndpoints(res.endpoints.map((ep: BackendEndpoint) => ({
                     url: ep.url, alias: ep.alias, token: ep.token,
                     online: null, latency_ms: null, probing: false,
                 })));
@@ -500,38 +500,38 @@ export default function BotBackend() {
         }).catch(() => {});
     }, []);
 
-    // 自动保存 debounce 1s
+    // 鑷姩淇濆瓨 debounce 1s
     useEffect(() => {
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => {
-            const payload: RadarEndpoint[] = endpoints.map(e => ({
+            const payload: BackendEndpoint[] = endpoints.map(e => ({
                 alias: e.alias, url: e.url, token: e.token,
             }));
-            botshepherdApi.saveRadarEndpoints(payload).catch(() => {});
+            botshepherdApi.saveBackendEndpoints(payload).catch(() => {});
         }, 1000);
         return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
     }, [endpoints]);
 
-    // 添加端点
+    // 娣诲姞绔偣
     const handleAdd = () => {
         const url = newUrl.trim();
-        if (!isValidWsUrl(url)) { toast.error(t('botRadar.invalidUrl')); return; }
-        if (endpoints.some(e => e.url === url)) { toast.warning(t('botRadar.alreadyExists')); return; }
+        if (!isValidWsUrl(url)) { toast.error(t('botBackend.invalidUrl')); return; }
+        if (endpoints.some(e => e.url === url)) { toast.warning(t('botBackend.alreadyExists')); return; }
         setEndpoints(prev => [...prev, { url, alias: '', online: null, latency_ms: null, probing: false, token: '' }]);
         setNewUrl('');
     };
 
-    // 编辑端点（弹窗保存）
+    // 缂栬緫绔偣锛堝脊绐椾繚瀛橈級
     const handleEdit = useCallback((index: number, patch: { url: string; alias: string; token: string }) => {
         setEndpoints(prev => prev.map((e, i) => i === index ? { ...e, ...patch } : e));
     }, []);
 
-    // 删除端点
+    // 鍒犻櫎绔偣
     const handleDelete = (index: number) => {
         setEndpoints(prev => prev.filter((_, i) => i !== index));
     };
 
-    // 探测单个
+    // 鎺㈡祴鍗曚釜
     const handleProbe = useCallback(async (index: number) => {
         setEndpoints(prev => prev.map((e, i) => i === index ? { ...e, probing: true } : e));
         try {
@@ -545,10 +545,10 @@ export default function BotBackend() {
         }
     }, [endpoints]);
 
-    // 全部探测
+    // 鍏ㄩ儴鎺㈡祴
     const handleProbeAll = () => Promise.all(endpoints.map((_, i) => handleProbe(i)));
 
-    // 从 BS 自动收集 target_endpoints
+    // 浠?BS 鑷姩鏀堕泦 target_endpoints
     const handleAutoCollect = async () => {
         setCollectingBS(true);
         try {
@@ -564,15 +564,15 @@ export default function BotBackend() {
                     added++;
                 }
             });
-            toast.success(t('botRadar.autoCollectDone').replace('{n}', String(added)));
+            toast.success(t('botBackend.autoCollectDone').replace('{n}', String(added)));
         } catch {
-            toast.error(t('botRadar.collectFailed'));
+            toast.error(t('botBackend.collectFailed'));
         } finally {
             setCollectingBS(false);
         }
     };
 
-    // 注入到多个 BS 连接（先读后合并再写）
+    // 娉ㄥ叆鍒板涓?BS 杩炴帴锛堝厛璇诲悗鍚堝苟鍐嶅啓锛?
     const handleInjectBS = useCallback(async (index: number, connIds: string[]) => {
         const url = endpoints[index].url;
         let ok = 0; let fail = 0;
@@ -587,11 +587,11 @@ export default function BotBackend() {
                 ok++;
             } catch { fail++; }
         }
-        if (fail === 0) toast.success(t('botRadar.injectBsSuccess').replace('{n}', String(ok)));
-        else toast.warning(t('botRadar.partialSuccess').replace('{ok}', String(ok)).replace('{fail}', String(fail)));
+        if (fail === 0) toast.success(t('botBackend.injectBsSuccess').replace('{n}', String(ok)));
+        else toast.warning(t('botBackend.partialSuccess').replace('{ok}', String(ok)).replace('{fail}', String(fail)));
     }, [endpoints, t, toast]);
 
-    // 注入到多个 NCQQ 实例
+    // 娉ㄥ叆鍒板涓?NCQQ 瀹炰緥
     const handleInjectNC = useCallback(async (index: number, containerNames: string[]) => {
         const url = endpoints[index].url;
         const token = endpoints[index].token;
@@ -608,7 +608,7 @@ export default function BotBackend() {
                         const wsc = parsed?.network?.websocketClients;
                         if (Array.isArray(wsc)) existingClients = wsc;
                     }
-                } catch { /* 从空开始 */ }
+                } catch { /* 浠庣┖寮€濮?*/ }
                 if (existingClients.some(c => (c as { url?: string }).url === url)) { ok++; continue; }
                 const alias = endpoints[index].alias;
                 const clientName = alias ? alias : url;
@@ -624,8 +624,8 @@ export default function BotBackend() {
                 ok++;
             } catch { fail++; }
         }
-        if (fail === 0) toast.success(t('botRadar.injectNcSuccess').replace('{n}', String(ok)));
-        else toast.warning(t('botRadar.partialSuccess').replace('{ok}', String(ok)).replace('{fail}', String(fail)));
+        if (fail === 0) toast.success(t('botBackend.injectNcSuccess').replace('{n}', String(ok)));
+        else toast.warning(t('botBackend.partialSuccess').replace('{ok}', String(ok)).replace('{fail}', String(fail)));
     }, [endpoints, containers, t, toast]);
 
 
@@ -636,7 +636,7 @@ export default function BotBackend() {
 
     return (
         <Box sx={{ p: { xs: 2, md: 4 }, maxWidth: 1200, mx: 'auto' }}>
-            {/* 页头 + 统计概览 */}
+            {/* 椤靛ご + 缁熻姒傝 */}
             <Box sx={{ mb: 3, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
                 <Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 0.5 }}>
@@ -650,10 +650,10 @@ export default function BotBackend() {
                         </Box>
                         <Box>
                             <Typography variant="h5" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                                {t('botRadar.title')}
+                                {t('botBackend.title')}
                             </Typography>
                             <Typography variant="caption" color="text.secondary">
-                                {t('botRadar.subtitle')}
+                                {t('botBackend.subtitle')}
                             </Typography>
                         </Box>
                     </Box>
@@ -661,9 +661,9 @@ export default function BotBackend() {
                 {endpoints.length > 0 && (
                     <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
                         {[
-                            { label: t('botRadar.online'), value: onlineCount, color: '#22c55e' },
-                            { label: t('botRadar.offline'), value: offlineCount, color: '#ef4444' },
-                            { label: t('botRadar.unknown'), value: unknownCount, color: '#9ca3af' },
+                            { label: t('botBackend.online'), value: onlineCount, color: '#22c55e' },
+                            { label: t('botBackend.offline'), value: offlineCount, color: '#ef4444' },
+                            { label: t('botBackend.unknown'), value: unknownCount, color: '#9ca3af' },
                         ].map(s => (
                             <Box key={s.label} sx={{
                                 px: 2, py: 1, borderRadius: 2.5,
@@ -680,7 +680,7 @@ export default function BotBackend() {
                 )}
             </Box>
 
-            {/* 工具栏 */}
+            {/* 宸ュ叿鏍?*/}
             <Box sx={{
                 p: 2, mb: 3, borderRadius: 3,
                 bgcolor: isDark ? 'rgba(30,30,36,0.4)' : 'rgba(255,255,255,0.5)',
@@ -691,7 +691,7 @@ export default function BotBackend() {
                 <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                     <TextField
                         size="small"
-                        placeholder={t('botRadar.urlPlaceholder')}
+                        placeholder={t('botBackend.urlPlaceholder')}
                         value={newUrl} onChange={e => setNewUrl(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && handleAdd()}
                         sx={{
@@ -709,7 +709,7 @@ export default function BotBackend() {
                             background: 'linear-gradient(135deg, #3b82f6, #2563eb)',
                             '&:hover': { background: 'linear-gradient(135deg, #2563eb, #1d4ed8)' },
                         }}>
-                        {t('botRadar.addEndpoint')}
+                        {t('botBackend.addEndpoint')}
                     </Button>
                     <Button variant="outlined" disableElevation startIcon={<AutoAwesomeIcon />}
                         onClick={handleAutoCollect} disabled={collectingBS}
@@ -718,7 +718,7 @@ export default function BotBackend() {
                             borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
                         }}>
                         {collectingBS ? <CircularProgress size={14} sx={{ mr: 0.5 }} /> : null}
-                        {t('botRadar.autoCollect')}
+                        {t('botBackend.autoCollect')}
                     </Button>
                     {endpoints.length > 0 && (
                         <Button variant="outlined" disableElevation startIcon={<RadarIcon />}
@@ -727,13 +727,13 @@ export default function BotBackend() {
                                 borderRadius: 2, textTransform: 'none', fontWeight: 600, height: 38,
                                 borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)',
                             }}>
-                            {t('botRadar.probeAll')}
+                            {t('botBackend.probeAll')}
                         </Button>
                     )}
                 </Box>
             </Box>
 
-            {/* 端点卡片列表 */}
+            {/* 绔偣鍗＄墖鍒楄〃 */}
             {endpoints.length === 0 ? (
                 <Box sx={{
                     py: 8, textAlign: 'center', borderRadius: 4,
@@ -742,10 +742,10 @@ export default function BotBackend() {
                 }}>
                     <RadarIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1.5 }} />
                     <Typography color="text.secondary" sx={{ fontSize: '0.9rem' }}>
-                        {t('botRadar.noEndpoints')}
+                        {t('botBackend.noEndpoints')}
                     </Typography>
                     <Typography color="text.disabled" sx={{ fontSize: '0.78rem', mt: 0.5 }}>
-                        {t('botRadar.urlPlaceholder')}
+                        {t('botBackend.urlPlaceholder')}
                     </Typography>
                 </Box>
             ) : (
@@ -770,3 +770,4 @@ export default function BotBackend() {
         </Box>
     );
 }
+

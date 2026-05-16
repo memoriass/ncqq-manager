@@ -650,8 +650,8 @@ export interface BSAccountsResponse {
     accounts: Record<string, BSAccount>;
 }
 
-/** Bot 雷达端点库条目 */
-export interface RadarEndpoint {
+/** Bot 后端端点库条目 */
+export interface BackendEndpoint {
     alias: string;       // 别名（唯一标识，用于 inject-by-alias 调用）
     url: string;         // ws:// 地址
     token: string;       // 可选 Bearer token
@@ -689,10 +689,10 @@ export const botshepherdApi = {
             '/botshepherd/probe-target',
             { method: 'POST', body: JSON.stringify({ url, token: token ?? '' }) },
         ),
-    // Bot 雷达端点库（持久化）
-    radarEndpoints: () =>
-        request<{ status: string; endpoints: RadarEndpoint[] }>('/botshepherd/radar/endpoints'),
-    saveRadarEndpoints: (endpoints: RadarEndpoint[]) =>
+    // Bot 后端端点库（持久化）
+    backendEndpoints: () =>
+        request<{ status: string; endpoints: BackendEndpoint[] }>('/botshepherd/radar/endpoints'),
+    saveBackendEndpoints: (endpoints: BackendEndpoint[]) =>
         request<{ status: string; count: number }>(
             '/botshepherd/radar/endpoints',
             { method: 'POST', body: JSON.stringify({ endpoints }) },
