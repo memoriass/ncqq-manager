@@ -173,6 +173,10 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
         return () => clearInterval(timer);
     }, [name]);
 
+    // 实时消息 WebSocket — 仅在 ChatPanel 挂载时连接
+    interface WsMsg { type: string; messages?: BotMessage[] }
+    const { data: wsData } = useWebSocket<WsMsg>({ path: `/ws/bot_messages/${name}` });
+
     // 从 WS 消息更新会话列表的 lastMsg
     useEffect(() => {
         if (!wsData || !wsData.messages || wsData.messages.length === 0) return;
@@ -189,10 +193,6 @@ function ChatPanel({ name, glass }: { name: string; glass: Record<string, unknow
             return updated.sort((a, b) => b.lastTime - a.lastTime);
         });
     }, [wsData]);
-
-    // 实时消息 WebSocket — 仅在 ChatPanel 挂载时连接
-    interface WsMsg { type: string; messages?: BotMessage[] }
-    const { data: wsData } = useWebSocket<WsMsg>({ path: `/ws/bot_messages/${name}` });
 
     // WS 推送到达时更新消息列表
     useEffect(() => {

@@ -41,7 +41,10 @@ Wants=network.target docker.service
 Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${PROJECT_DIR}
+Environment=LANG=C.UTF-8
+Environment=LC_ALL=C.UTF-8
 Environment=PYTHONIOENCODING=utf-8
+Environment=PYTHONUTF8=1
 Environment=UV_PROJECT_ENVIRONMENT=${PROJECT_DIR}/.venv
 Environment=BOTSHEPHERD_SECRET_KEY=systemd-autostart-managed
 ExecStart=${UV_BIN} run ${PYTHON_BIN} ${PROJECT_DIR}/start.py --skip-build

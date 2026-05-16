@@ -15,6 +15,12 @@ import argparse
 import shutil
 import re
 
+if sys.platform != "win32":
+    os.environ.setdefault("LANG", "C.UTF-8")
+    os.environ.setdefault("LC_ALL", "C.UTF-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 FRONTEND_DIST = os.path.join(FRONTEND_DIR, "dist")
@@ -53,7 +59,14 @@ def ensure_uv_runtime() -> None:
     info(f"uv 可执行文件: {uv_bin}")
     if not os.path.isdir(PROJECT_VENV_DIR):
         info("未发现项目 .venv，正在使用 uv 创建")
-        r = subprocess.run([uv_bin, "venv", PROJECT_VENV_DIR], capture_output=True, text=True, cwd=BASE_DIR)
+        r = subprocess.run(
+            [uv_bin, "venv", PROJECT_VENV_DIR],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=BASE_DIR,
+        )
         if r.returncode != 0:
             fail("uv venv 创建失败:\n" + (r.stderr or r.stdout))
             sys.exit(1)
@@ -130,15 +143,36 @@ def check_pip_deps():
     uv_bin = _find_uv_bin()
 
     if os.path.exists(pyproject):
-        r = subprocess.run([uv_bin, "sync", "--frozen"], capture_output=True, text=True, cwd=BASE_DIR)
+        r = subprocess.run(
+            [uv_bin, "sync", "--frozen"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=BASE_DIR,
+        )
         if r.returncode != 0:
-            r = subprocess.run([uv_bin, "sync"], capture_output=True, text=True, cwd=BASE_DIR)
+            r = subprocess.run(
+                [uv_bin, "sync"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=BASE_DIR,
+            )
             if r.returncode != 0:
                 fail("uv sync 失败:\n" + (r.stderr or r.stdout))
                 sys.exit(1)
         info("uv sync 完成")
     elif os.path.exists(req):
-        r = subprocess.run([uv_bin, "pip", "install", "-q", "-r", req], capture_output=True, text=True, cwd=BASE_DIR)
+        r = subprocess.run(
+            [uv_bin, "pip", "install", "-q", "-r", req],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=BASE_DIR,
+        )
         if r.returncode != 0:
             fail("uv pip install 失败:\n" + (r.stderr or r.stdout))
             sys.exit(1)
@@ -174,7 +208,13 @@ def check_node():
         warn("请安装 Node.js >= 18: https://nodejs.org/")
         return False
 
-    v = subprocess.run([node, "--version"], capture_output=True, text=True)
+    v = subprocess.run(
+        [node, "--version"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     version_raw = v.stdout.strip()
     m = re.match(r"v?(\d+)\.(\d+)\.(\d+)", version_raw)
     if not m:
@@ -221,13 +261,24 @@ def check_docker():
         warn("未检测到 Docker，容器管理功能将不可用")
         warn("请安装 Docker >= 20.10: https://docs.docker.com/get-docker/")
         return
-    r = subprocess.run(["docker", "info"], capture_output=True, text=True)
+    r = subprocess.run(
+        ["docker", "info"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if r.returncode != 0:
         warn("Docker 已安装但未运行或无权限")
         return
     # 检查版本号
-    rv = subprocess.run(["docker", "version", "--format", "{{.Server.Version}}"],
-                        capture_output=True, text=True)
+    rv = subprocess.run(
+        ["docker", "version", "--format", "{{.Server.Version}}"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     ver_str = rv.stdout.strip() if rv.returncode == 0 else ""
     m = re.match(r"(\d+)\.(\d+)", ver_str)
     if m:
@@ -275,7 +326,11 @@ def _ensure_bs_deps(uv_bin: str) -> bool:
         info("正在为 BotShepherd 创建 uv 虚拟环境 (venv)...")
         r = subprocess.run(
             [uv_bin, "venv", "venv", "--seed"],
-            capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=BOTSHEPHERD_DIR,
         )
         if r.returncode != 0:
             warn("BotShepherd uv venv 创建失败:\n" + (r.stderr or r.stdout))
@@ -286,8 +341,13 @@ def _ensure_bs_deps(uv_bin: str) -> bool:
     env = {**os.environ, "VIRTUAL_ENV": venv_dir, "PYTHONIOENCODING": "utf-8"}
     r = subprocess.run(
         [uv_bin, "pip", "install", "-q", "-r", "requirements.txt"],
-        capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
-        env=env, timeout=300,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=BOTSHEPHERD_DIR,
+        env=env,
+        timeout=300,
     )
     if r.returncode != 0:
         warn("BotShepherd 依赖安装失败:\n" + (r.stderr or r.stdout))
@@ -326,8 +386,13 @@ def check_botshepherd():
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
     r = subprocess.run(
         [python, "main.py", "--setup"],
-        capture_output=True, text=True, cwd=BOTSHEPHERD_DIR,
-        timeout=300, env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=BOTSHEPHERD_DIR,
+        timeout=300,
+        env=env,
     )
     if r.returncode != 0:
         warn("BotShepherd 初始化失败，可在管理面板中重试")

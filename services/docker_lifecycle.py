@@ -35,7 +35,7 @@ class LifecycleMixin:
         """写入 BS 注入完成标记文件（幂等）。"""
         marker = LifecycleMixin._bs_inject_marker_path(data_dir_base, name, uin)
         os.makedirs(os.path.dirname(marker), exist_ok=True)
-        with open(marker, "w") as f:
+        with open(marker, "w", encoding="utf-8") as f:
             f.write(uin)
 
     @staticmethod

@@ -12,12 +12,12 @@ BS 连接健康监控服务（BSActivationService）
   /ws/napcat/{name} 是管理器的 WS Server 端点，BS 作为 proxy
   连过来（通过 target_endpoints 配置）。本服务监控这一链路是否健康。
 """
+
 import asyncio
 import time
 from typing import Any, Dict, List, Optional
 
 from services.log import logger
-
 
 # 健康检查间隔（秒）
 _CHECK_INTERVAL = 30
@@ -40,17 +40,17 @@ class BSActivationService:
         self._running = False
         self._state: Dict[str, Any] = {
             "enabled": False,
-            "status": "idle",           # idle / checking / active / error
-            "connected": False,         # 至少一个连接有管理器端点且 WS 存活
+            "status": "idle",  # idle / checking / active / error
+            "connected": False,  # 至少一个连接有管理器端点且 WS 存活
             "source": "bs_activation",
             "last_error": "",
             "last_check_at": 0.0,
             # 连接统计
             "total_connections": 0,
-            "managed_connections": 0,    # 包含管理器端点的连接数
-            "active_connections": 0,     # WS 存活的连接数
-            "injected_connections": 0,   # 本次自动修复注入的连接数
-            "missing_endpoints": [],     # 缺失管理器端点的连接 name 列表
+            "managed_connections": 0,  # 包含管理器端点的连接数
+            "active_connections": 0,  # WS 存活的连接数
+            "injected_connections": 0,  # 本次自动修复注入的连接数
+            "missing_endpoints": [],  # 缺失管理器端点的连接 name 列表
             # 连接明细（供前端展示）
             "connections": [],
         }
@@ -65,6 +65,7 @@ class BSActivationService:
         """返回管理器 WS 端点的 URL 前缀（基于当前配置），用于匹配 target_endpoints。"""
         try:
             from services.config import app_config
+
             host = str(app_config.get("manager_host", "127.0.0.1"))
             port = int(app_config.get("manager_port", 8000))
             return f"ws://{host}:{port}/ws/napcat/"
@@ -75,6 +76,7 @@ class BSActivationService:
         """返回兼容端点的 URL（基于当前配置），用于匹配 target_endpoints。"""
         try:
             from services.config import app_config
+
             host = str(app_config.get("manager_host", "127.0.0.1"))
             port = int(app_config.get("manager_port", 8000))
             return f"ws://{host}:{port}/ws/onebot/v11/ws"
@@ -89,6 +91,7 @@ class BSActivationService:
         """
         try:
             from services.config import app_config
+
             host = str(app_config.get("manager_host", "127.0.0.1"))
             port = int(app_config.get("manager_port", 8000))
         except Exception:
@@ -104,6 +107,7 @@ class BSActivationService:
         """返回兼容端点的所有可能 host 变体。"""
         try:
             from services.config import app_config
+
             host = str(app_config.get("manager_host", "127.0.0.1"))
             port = int(app_config.get("manager_port", 8000))
         except Exception:
@@ -118,6 +122,7 @@ class BSActivationService:
         """程序启动时调用：BS 已在运行则自动启动监控，无需手动开关。"""
         try:
             from services.botshepherd import botshepherd_manager
+
             if botshepherd_manager.running:
                 logger.info("BS 已在运行，自动启动连接健康监控")
                 await self.start()
@@ -139,17 +144,23 @@ class BSActivationService:
         url/token 参数保留接口兼容性，但不再作为 WS 客户端连接目标使用。
         """
         if self._task and not self._task.done():
-            return {"success": True, "message": "already running", "activation": self.status()}
+            return {
+                "success": True,
+                "message": "already running",
+                "activation": self.status(),
+            }
 
         # ★ 确保 BS 中间件已启动
         bs_started = await asyncio.to_thread(self._ensure_bs_running)
 
         self._running = True
-        self._state.update({
-            "enabled": True,
-            "status": "checking",
-            "last_error": "",
-        })
+        self._state.update(
+            {
+                "enabled": True,
+                "status": "checking",
+                "last_error": "",
+            }
+        )
         self._task = asyncio.create_task(self._monitor_loop())
         self._save_config(True)
         msg = "started"
@@ -161,17 +172,22 @@ class BSActivationService:
         """确保 BS 中间件进程已启动。返回 True 表示本次调用触发了启动。"""
         try:
             from services.botshepherd import botshepherd_manager
+
             if botshepherd_manager.running:
                 return False
             if not botshepherd_manager.installed or not botshepherd_manager.initialized:
                 logger.debug("BS 未安装或未初始化，跳过自动启动")
                 return False
-            result = await asyncio.to_thread(botshepherd_manager.start)
+            result = botshepherd_manager.start()
             if result.get("status") == "ok":
-                logger.info("连接健康监控自动启动了 BS 中间件: %s", result.get("message"))
+                logger.info(
+                    "连接健康监控自动启动了 BS 中间件: %s", result.get("message")
+                )
                 return True
             else:
-                logger.warning("连接健康监控尝试启动 BS 失败: %s", result.get("message"))
+                logger.warning(
+                    "连接健康监控尝试启动 BS 失败: %s", result.get("message")
+                )
                 return False
         except Exception as e:
             logger.warning("连接健康监控启动 BS 异常: %s", e)
@@ -212,10 +228,14 @@ class BSActivationService:
             try:
                 # ★ BS 崩溃自动恢复
                 from services.botshepherd import botshepherd_manager
+
                 if not botshepherd_manager.running:
-                    wait = min(10 * (2 ** _restart_backoff), 120)
-                    logger.warning("BS 进程未运行，%ds 后尝试自动重启（第 %d 次）",
-                                   wait, _restart_backoff + 1)
+                    wait = min(10 * (2**_restart_backoff), 120)
+                    logger.warning(
+                        "BS 进程未运行，%ds 后尝试自动重启（第 %d 次）",
+                        wait,
+                        _restart_backoff + 1,
+                    )
                     await asyncio.sleep(wait)
                     if not self._running:
                         break
@@ -234,11 +254,13 @@ class BSActivationService:
             except asyncio.CancelledError:
                 raise
             except Exception as e:
-                self._state.update({
-                    "status": "error",
-                    "last_error": str(e),
-                    "connected": False,
-                })
+                self._state.update(
+                    {
+                        "status": "error",
+                        "last_error": str(e),
+                        "connected": False,
+                    }
+                )
                 logger.warning("BS 连接健康检查异常: %s", e)
 
             if self._running:
@@ -250,18 +272,20 @@ class BSActivationService:
         from services.napcat_ws_service import napcat_ws_service
 
         if not botshepherd_manager.running:
-            self._state.update({
-                "status": "active",
-                "connected": False,
-                "last_check_at": time.time(),
-                "total_connections": 0,
-                "managed_connections": 0,
-                "active_connections": 0,
-                "injected_connections": 0,
-                "missing_endpoints": [],
-                "connections": [],
-                "last_error": "",
-            })
+            self._state.update(
+                {
+                    "status": "active",
+                    "connected": False,
+                    "last_check_at": time.time(),
+                    "total_connections": 0,
+                    "managed_connections": 0,
+                    "active_connections": 0,
+                    "injected_connections": 0,
+                    "missing_endpoints": [],
+                    "connections": [],
+                    "last_error": "",
+                }
+            )
             return
 
         # 拉取 BS connections
@@ -319,30 +343,34 @@ class BSActivationService:
             if ws_alive:
                 active += 1
 
-            conn_details.append({
-                "id": conn_id,
-                "name": conn_name,
-                "enabled": enabled,
-                "client_status": client_status,
-                "ws_alive": ws_alive,
-                "has_manager_endpoint": has_mgr,
-                "ws_registered": ws_registered,
-                "self_id": self_id,
-                "last_seen": time.time() if ws_alive else 0,
-            })
+            conn_details.append(
+                {
+                    "id": conn_id,
+                    "name": conn_name,
+                    "enabled": enabled,
+                    "client_status": client_status,
+                    "ws_alive": ws_alive,
+                    "has_manager_endpoint": has_mgr,
+                    "ws_registered": ws_registered,
+                    "self_id": self_id,
+                    "last_seen": time.time() if ws_alive else 0,
+                }
+            )
 
-        self._state.update({
-            "status": "active",
-            "connected": active > 0 and managed > 0,
-            "last_check_at": time.time(),
-            "total_connections": total,
-            "managed_connections": managed,
-            "active_connections": active,
-            "injected_connections": 0,
-            "missing_endpoints": missing_names,
-            "connections": conn_details,
-            "last_error": "",
-        })
+        self._state.update(
+            {
+                "status": "active",
+                "connected": active > 0 and managed > 0,
+                "last_check_at": time.time(),
+                "total_connections": total,
+                "managed_connections": managed,
+                "active_connections": active,
+                "injected_connections": 0,
+                "missing_endpoints": missing_names,
+                "connections": conn_details,
+                "last_error": "",
+            }
+        )
 
         if missing_names:
             logger.info("BS 连接缺失管理器端点: %s", missing_names)

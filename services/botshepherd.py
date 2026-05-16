@@ -17,6 +17,12 @@ import aiohttp
 from services.log import logger
 from services.config import BASE_DIR
 
+if sys.platform != "win32":
+    os.environ.setdefault("LANG", "C.UTF-8")
+    os.environ.setdefault("LC_ALL", "C.UTF-8")
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+
 
 def _resolve_botshepherd_dir() -> str:
     """在 BASE_DIR 下查找 BotShepherd 目录，大小写不敏感（兼容 Linux/Windows）。"""
@@ -70,6 +76,8 @@ def _bs_ensure_venv(uv_bin: str) -> bool:
             [uv_bin, "venv", "venv", "--seed"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=BOTSHEPHERD_DIR,
         )
         if r.returncode != 0:
@@ -81,6 +89,8 @@ def _bs_ensure_venv(uv_bin: str) -> bool:
         [uv_bin, "pip", "install", "-q", "-r", "requirements.txt"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         cwd=BOTSHEPHERD_DIR,
         env=env,
         timeout=300,
@@ -284,6 +294,8 @@ class BotShepherdManager:
             [python, "main.py", "--setup"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=BOTSHEPHERD_DIR,
             timeout=300,
             env=env,
@@ -317,6 +329,8 @@ class BotShepherdManager:
             [uv_bin, "pip", "install", "-q", "-r", req_file],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=BOTSHEPHERD_DIR,
             env=env,
             timeout=300,
@@ -336,7 +350,11 @@ class BotShepherdManager:
                     ["wmic", "process", "where",
                      "commandline like '%BotShepherd%main.py%' and name like '%python%'",
                      "get", "processid"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=5,
                 )
                 for line in r.stdout.splitlines():
                     line = line.strip()
@@ -350,7 +368,11 @@ class BotShepherdManager:
                 import re as _re
                 r = subprocess.run(
                     ["ps", "aux"],
-                    capture_output=True, text=True, timeout=5,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=5,
                 )
                 for line in r.stdout.splitlines():
                     if "BotShepherd" in line and "main.py" in line and "python" in line.lower():
