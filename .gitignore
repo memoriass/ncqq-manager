@@ -43,10 +43,14 @@ data/
 # Migration leftovers
 *.migrated
 
+# Text artifacts
+*.txt
+!requirements.txt
+!requirements-dev.txt
+
 
 # Local runtime / temp
 .venv/
 venv/
 logs/
-*.txt
 ~/
