@@ -1,0 +1,45 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - quickstart</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-quickstart">
+<h1>快速启动脚本</h1>
+<p>项目提供了 <code>start.py</code> 一键部署脚本，自动完成环境检查、依赖安装、前端构建和服务启动。</p>
+
+<h2>基本用法</h2>
+<pre><code># 默认启动（端口 8000）
+python start.py
+
+# 指定端口
+python start.py --port 9000
+
+# 跳过前端构建（已构建过）
+python start.py --skip-build
+
+# 开发模式（代码热重载）
+python start.py --dev</code></pre>
+
+<h2>脚本执行流程</h2>
+<div class="card">
+<ol>
+<li><strong>检查 Python 版本</strong> — 确认 ≥ 3.10</li>
+<li><strong>安装 Python 依赖</strong> — 自动 <code>pip install -r requirements.txt</code></li>
+<li><strong>检查 Docker</strong> — 验证 Docker 服务是否运行</li>
+<li><strong>检查 Node.js</strong> — 验证 npm 是否可用</li>
+<li><strong>构建前端</strong> — 自动 <code>npm install && npm run build</code></li>
+<li><strong>启动服务</strong> — 以 Uvicorn 运行 FastAPI 应用</li>
+</ol>
+</div>
+
+<div class="tip">如果前端已构建过（<code>frontend/dist/</code> 存在），脚本会自动跳过构建步骤。使用 <code>--dev</code> 可强制重新构建。</div>
+</div>
+
+<!-- ====== 管理面板 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

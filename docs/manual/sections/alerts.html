@@ -1,0 +1,57 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - alerts</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-alerts">
+<h1>告警设置</h1>
+<p>告警功能支持三种通知渠道：Webhook、QQ 通知、SMTP 邮箱。当 Bot 掉线或容器异常时自动推送通知。</p>
+
+<h2>通知渠道</h2>
+<table>
+<tr><th>渠道</th><th>触发方式</th><th>适用场景</th></tr>
+<tr><td><strong>QQ 通知</strong></td><td>通过在线的哨兵 Bot 发送私聊/群聊消息</td><td>最即时，适合个人或小群运维</td></tr>
+<tr><td><strong>SMTP 邮箱</strong></td><td>发送邮件到指定收件人，附带扫码链接</td><td>适合需要邮件归档的团队</td></tr>
+<tr><td><strong>Webhook</strong></td><td>POST JSON 到指定 URL</td><td>对接企业微信/钉钉/飞书/AstrBot 等</td></tr>
+</table>
+
+<h2>QQ 通知</h2>
+<p>选择一个或多个在线 Bot 作为哨兵（sender_bots），指定通知目标（私聊 QQ 号或群号）。当任意被监控的 Bot 掉线时，系统从哨兵列表中选取第一个在线的 Bot 发送告警消息。</p>
+<div class="tip">哨兵 Bot 的在线状态由管理器与互联插件的 WS 连接决定（<code>bot_online</code> 字段），不依赖 OB11 WS 连接状态。</div>
+
+<h2>SMTP 邮箱通知</h2>
+<ol>
+<li>在告警设置页面配置统一的 SMTP 发件服务（Host/端口/用户名/密码/SSL）</li>
+<li>点击「添加 SMTP 邮箱通知」，选择要监听的容器，填入收件邮箱</li>
+<li>可选填「面板公网地址」，掉线邮件中会包含扫码链接</li>
+</ol>
+<div class="tip">每条 SMTP 规则可独立指定收件邮箱，支持逗号分隔多个地址。规则创建后可点击「测试」验证邮件发送。</div>
+
+<h2>Webhook 告警</h2>
+<p>创建规则时指定告警类型和 Webhook URL，触发时 POST JSON payload。</p>
+
+<h3>告警类型</h3>
+<table>
+<tr><th>类型</th><th>说明</th></tr>
+<tr><td><code>instance_offline</code></td><td>实例停止/离线</td></tr>
+<tr><td><code>login_lost</code></td><td>账号掉线/需扫码</td></tr>
+<tr><td><code>instance_online</code></td><td>实例上线</td></tr>
+<tr><td><code>container_stop</code></td><td>容器停止</td></tr>
+<tr><td><code>high_cpu</code></td><td>CPU 超限</td></tr>
+<tr><td><code>high_mem</code></td><td>内存超限</td></tr>
+<tr><td><code>login_failure</code></td><td>登录失败</td></tr>
+</table>
+
+<h2>允许所有 IP 访问</h2>
+<p>默认启用 SSRF 防护，Webhook URL 不可指向内网地址。如果通知插件与管理器同机部署，开启此开关允许 localhost/内网 IP。</p>
+<div class="tip">Webhook 格式兼容 AstrBot Webhook Push 插件：<code>http://&lt;IP&gt;:60071/common-webhook</code></div>
+</div>
+
+<!-- ====== 备份恢复 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

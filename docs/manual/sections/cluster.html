@@ -1,0 +1,52 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - cluster</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-cluster">
+<h1>集群配置</h1>
+
+<h2>节点管理</h2>
+<p>NapCat Manager 支持多节点集群部署，可从一个面板管理多台服务器上的容器实例。</p>
+
+<h3>本地节点</h3>
+<p>安装后自动创建 <code>local</code> 节点，指向本机 Docker 引擎。</p>
+
+<h3>添加远程节点</h3>
+<ol>
+<li>在远程服务器安装 NapCat Manager</li>
+<li>记录远程服务的 <strong>地址:端口</strong> 和集群设置页面中的 <code>api_key</code></li>
+<li>在本机管理面板 → 节点管理 → 添加节点，填入地址和 API Key</li>
+</ol>
+
+<h2>密钥体系</h2>
+<div class="card">
+<table>
+<tr><th>存储位置</th><th>字段</th><th>作用</th></tr>
+<tr><td><code>SQLite settings 表</code></td><td><code>api_key</code></td><td>本机集群通信密钥 — 其他节点访问本机时使用此 Key 认证（可在集群设置页面修改）</td></tr>
+<tr><td><code>SQLite nodes 表</code></td><td><code>api_key</code></td><td>节点代理凭证 — 本机访问远程节点时携带对方的 Key</td></tr>
+<tr><td><code>SQLite users 表</code></td><td><code>apiKey</code></td><td>用户 API Key — 用于免登录 API 调用认证</td></tr>
+</table>
+</div>
+
+<div class="warning">远程节点的 <code>api_key</code> 必须与对方节点集群设置中的 <code>api_key</code> 一致，否则代理请求会被拒绝（401）。</div>
+
+<h2>全局设置</h2>
+<table>
+<tr><th>参数</th><th>说明</th><th>默认值</th></tr>
+<tr><td><code>webui_base_port</code></td><td>NapCat WebUI 端口起始值</td><td>6000</td></tr>
+<tr><td><code>http_base_port</code></td><td>HTTP 服务端口起始值</td><td>3000</td></tr>
+<tr><td><code>ws_base_port</code></td><td>WebSocket 端口起始值</td><td>3001</td></tr>
+<tr><td><code>docker_image</code></td><td>默认 Docker 镜像</td><td><code>mlikiowa/napcat-docker:latest</code></td></tr>
+<tr><td><code>data_dir</code></td><td>实例数据根目录</td><td>项目根目录下的 <code>data/</code></td></tr>
+</table>
+</div>
+
+<!-- ====== 文件管理 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

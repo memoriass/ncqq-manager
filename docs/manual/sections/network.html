@@ -1,0 +1,152 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - network</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-network">
+<h1>网络配置</h1>
+<p>网络配置面板提供 OneBot 11 协议端点的可视化管理，支持 HTTP、WebSocket、SSE 等多种通信方式。</p>
+
+<h2>端点类型</h2>
+<table>
+<tr><th>类型</th><th>说明</th><th>用途</th></tr>
+<tr><td>HTTP 服务器</td><td>监听 HTTP 请求</td><td>接收框架主动调用</td></tr>
+<tr><td>HTTP SSE 服务器</td><td>Server-Sent Events</td><td>推送事件流</td></tr>
+<tr><td>HTTP 客户端</td><td>主动上报</td><td>向指定 URL 推送事件</td></tr>
+<tr><td>WebSocket 服务器</td><td>WS 监听</td><td>双向实时通信</td></tr>
+<tr><td>WebSocket 客户端</td><td>WS 连接</td><td>主动连接到框架</td></tr>
+</table>
+
+<h2>操作</h2>
+<ul>
+<li>点击"添加端点"选择类型并填入 URL/端口等参数</li>
+<li>编辑已有端点的地址、Token 等配置</li>
+<li>删除不需要的端点</li>
+<li>保存后自动写入 OneBot 配置文件</li>
+</ul>
+
+<h2>后端注入网络配置 API</h2>
+<p>通过 REST 接口可直接将网络端点配置写入容器的 <code>onebot11_{uin}.json</code>，仅覆盖请求中出现的键，其余键保持不变。</p>
+<table>
+<tr><th>字段</th><th>值</th></tr>
+<tr><td>路径</td><td><code>POST /api/containers/{name}/inject-network-config</code></td></tr>
+<tr><td>认证</td><td>需要管理员 Session Cookie</td></tr>
+<tr><td>Content-Type</td><td><code>application/json</code></td></tr>
+</table>
+<table>
+<tr><th>请求体字段</th><th>类型</th><th>说明</th></tr>
+<tr><td><code>uin</code></td><td>string</td><td>目标账号 UIN，默认 <code>"default"</code></td></tr>
+<tr><td><code>node_id</code></td><td>string</td><td>节点 ID，默认 <code>"local"</code></td></tr>
+<tr><td><code>network</code></td><td>object</td><td>网络端点键值，见下方示例</td></tr>
+</table>
+<div class="tip">⚠️ 写入时按键覆盖：<code>network</code> 内每个键的值会整体替换原文件中对应键的列表，不做追加合并。</div>
+
+<h2>五种端点配置 JSON 参考</h2>
+<p>以下示例均为完整 <code>network</code> 对象中的单个端点配置，可按需组合传入。</p>
+
+<h3>① WebSocket 客户端（最常用 — 主动连接到 Bot 框架）</h3>
+<pre><code>{
+  "uin": "123456789",
+  "network": {
+    "websocketClients": [
+      {
+        "name": "主框架",
+        "enable": true,
+        "url": "ws://127.0.0.1:8080/onebot/v11/ws",
+        "token": "your_access_token",
+        "reportSelfMessage": false,
+        "messagePostFormat": "array",
+        "debug": false,
+        "heartInterval": 30000,
+        "reconnectInterval": 5000
+      }
+    ]
+  }
+}</code></pre>
+
+<h3>② WebSocket 服务器（监听 WS 连接，框架主动连入）</h3>
+<pre><code>{
+  "uin": "123456789",
+  "network": {
+    "websocketServers": [
+      {
+        "name": "WS服务端",
+        "enable": true,
+        "host": "0.0.0.0",
+        "port": 3001,
+        "token": "your_access_token",
+        "reportSelfMessage": false,
+        "messagePostFormat": "array",
+        "debug": false,
+        "heartInterval": 30000
+      }
+    ]
+  }
+}</code></pre>
+
+<h3>③ HTTP 服务器（接收框架的 API 调用）</h3>
+<pre><code>{
+  "uin": "123456789",
+  "network": {
+    "httpServers": [
+      {
+        "name": "HTTP服务端",
+        "enable": true,
+        "host": "0.0.0.0",
+        "port": 3000,
+        "token": "your_access_token",
+        "enableCors": false,
+        "enableWebsocket": false,
+        "messagePostFormat": "array",
+        "debug": false
+      }
+    ]
+  }
+}</code></pre>
+
+<h3>④ HTTP 客户端（主动上报事件到指定 URL）</h3>
+<pre><code>{
+  "uin": "123456789",
+  "network": {
+    "httpClients": [
+      {
+        "name": "事件上报",
+        "enable": true,
+        "url": "http://127.0.0.1:5700",
+        "token": "your_access_token",
+        "reportSelfMessage": false,
+        "messagePostFormat": "array",
+        "debug": false
+      }
+    ]
+  }
+}</code></pre>
+
+<h3>⑤ HTTP SSE 服务器（Server-Sent Events 推送事件流）</h3>
+<pre><code>{
+  "uin": "123456789",
+  "network": {
+    "httpSseServers": [
+      {
+        "name": "SSE推送",
+        "enable": true,
+        "host": "0.0.0.0",
+        "port": 3002,
+        "token": "your_access_token",
+        "reportSelfMessage": false,
+        "messagePostFormat": "array",
+        "debug": false
+      }
+    ]
+  }
+}</code></pre>
+</div>
+
+<!-- ====== 告警设置 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - container</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-container">
+<h1>容器管理</h1>
+
+<h2>创建容器</h2>
+<p>在管理面板中点击"创建容器"按钮，填写以下信息：</p>
+<table>
+<tr><th>字段</th><th>说明</th><th>示例</th></tr>
+<tr><td>容器名称</td><td>唯一标识，仅允许字母、数字、连字符、下划线和点号，1-64 字符，以字母或数字开头</td><td><code>napcat-bot-01</code></td></tr>
+<tr><td>QQ 账号</td><td>要登录的 QQ 号</td><td><code>123456789</code></td></tr>
+<tr><td>Docker 镜像</td><td>可选，默认使用全局配置</td><td><code>mlikiowa/napcat-docker:latest</code></td></tr>
+</table>
+
+<div class="tip">创建容器时，系统会自动分配端口并创建数据目录（<code>data/{name}/</code>），包括 QQ 数据、NapCat 配置、插件和缓存四个子目录。</div>
+
+<h2>容器操作</h2>
+<table>
+<tr><th>操作</th><th>说明</th></tr>
+<tr><td>▶ 启动</td><td>启动已停止的容器</td></tr>
+<tr><td>⏹ 停止</td><td>正常停止容器</td></tr>
+<tr><td>🔄 重启</td><td>重启容器</td></tr>
+<tr><td>🗑 删除</td><td>删除容器，可选是否同时删除数据目录</td></tr>
+</table>
+
+<h2>容器详情</h2>
+<p>点击容器卡片进入详情页，包含以下功能标签：</p>
+<ul>
+<li><strong>基本信息</strong> — 运行状态、资源用量、QR 码登录</li>
+<li><strong>网络配置</strong> — OneBot 11 HTTP/WebSocket/SSE 端点管理</li>
+<li><strong>文件管理</strong> — 在线浏览和编辑容器配置文件</li>
+<li><strong>日志查看</strong> — 实时查看容器运行日志</li>
+<li><strong>Bot 管理</strong> — 消息监控、消息发送、群管理与运行状态查看（详见 <a href="#" onclick="showSection('botmanager')">Bot 管理</a> 章节）</li>
+</ul>
+
+<h2>数据目录结构</h2>
+<pre><code>data/{容器名}/
+├── qq_data/        # QQ 数据（挂载到 /app/.config/QQ）
+├── config/         # NapCat 配置文件
+│   ├── napcat.json           # NapCat 主配置
+│   └── onebot11_*.json       # OneBot 网络配置
+├── plugins/        # NapCat 插件目录
+└── cache/          # 缓存目录</code></pre>
+</div>
+
+<!-- ====== 用户管理 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

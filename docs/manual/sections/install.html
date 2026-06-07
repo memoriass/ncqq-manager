@@ -1,0 +1,83 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - install</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-install">
+<h1>安装部署</h1>
+
+<h2>环境要求</h2>
+<table>
+<tr><th>组件</th><th>版本要求</th><th>用途</th></tr>
+<tr><td>Python</td><td>≥ 3.10</td><td>后端运行时</td></tr>
+<tr><td>Node.js</td><td>≥ 16</td><td>前端构建（仅部署时需要）</td></tr>
+<tr><td>Docker</td><td>≥ 20.10</td><td>容器管理功能</td></tr>
+<tr><td>操作系统</td><td>Windows / Linux / macOS</td><td>均支持</td></tr>
+</table>
+
+<h2>方式一：Docker Compose 部署（推荐）</h2>
+<pre><code># 获取源码
+git clone https://github.com/your-repo/ncqq-manager.git
+cd ncqq-manager
+
+# 一键启动（自动构建镜像并运行）
+docker compose up -d</code></pre>
+<div class="tip">Docker Compose 会自动构建前端、安装依赖并启动服务。数据持久化在 <code>config/</code> 和 <code>data/</code> 目录。镜像内置 HEALTHCHECK 自动检测服务健康状态。</div>
+
+<h2>方式二：手动安装</h2>
+<h3>1. 获取源码</h3>
+<pre><code>git clone https://github.com/your-repo/ncqq-manager.git
+cd ncqq-manager</code></pre>
+
+<h3>2. 安装 Python 依赖</h3>
+<pre><code># 推荐使用虚拟环境
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
+
+pip install -r requirements.txt</code></pre>
+
+<h3>3. 构建前端</h3>
+<pre><code>cd frontend
+npm install
+npm run build
+cd ..</code></pre>
+<div class="tip">构建完成后会生成 <code>frontend/dist/</code> 目录，后端自动挂载为静态资源。</div>
+
+<h3>4. 启动服务</h3>
+<pre><code># 方式一：使用快速启动脚本
+python start.py
+
+# 方式二：直接启动
+python main.py
+
+# 方式三：使用 uvicorn
+uvicorn main:app --host 0.0.0.0 --port 8000</code></pre>
+
+<h3>6. Ubuntu systemd 自启动（uv）</h3>
+<pre><code># 首次部署建议先手动启动一次，完成依赖安装、前端构建与初始化
+uv run python start.py
+
+# 注册开机自启动（仅注册主项目）
+sudo bash scripts/install_autostart_ubuntu.sh
+
+# 卸载开机自启动
+sudo bash scripts/uninstall_autostart_ubuntu.sh</code></pre>
+<div class="tip">systemd 服务仅注册 NapCat Manager 主进程。BotShepherd 不单独注册，由主项目在启动时自动唤起。</div>
+
+<h3>5. 访问面板</h3>
+<p>浏览器打开 <code>http://localhost:8000</code>，首次访问将引导您设置管理员账号。</p>
+
+<div class="warning">请确保 Docker 服务已启动，否则容器管理功能将不可用。</div>
+</div>
+
+<!-- ====== 快速启动 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

@@ -1,0 +1,66 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - api</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-api">
+<h1>API 接口</h1>
+<p>NapCat Manager 提供 RESTful API，支持通过 API Key 进行免登录认证调用。</p>
+
+<h2>认证方式</h2>
+<p>在请求中携带 API Key 即可认证：</p>
+<pre><code># 方式一：Header
+curl -H "x-request-api-key: YOUR_API_KEY" http://localhost:8000/api/containers
+
+# 方式二：Query 参数
+curl http://localhost:8000/api/containers?apikey=YOUR_API_KEY</code></pre>
+
+<h2>主要端点</h2>
+<table>
+<tr><th>方法</th><th>路径</th><th>说明</th><th>认证</th></tr>
+<tr><td><code>GET</code></td><td><code>/api/public/containers</code></td><td>公开容器列表（QQ号/状态）</td><td>无需</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers/{name}/qrcode</code></td><td>获取 QR 登录二维码</td><td>无需</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers</code></td><td>容器列表（完整信息）</td><td>登录</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/containers</code></td><td>创建容器</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/containers/{name}/action</code></td><td>容器操作（start/stop/restart/delete）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers/{name}/stats</code></td><td>容器统计信息（含 <code>last_event</code> 字段，见下方说明）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers/{name}/events</code></td><td>实例事件 SSE 流（start/stop/die 等生命周期事件）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers/{name}/files</code></td><td>文件/目录列表（<code>?path=</code> 指定子目录）</td><td>登录</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/containers/{name}/config/{filename}</code></td><td>保存文件内容</td><td>登录</td></tr>
+<tr><td><code>DELETE</code></td><td><code>/api/containers/{name}/files</code></td><td>删除文件或目录（<code>?path=</code> 必填，禁止删根目录）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/containers/{name}/logs</code></td><td>容器日志</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/nodes</code></td><td>节点列表</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/users</code></td><td>用户列表（分页）</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/alerts/settings</code></td><td>告警全局设置</td><td>管理员</td></tr>
+<tr><td><code>PUT</code></td><td><code>/api/alerts/settings</code></td><td>更新告警设置（允许所有 IP 等）</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/operation_logs</code></td><td>操作审计日志</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/images</code></td><td>本地 Docker 镜像列表</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/images/pull</code></td><td>拉取 Docker 镜像</td><td>管理员</td></tr>
+<tr><td><code>DELETE</code></td><td><code>/api/images/{image_id}</code></td><td>删除本地镜像</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots</code></td><td>列出所有已知 Bot（WS + 容器合并）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots/{name}/status</code></td><td>查询单个 Bot 连接状态</td><td>登录</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/bots/{name}/call</code></td><td>代理调用 OneBot API（透传 action/params）</td><td>登录</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/bots/{name}/send</code></td><td>便捷发消息（私聊/群聊）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/bots/{name}/messages</code></td><td>获取 Bot 最近消息（环形缓冲区）</td><td>登录</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/botshepherd/status</code></td><td>BotShepherd 运行状态</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/botshepherd/setup</code></td><td>初始化 BotShepherd</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/botshepherd/start</code></td><td>启动 BotShepherd</td><td>管理员</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/botshepherd/stop</code></td><td>停止 BotShepherd</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/botshepherd/connections</code></td><td>连接列表</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/botshepherd/accounts</code></td><td>账号列表</td><td>管理员</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/resource/wallpapers</code></td><td>壁纸资源列表</td><td>无需</td></tr>
+<tr><td><code>POST</code></td><td><code>/api/auth/login</code></td><td>登录</td><td>无需</td></tr>
+<tr><td><code>GET</code></td><td><code>/api/health</code></td><td>健康检查</td><td>无需</td></tr>
+</table>
+
+<div class="tip">完整 API 文档可访问 <code>http://localhost:8000/docs</code>（FastAPI 自动生成的 Swagger UI）。</div>
+</div>
+
+<!-- ====== 环境变量 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

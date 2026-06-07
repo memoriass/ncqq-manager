@@ -1,0 +1,36 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - files</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-files">
+<h1>文件管理</h1>
+<p>文件管理器允许您在线浏览和编辑容器的配置文件，无需 SSH 连接到服务器。</p>
+
+<h2>功能</h2>
+<ul>
+<li><strong>目录浏览</strong> — 面包屑导航，支持多层目录的文件夹与文件展示</li>
+<li><strong>文件编辑</strong> — 在线编辑 JSON/YAML/文本配置文件，带等宽字体代码框</li>
+<li><strong>保存修改</strong> — 编辑后直接保存到容器挂载的数据目录</li>
+<li><strong>文件删除</strong> — 文件与文件夹均可删除，操作前弹出确认对话框，删除文件夹时递归移除所有子内容，<strong>不可撤销</strong></li>
+</ul>
+
+<div class="tip">所有文件操作通过已鉴权的 API 端点 <code>/api/containers/{name}/files</code> 进行，确保安全性。根目录禁止删除，所有路径经过服务端安全校验防止目录穿越，危险操作记录于操作审计日志。</div>
+
+<h3>常用配置文件</h3>
+<table>
+<tr><th>文件路径</th><th>说明</th></tr>
+<tr><td><code>config/napcat.json</code></td><td>NapCat 主配置</td></tr>
+<tr><td><code>config/onebot11_*.json</code></td><td>OneBot 11 网络端点配置</td></tr>
+<tr><td><code>config/webui.json</code></td><td>NapCat WebUI 配置（端口、Token）</td></tr>
+</table>
+</div>
+
+<!-- ====== 网络配置 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

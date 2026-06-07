@@ -1,0 +1,19 @@
+export const imageManager = {
+    "title": "Image Manager",
+    "subtitle": "Manage local Docker images",
+    "pullImage": "Pull Image",
+    "pullHint": "Enter full image name (with tag), e.g. mlikiowa/napcat-docker:latest",
+    "imageName": "Image Name",
+    "pulling": "Pulling...",
+    "pullFailed": "Image pull failed",
+    "pullLogsTitle": "Pull Logs",
+    "updateLatest": "Update latest",
+    "layerStatus": "Docker Layer Status",
+    "rawLogs": "Raw Logs",
+    "noLayersYet": "Waiting for layer logs...",
+    "noLogsYet": "Waiting for logs...",
+    "noImages": "No local images found",
+    "confirmDelete": "Are you sure you want to delete this image?",
+    "untagged": "untagged",
+    "useDefault": "Use default image"
+} as const;

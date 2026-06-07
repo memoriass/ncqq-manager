@@ -1,0 +1,49 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - security</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-security">
+<h1>安全说明</h1>
+<p>NapCat Manager 内置了多层安全防护机制，以下是各项安全特性说明：</p>
+
+<h2>认证与授权</h2>
+<table>
+<tr><th>特性</th><th>说明</th></tr>
+<tr><td><strong>双模认证</strong></td><td>支持 Cookie Session 和 API Key 两种认证方式</td></tr>
+<tr><td><strong>密码加密</strong></td><td>使用 bcrypt 哈希存储密码，支持 SHA256 旧格式自动迁移</td></tr>
+<tr><td><strong>密码策略</strong></td><td>密码最低 6 个字符</td></tr>
+<tr><td><strong>随机初始密码</strong></td><td>应急管理员使用 <code>secrets.token_urlsafe(12)</code> 生成随机密码，仅在终端输出一次</td></tr>
+<tr><td><strong>IP 封禁</strong></td><td>连续登录失败后自动封禁 IP 一段时间</td></tr>
+<tr><td><strong>会话管理</strong></td><td>定期清理过期会话令牌</td></tr>
+</table>
+
+<h2>请求防护</h2>
+<table>
+<tr><th>特性</th><th>说明</th></tr>
+<tr><td><strong>CSRF 防护</strong></td><td>对 Cookie 认证的写操作校验 <code>X-Requested-With: XMLHttpRequest</code> 头（API Key 认证和 GET 请求自动豁免）</td></tr>
+<tr><td><strong>SSRF 防护</strong></td><td>Webhook URL 自动解析 DNS 并拒绝内网/回环/保留地址（可通过告警设置页面的「允许所有 IP 访问」开关关闭此限制）</td></tr>
+<tr><td><strong>路径遍历防护</strong></td><td>文件管理使用 <code>os.path.realpath()</code> 校验，防止 <code>../</code> 攻击</td></tr>
+<tr><td><strong>容器名称校验</strong></td><td>仅允许字母、数字、连字符、下划线和点号，防止命令注入</td></tr>
+<tr><td><strong>备份上传限制</strong></td><td>最大 50 MB，双重校验（Content-Length + 实际大小）</td></tr>
+<tr><td><strong>全局异常处理</strong></td><td>兜底异常处理器避免向客户端暴露内部堆栈信息</td></tr>
+<tr><td><strong>频率限制</strong></td><td>创建容器等敏感操作有频率限制</td></tr>
+</table>
+
+<h2>用户面板（公开端点）</h2>
+<p>以下端点无需认证，专为外部用户面板设计：</p>
+<ul>
+<li><code>GET /api/public/containers</code> — 返回容器名称、状态、QQ 号（uin），<strong>不暴露端口等敏感信息</strong></li>
+<li><code>GET /api/containers/{name}/qrcode</code> — 返回 QQ 登录二维码</li>
+</ul>
+<div class="warning">这两个端点是公开的，请确保不要在其中暴露敏感数据。如果您的管理面板部署在公网，建议使用反向代理限制访问源。</div>
+</div>
+
+<!-- ====== Docker 部署 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

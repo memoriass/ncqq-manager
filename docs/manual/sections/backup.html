@@ -1,0 +1,29 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - backup</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-backup">
+<h1>备份恢复</h1>
+<p>备份功能允许管理员导出和恢复管理器配置，以及各实例的 <code>data/{实例名}/config/</code> 配置目录。</p>
+
+<h2>操作说明</h2>
+<table>
+<tr><th>功能</th><th>说明</th></tr>
+<tr><td><strong>下载备份</strong></td><td>导出 <code>config/</code> 与 <code>data/{实例名}/config/</code> 为 <code>.zip</code> 文件，不包含运行时资源与 <code>qq_data</code></td></tr>
+<tr><td><strong>上传恢复</strong></td><td>上传之前导出的 <code>.zip</code> 文件覆盖当前配置目录，需要重启生效</td></tr>
+<tr><td><strong>备份信息</strong></td><td>查看当前备份范围的大小和最后修改时间</td></tr>
+</table>
+
+<div class="warning">上传的备份文件最大不超过 200 MB，且必须为 <code>.zip</code> 格式。恢复操作会覆盖当前 <code>config/</code> 与 <code>data/{实例名}/config/</code> 内容，请确认后再操作。</div>
+<div class="tip">运行时生成的协议缓存、资源文件、<code>qq_data</code> 等内容不会进入备份，恢复后由协议端自动重新生成。</div>
+</div>
+
+<!-- ====== 镜像管理 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

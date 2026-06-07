@@ -1,0 +1,29 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - images</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-images">
+<h1>镜像管理</h1>
+<p>镜像管理页面允许管理员管理本地 Docker 镜像，包括查看、拉取和删除操作。</p>
+
+<h2>功能说明</h2>
+<table>
+<tr><th>操作</th><th>说明</th></tr>
+<tr><td><strong>查看镜像</strong></td><td>列出本地所有 Docker 镜像，显示名称、标签、大小和创建时间</td></tr>
+<tr><td><strong>拉取镜像</strong></td><td>输入镜像名称（如 <code>mlikiowa/napcat-docker:latest</code>）从 Docker Hub 拉取</td></tr>
+<tr><td><strong>删除镜像</strong></td><td>删除不再使用的本地镜像，支持强制删除</td></tr>
+</table>
+
+<div class="tip">创建容器时使用的默认镜像可在集群设置中的 <code>docker_image</code> 参数中配置。</div>
+<div class="warning">删除正在被容器使用的镜像需要先停止并删除相关容器，或使用强制删除选项。</div>
+</div>
+
+<!-- ====== Bot 管理 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

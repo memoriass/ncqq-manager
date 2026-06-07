@@ -1,0 +1,53 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - dashboard</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-dashboard">
+<h1>管理面板</h1>
+<p>管理面板（Dashboard）是管理员的主操作界面，提供容器概览、批量操作和系统监控功能。</p>
+
+<h2>登录</h2>
+<p>首次访问会自动跳转到初始化向导（<code>/setup</code>），引导您设置管理员账号和密码（最少 6 个字符）。设置完成后使用该账号登录管理面板。</p>
+<div class="tip">如果系统在没有任何用户的情况下启动，会自动生成一个随机密码的应急管理员账号，密码仅在终端日志中输出一次。请立即登录后修改密码。</div>
+
+<h2>面板功能</h2>
+<h3>容器概览</h3>
+<ul>
+<li>查看所有 NapCat 容器的运行状态与登录状态</li>
+<li>显示每个容器的 QQ 号（UIN）、CPU/内存使用率</li>
+<li>支持按状态、名称筛选容器</li>
+</ul>
+
+<h3>实例状态说明</h3>
+<table>
+<tr><th>状态标签</th><th>颜色</th><th>含义</th></tr>
+<tr><td>🟢 在线</td><td>绿色</td><td>容器运行中且 QQ 已登录（已获取到 UIN）</td></tr>
+<tr><td>🟡 未登录</td><td>橙色</td><td>容器运行中但 QQ 未登录，需要扫描二维码</td></tr>
+<tr><td>⚪ 离线</td><td>灰色</td><td>容器已停止（exited）</td></tr>
+<tr><td>⚪ 已创建</td><td>灰色</td><td>容器已创建但从未启动（created）</td></tr>
+<tr><td>⚪ 已暂停</td><td>灰色</td><td>容器已暂停（paused）</td></tr>
+</table>
+
+<h3>快速操作</h3>
+<ul>
+<li><strong>创建容器</strong> — 输入容器名称和 QQ 账号，一键创建并启动 NapCat 实例</li>
+<li><strong>批量管理</strong> — 启动/停止/重启/删除容器，可选删除数据</li>
+<li><strong>QR 码登录</strong> — 实时获取容器内的 QQ 登录二维码</li>
+</ul>
+
+<h3>系统监控</h3>
+<ul>
+<li>CPU / 内存 10 分钟平均使用率（Daemon Monitor 自动采集）</li>
+<li>容器数量统计与节点健康状态</li>
+</ul>
+</div>
+
+<!-- ====== 容器管理 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

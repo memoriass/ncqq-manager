@@ -1,0 +1,50 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - intro</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-intro">
+<h1>NapCat QQ Manager</h1>
+<p>一款基于 <strong>FastAPI + React</strong> 构建的 NapCat QQ Bot Docker 容器管理面板，提供可视化的容器生命周期管理、多节点集群控制、用户权限分配与实例级文件管理功能。</p>
+
+<div class="card">
+<h3>✨ 核心特性</h3>
+<ul>
+<li><strong>容器管理</strong> — 一键创建/启动/停止/删除 NapCat Docker 容器</li>
+<li><strong>QR 码登录</strong> — 实时获取容器内 QQ 登录二维码</li>
+<li><strong>多节点集群</strong> — 管理分布在不同服务器上的 NapCat 实例</li>
+<li><strong>用户权限</strong> — 管理员/普通用户分级，实例级授权</li>
+<li><strong>文件管理</strong> — 在线编辑容器配置文件和插件</li>
+<li><strong>网络配置</strong> — 可视化管理 OneBot 11 网络端点</li>
+<li><strong>告警监控</strong> — QQ 通知 / SMTP 邮箱 / Webhook 三种渠道，Bot 掉线即时推送</li>
+<li><strong>备份恢复</strong> — 配置一键备份与恢复</li>
+<li><strong>操作日志</strong> — 全链路操作审计记录</li>
+<li><strong>Bot 管理</strong> — 消息监控、消息发送、群管理与运行状态透传</li>
+<li><strong>安全防护</strong> — CSRF/SSRF 防护、IP 封禁、随机初始密码</li>
+<li><strong>中英双语</strong> — 完整的国际化支持</li>
+<li><strong>镜像管理</strong> — 列出/拉取/删除本地 Docker 镜像</li>
+<li><strong>BotShepherd 集成</strong> — 内置 OneBot v11 WS 代理，一键初始化和管理</li>
+<li><strong>壁纸资源</strong> — 用户面板自动发现横竖版壁纸</li>
+</ul>
+</div>
+
+<h3>技术栈</h3>
+<table>
+<tr><th>层级</th><th>技术</th><th>说明</th></tr>
+<tr><td>后端</td><td>Python 3.10+ / FastAPI</td><td>异步 Web 框架 + Uvicorn ASGI 服务器</td></tr>
+<tr><td>前端</td><td>React 18 / TypeScript / Vite</td><td>SPA 应用 + Material UI 组件库</td></tr>
+<tr><td>数据库</td><td>SQLite (WAL 模式)</td><td>轻量级嵌入式数据库，自动迁移</td></tr>
+<tr><td>容器</td><td>aiodocker + docker-py</td><td>热路径纯异步 Docker API；事件流与 QR 回落保留 docker-py</td></tr>
+<tr><td>HTTP 客户端</td><td>aiohttp</td><td>异步集群节点通信与登录检测</td></tr>
+<tr><td>JSON</td><td>orjson</td><td>WebSocket 热路径高性能序列化（替代 stdlib json）</td></tr>
+<tr><td>认证</td><td>Cookie Session + API Key</td><td>双模认证，支持 Web 与 API 调用 + CSRF 防护</td></tr>
+</table>
+</div>
+<!-- ====== 安装部署 ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

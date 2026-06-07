@@ -1,0 +1,54 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="../assets/manual.css?v=split">
+<title>NapCat QQ Manager - docker</title>
+</head>
+<body class="manual-section">
+<div class="section" id="sec-docker">
+<h1>Docker 部署详解</h1>
+
+<h2>使用 Docker Compose</h2>
+<pre><code># docker-compose.yml 配置概览
+services:
+  ncqq-manager:
+    build: .
+    container_name: ncqq-manager
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock  # 必须：管理宿主机容器
+      - ./config:/app/config                        # 持久化配置
+      - ./data:/app/data                            # 持久化数据
+    environment:
+      - CORS_ORIGINS=                               # 可选：CORS 允许源
+      - COOKIE_SECURE=false                         # 可选：HTTPS 时设为 true
+    restart: unless-stopped</code></pre>
+
+<h2>使用 docker run</h2>
+<pre><code># 先构建镜像
+docker build -t ncqq-manager .
+
+# 运行容器
+docker run -d \
+  --name ncqq-manager \
+  -p 8000:8000 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v $(pwd)/config:/app/config \
+  -v $(pwd)/data:/app/data \
+  --restart unless-stopped \
+  ncqq-manager</code></pre>
+
+<h2>健康检查</h2>
+<p>Docker 镜像内置了 HEALTHCHECK 指令，每 30 秒检查一次 <code>/api/health</code> 端点。可通过以下命令查看健康状态：</p>
+<pre><code>docker inspect --format='{{.State.Health.Status}}' ncqq-manager</code></pre>
+
+<div class="tip">Docker 部署时，容器通过挂载 <code>/var/run/docker.sock</code> 来管理宿主机上的其他 Docker 容器。确保 Docker socket 文件权限正确。</div>
+</div>
+
+<!-- ====== FAQ ====== -->
+<script src="../assets/section-theme.js?v=split"></script>
+</body>
+</html>

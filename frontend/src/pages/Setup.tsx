@@ -15,7 +15,8 @@ import RocketLaunchIcon from '@mui/icons-material/RocketLaunch';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
 import TranslateIcon from '@mui/icons-material/Translate';
-import { ThemeModeContext, LanguageContext } from '../App';
+import { ThemeModeContext } from '../App';
+import { LanguageContext } from '../i18n/languageContext';
 import { useTranslate } from '../i18n';
 import { setupApi } from '../services/api';
 

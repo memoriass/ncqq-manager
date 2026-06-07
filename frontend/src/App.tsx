@@ -6,6 +6,7 @@ import SetupPage from './pages/Setup';
 import AdminLayout from './layouts/AdminLayout';
 import { ToastProvider } from './components/Toast';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { LanguageContext } from './i18n/languageContext';
 import { setupApi } from './services/api';
 
 // 路由懒加载 — 首屏只加载 Login/Setup/AdminLayout
@@ -23,7 +24,6 @@ const BotShepherd = lazy(() => import('./pages/BotShepherd'));
 const BotBackend = lazy(() => import('./pages/BotBackend'));
 
 export const ThemeModeContext = createContext({ toggleTheme: () => { } });
-export const LanguageContext = createContext({ language: 'zh', toggleLanguage: () => { } });
 
 // We define exact standard colors that match Napcat native
 const getDesignTokens = (mode: 'light' | 'dark') => ({
