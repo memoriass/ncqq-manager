@@ -41,6 +41,7 @@ from routers.internal_plugin_router import router as internal_plugin_router
 # ============ 生命周期管理 ============
 
 import asyncio
+import time as _time
 from services.daemon_monitor import daemon_monitor
 
 async def background_monitor():
@@ -242,7 +243,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # ============ 健康检查 ============
 
-import time as _time
 _start_time = _time.time()
 
 
