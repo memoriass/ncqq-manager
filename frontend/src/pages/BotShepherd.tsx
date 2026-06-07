@@ -4,7 +4,7 @@ import {
     Alert, useTheme, IconButton, Tooltip, Table, TableBody,
     TableCell, TableContainer, TableHead, TableRow,
     Dialog, DialogTitle, DialogContent, DialogActions,
-    TextField, Switch, FormControlLabel, Popover,
+    Switch, FormControlLabel, Popover,
 } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
@@ -12,13 +12,11 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import BuildIcon from '@mui/icons-material/Build';
 import LinkIcon from '@mui/icons-material/Link';
-import LinkOffIcon from '@mui/icons-material/LinkOff';
 import HearingIcon from '@mui/icons-material/Hearing';
 import ErrorOutlineIcon from '@mui/icons-material/ErrorOutline';
 import BlockIcon from '@mui/icons-material/Block';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import DeleteIcon from '@mui/icons-material/Delete';
 import PersonIcon from '@mui/icons-material/Person';
 import WifiIcon from '@mui/icons-material/Wifi';
@@ -33,12 +31,7 @@ import {
 } from '../services/api';
 import { useTranslate } from '../i18n';
 import { useToast } from '../components/Toast';
-
-type ConnDialogData = Partial<BSConnection> & {
-    _copyNewId?: string;
-    _copyNewName?: string;
-    _editId?: string;
-};
+import { AcctDialog, ConnDialog, ConnRow, InfoItem, StatCard, type ConnDialogData } from './bot-shepherd';
 
 export default function BotShepherd() {
     const t = useTranslate();
@@ -642,199 +635,3 @@ export default function BotShepherd() {
 }
 
 /* ---- 辅助组件 ---- */
-
-function InfoItem({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-    return (
-        <Box>
-            <Typography variant="caption" color="text.secondary">{label}</Typography>
-            <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: mono ? 'monospace' : 'inherit', wordBreak: 'break-all' }}>{value}</Typography>
-        </Box>
-    );
-}
-
-function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
-    const theme = useTheme();
-    return (
-        <Box sx={{ p: 1.5, borderRadius: 2,
-            bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
-            backdropFilter: 'blur(16px) saturate(1.2)',
-            WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
-            border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-            display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Box sx={{ color, display: 'flex' }}>{icon}</Box>
-            <Box>
-                <Typography variant="h6" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{value}</Typography>
-                <Typography variant="caption" color="text.secondary">{label}</Typography>
-            </Box>
-        </Box>
-    );
-}
-
-const STATUS_MAP: Record<string, { color: 'success' | 'info' | 'warning' | 'default' | 'error'; key: string; icon: React.ReactElement | null }> = {
-    connected: { color: 'success', key: 'botshepherd.statusConnected', icon: <LinkIcon fontSize="small" /> },
-    listening: { color: 'info', key: 'botshepherd.statusListening', icon: <HearingIcon fontSize="small" /> },
-    starting: { color: 'warning', key: 'botshepherd.statusStarting', icon: <CircularProgress size={14} /> },
-    disabled: { color: 'default', key: 'botshepherd.statusDisabled', icon: <LinkOffIcon fontSize="small" /> },
-    error: { color: 'error', key: 'botshepherd.statusError', icon: <ErrorOutlineIcon fontSize="small" /> },
-};
-
-function ConnRow({ id, conn, t, showActions, onEdit, onCopy, onDelete }: {
-    id: string; conn: BSConnection; t: (k: string) => string;
-    showActions?: boolean; onEdit?: () => void; onCopy?: () => void; onDelete?: () => void;
-}) {
-    const cs = conn.status?.client_status ?? (conn.enabled === false ? 'disabled' : 'unknown');
-    const sm = STATUS_MAP[cs] ?? { color: 'default' as const, key: cs, icon: null };
-    const targetList = conn.target_endpoints ?? [];
-
-    return (
-        <TableRow hover>
-            <TableCell>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{id}</Typography>
-            </TableCell>
-            <TableCell>
-                <Typography variant="body2">{conn.name ?? '-'}</Typography>
-            </TableCell>
-            <TableCell>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                    {conn.client_endpoint ?? conn.status?.client_endpoint ?? '-'}
-                </Typography>
-            </TableCell>
-            <TableCell>
-                {targetList.length > 0 ? targetList.map((ep, i) => (
-                    <Typography key={i} variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{ep}</Typography>
-                )) : <Typography variant="body2" color="text.secondary">-</Typography>}
-            </TableCell>
-            <TableCell>
-                <Chip size="small" icon={sm.icon ?? undefined}
-                    label={t(sm.key)} color={sm.color} variant="outlined" />
-                {conn.status?.error && (
-                    <Tooltip title={conn.status.error}><ErrorOutlineIcon fontSize="small" color="error" sx={{ ml: 0.5 }} /></Tooltip>
-                )}
-            </TableCell>
-            <TableCell>
-                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                    {conn.status?.self_id ?? '-'}
-                </Typography>
-            </TableCell>
-            {showActions && (
-                <TableCell align="right">
-                    <Tooltip title={t('botshepherd.editConnection')}>
-                        <IconButton size="small" onClick={onEdit}><EditIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <Tooltip title={t('botshepherd.copyConnection')}>
-                        <IconButton size="small" onClick={onCopy}><ContentCopyIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                    <Tooltip title={t('botshepherd.deleteConnection')}>
-                        <IconButton size="small" color="error" onClick={onDelete}><DeleteIcon fontSize="small" /></IconButton>
-                    </Tooltip>
-                </TableCell>
-            )}
-        </TableRow>
-    );
-}
-
-/* ---- 连接编辑/新建/复制 对话框 ---- */
-
-function ConnDialog({ dlg, setDlg, onSave, t }: {
-    dlg: { mode: 'add' | 'edit' | 'copy'; id: string; data: Partial<BSConnection> };
-    setDlg: (v: null) => void; onSave: (id: string, data: Partial<BSConnection>) => void; t: (k: string) => string;
-}) {
-    const isCopy = dlg.mode === 'copy';
-    const title = isCopy ? t('botshepherd.copyConnection')
-        : dlg.mode === 'add' ? t('botshepherd.addConnection')
-        : t('botshepherd.editConnection');
-
-    // 用内部 state 让输入受控
-    const [form, setForm] = useState<any>({ ...dlg.data });
-    const [editId, setEditId] = useState(dlg.id);
-    const setField = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
-
-    return (
-        <Dialog open maxWidth="sm" fullWidth onClose={() => setDlg(null)}>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '16px !important' }}>
-                {isCopy ? (<>
-                    <TextField label={t('botshepherd.connNewId')} size="small" fullWidth
-                        value={form._copyNewId ?? ''} onChange={e => setField('_copyNewId', e.target.value)} />
-                    <TextField label={t('botshepherd.connNewName')} size="small" fullWidth
-                        value={form._copyNewName ?? ''} onChange={e => setField('_copyNewName', e.target.value)} />
-                </>) : (<>
-                    {dlg.mode === 'add' && (
-                        <TextField label={t('botshepherd.connId')} size="small" fullWidth
-                            value={editId} onChange={e => setEditId(e.target.value)} />
-                    )}
-                    <TextField label={t('botshepherd.connName')} size="small" fullWidth
-                        value={form.name ?? ''} onChange={e => setField('name', e.target.value)} />
-                    <TextField label={t('botshepherd.connDescription')} size="small" fullWidth multiline rows={2}
-                        value={form.description ?? ''} onChange={e => setField('description', e.target.value)} />
-                    <TextField label={t('botshepherd.clientEndpoint')} size="small" fullWidth
-                        value={form.client_endpoint ?? ''} onChange={e => setField('client_endpoint', e.target.value)}
-                        placeholder="ws://127.0.0.1:PORT/PATH" />
-                    {/* 目标端点 —— Tag 列表，每行一个输入框 + 增删按钮 */}
-                    <Box>
-                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
-                            {t('botshepherd.targetEndpoints')}
-                        </Typography>
-                        {(form.target_endpoints ?? []).map((ep: string, i: number) => (
-                            <Box key={i} sx={{ display: 'flex', gap: 1, mb: 0.8 }}>
-                                <TextField size="small" fullWidth
-                                    value={ep}
-                                    placeholder="ws://127.0.0.1:PORT/PATH"
-                                    onChange={e => {
-                                        const arr = [...(form.target_endpoints ?? [])];
-                                        arr[i] = e.target.value;
-                                        setField('target_endpoints', arr);
-                                    }} />
-                                <IconButton size="small" color="error" onClick={() => {
-                                    const arr = (form.target_endpoints ?? []).filter((_: string, j: number) => j !== i);
-                                    setField('target_endpoints', arr);
-                                }}><DeleteIcon fontSize="small" /></IconButton>
-                            </Box>
-                        ))}
-                        <Button size="small" startIcon={<AddIcon />} onClick={() =>
-                            setField('target_endpoints', [...(form.target_endpoints ?? []), ''])
-                        }>
-                            {t('botshepherd.addEndpoint')}
-                        </Button>
-                    </Box>
-                    <FormControlLabel control={
-                        <Switch checked={form.enabled !== false} onChange={e => setField('enabled', e.target.checked)} />
-                    } label={t('botshepherd.connEnabled')} />
-                </>)}
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={() => setDlg(null)}>{t('botshepherd.connCancel')}</Button>
-                <Button variant="contained" onClick={() => onSave(editId, form)}>{t('botshepherd.connSave')}</Button>
-            </DialogActions>
-        </Dialog>
-    );
-}
-
-/* ---- 账号编辑对话框 ---- */
-
-function AcctDialog({ dlg, setDlg, onSave, t }: {
-    dlg: { id: string; data: Partial<BSAccount> };
-    setDlg: (v: null) => void; onSave: (data: Partial<BSAccount>) => void; t: (k: string) => string;
-}) {
-    const [form, setForm] = useState<any>({ ...dlg.data });
-    const setField = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
-
-    return (
-        <Dialog open maxWidth="sm" fullWidth onClose={() => setDlg(null)}>
-            <DialogTitle>{t('botshepherd.editAccount')} — {dlg.id}</DialogTitle>
-            <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '16px !important' }}>
-                <TextField label={t('botshepherd.accountName')} size="small" fullWidth
-                    value={form.name ?? ''} onChange={e => setField('name', e.target.value)} />
-                <TextField label={t('botshepherd.connDescription')} size="small" fullWidth multiline rows={2}
-                    value={form.description ?? ''} onChange={e => setField('description', e.target.value)} />
-                <FormControlLabel control={
-                    <Switch checked={form.enabled !== false} onChange={e => setField('enabled', e.target.checked)} />
-                } label={t('botshepherd.accountEnabled')} />
-            </DialogContent>
-            <DialogActions>
-                <Button onClick={() => setDlg(null)}>{t('botshepherd.connCancel')}</Button>
-                <Button variant="contained" onClick={() => onSave(form)}>{t('botshepherd.connSave')}</Button>
-            </DialogActions>
-        </Dialog>
-    );
-}
