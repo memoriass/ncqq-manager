@@ -15,7 +15,8 @@
 - `user_router.py`：用户列表、数量、创建、编辑、删除、实例授权、API Key 重新生成。依赖 `services/user_manager.py`。
 - `container_public_router.py`：公开或用户面板容器列表、批量二维码、分页容器信息。依赖 `services/container_state.py`、`services/instance_subsystem.py`。
 - `container_crud_router.py`：容器列表、创建、初始插件配置注入、WS client 注入、网络配置注入。依赖 `services/docker_async.py`、`services/cluster_manager.py`、`services/config.py`。
-- `container_runtime_router.py`：容器数据清理、重建、启动/停止/重启/删除、统计、日志、二维码、登录刷新、内部登录事件、内部心跳、容器事件流。依赖 Docker、集群、状态引擎、BotShepherd 清理和 NapCat WS 服务。
+- `container_runtime_router.py`：容器运行态路由兼容入口，仅导出 `routers/container_runtime/` 聚合 router，保持 `main.py` 旧导入路径不变。
+- `container_runtime/`：容器数据清理/重建、生命周期动作、统计日志二维码、内部事件、事件流的分层实现。先读 `container_runtime/CONTAINER_RUNTIME_ROUTER_GUIDE.md`，再按目标能力读取 `data_recreate.py`、`actions.py`、`status.py`、`internal.py`、`events.py`。
 - `container_config_router.py`：实例配置文件读取/保存、文件列表、文件删除。负责路径安全检查。
 - `node_router.py`：集群配置、节点增删改查、节点日志、远程节点代理。依赖 `services/cluster_manager.py` 和 `services/config.py`。
 - `operation_logs_router.py`：操作日志查询和下载。依赖 `services/operation_logger.py`。
@@ -57,7 +58,7 @@
 
 ## 后续瘦身重点
 
-- `container_runtime_router.py` 仍是高优先级拆分候选，可按“数据清理/重建”“生命周期动作”“统计日志二维码”“内部事件”“事件流”拆分。
+- `container_runtime_router.py` 已拆为 `routers/container_runtime/` 包，后续优化重点转为把 `data_recreate.py` 中的 Docker 重建编排逐步下沉到 service 层，并给重建/清理补更细的 contract tests。
 - `ws_router.py` 可按“前端事件通道”“容器日志通道”“Bot 消息通道”“NapCat/OneBot 接入”“插件接入”拆分。
 - `backup_router.py` 可拆出 zip 校验、过滤复制、恢复清理工具到 service。
 - `node_router.py` 可拆远程代理逻辑到 `services/cluster_manager.py` 或单独 proxy helper。

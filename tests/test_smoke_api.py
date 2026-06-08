@@ -168,3 +168,27 @@ def test_operation_logs_query_is_admin_contract(client: TestClient, monkeypatch:
     assert payload["status"] == "ok"
     assert payload["total"] == 1
     assert payload["items"][0]["id"] == "log-1"
+
+
+def test_container_runtime_split_routes_stay_registered():
+    expected_routes = {
+        ("DELETE", "/api/containers/{name}/data"),
+        ("POST", "/api/containers/{name}/recreate"),
+        ("POST", "/api/containers/{name}/action"),
+        ("GET", "/api/containers/{name}/stats"),
+        ("GET", "/api/containers/{name}/logs"),
+        ("GET", "/api/containers/{name}/logs/download"),
+        ("GET", "/api/containers/{name}/qrcode"),
+        ("POST", "/api/containers/{name}/refresh-login"),
+        ("POST", "/api/internal/login-event"),
+        ("POST", "/api/internal/heartbeat"),
+        ("GET", "/api/containers/{name}/events"),
+    }
+
+    actual_routes = {
+        (method, route.path)
+        for route in app.routes
+        for method in getattr(route, "methods", set())
+    }
+
+    assert expected_routes <= actual_routes

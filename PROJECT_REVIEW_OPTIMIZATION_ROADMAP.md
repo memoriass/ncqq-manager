@@ -18,6 +18,7 @@
 - 新增 `scripts/check_release.py`，作为本地发布前统一检查入口；支持 Windows 下解析 `npm.cmd`，也可在 Linux CI 中直接调用 `npm`。
 - 新增 `.github/workflows/release-check.yml`，覆盖 Python 3.12、Node 20、Python 依赖安装、前端 `npm ci` 和发布检查脚本。
 - 新增 `tests/test_smoke_api.py`，覆盖 `/api/health`、`/api/setup/status`、公开容器列表、公开容器分页、管理员操作日志查询。
+- 已按文档落地 `container_runtime_router.py` 拆分：旧文件保留为 7 行兼容入口，实际逻辑拆到 `routers/container_runtime/` 下的数据清理/重建、生命周期动作、状态日志二维码、内部事件、SSE 事件流模块。
 
 ## 本次审查依据
 
@@ -57,7 +58,6 @@
 
 优先关注这些 500 行以上文件：
 
-- `routers/container_runtime_router.py`：约 736 行，容器运行时、重建、日志、二维码、内部事件和事件流混在一起。
 - `services/botshepherd.py`：约 724 行，进程生命周期、API client、配置、日志、雷达端点、注入逻辑仍集中。
 - `services/alert_manager.py`：约 597 行，规则、SMTP、Webhook、历史、通知发送混合。
 - `frontend/src/pages/BotShepherd.tsx`：约 591 行，数据加载、轮询、日志弹窗、连接区、账号区和确认弹窗仍在一个页面。
@@ -79,7 +79,7 @@ P0：发布前必须补齐或确认
 
 P1：继续解耦和提高可维护性
 
-- 拆 `container_runtime_router.py`：按数据清理/重建、生命周期动作、统计日志二维码、内部事件、事件流拆分。
+- 已拆 `container_runtime_router.py`：当前由 `routers/container_runtime/` 包承载，后续只需继续把 `data_recreate.py` 内的 Docker 重建编排下沉到 service 层。
 - 拆 `services/botshepherd.py`：按 process、API client、config、radar、logs、inject 拆分。
 - 拆 `services/alert_manager.py`：按 rules、SMTP notifier、Webhook notifier、history 拆分。
 - 拆 `BotShepherd.tsx`：补 `useBotShepherdController.ts`，再拆连接面板、账号面板、日志弹窗、activation popover。
@@ -144,10 +144,11 @@ P2：长期质量建设
 
 第二阶段：核心模块继续拆分
 
-1. 后端先拆 `container_runtime_router.py` 和 `ws_router.py`，因为它们是运行时风险最高的 router。
-2. 服务层先拆 `botshepherd.py` 和 `alert_manager.py`，因为它们外部依赖多、发布故障影响大。
-3. 前端先拆 `BotShepherd.tsx` 和 `AlertSettings.tsx`，因为已具备功能目录和文档入口。
-4. 每拆一个模块，同步补模块文档和最小测试。
+1. 已完成：`container_runtime_router.py` 拆为 `routers/container_runtime/` 包。
+2. 后端下一步拆 `ws_router.py`，因为它仍是运行时风险较高的 router。
+3. 服务层先拆 `botshepherd.py` 和 `alert_manager.py`，因为它们外部依赖多、发布故障影响大。
+4. 前端先拆 `BotShepherd.tsx` 和 `AlertSettings.tsx`，因为已具备功能目录和文档入口。
+5. 每拆一个模块，同步补模块文档和最小测试。
 
 第三阶段：端到端能力
 
@@ -181,6 +182,7 @@ P2：长期质量建设
 - 已通过：ruff `F401,F841` 未使用 import/local 检查。
 - 已通过：Python compileall。
 - 已通过：后端 pytest smoke tests。
+- 已通过：容器运行态拆分后的关键 route 注册测试。
 - 已通过：前端 `npm run build`。
 - 已建立：GitHub Actions 发布检查基线。
 - 待验证：Docker 镜像构建通过。
@@ -200,4 +202,4 @@ P2：长期质量建设
 
 ## 当前建议结论
 
-发布跑通的基础检查基线已经建立，下一步最务实的方向是补 Docker 构建/启动验证和真实运行链路联调。等 Docker 与端到端基线稳定后，再围绕 `container_runtime_router.py`、`ws_router.py`、`botshepherd.py`、`alert_manager.py`、`BotShepherd.tsx`、`AlertSettings.tsx` 做模块级优化；每次拆分都要同步更新对应模块文档和最小测试。
+发布跑通的基础检查基线已经建立，`container_runtime_router.py` 的第一轮拆分也已落地。下一步最务实的方向是继续补 Docker 构建/启动验证和真实运行链路联调，同时按优先级拆 `ws_router.py`、`botshepherd.py`、`alert_manager.py`、`BotShepherd.tsx`、`AlertSettings.tsx`；每次拆分都要同步更新对应模块文档和最小测试。
