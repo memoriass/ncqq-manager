@@ -16,7 +16,7 @@
 - `publicApi.ts`：处理不希望触发全局 401 的公开或半公开接口，例如用户面板容器列表、二维码状态、刷新登录状态。
 - `containerApi.ts`：容器列表、统计、日志、生命周期动作、创建、二维码、配置文件、文件列表和文件删除。
 - `nodeApi.ts`：集群配置、节点增删改查、节点日志和主机监控。
-- `userApi.ts`：用户列表、创建、编辑、删除、实例授权和 API Key 重新生成。
+- `userApi.ts`：用户列表、创建、编辑、删除、实例授权和 API Key 重新生成。`regenerateApiKey()` 返回的 `apiKey` 只用于前端一次性展示；列表 DTO 只暴露 `hasApiKey`。
 - `imageApi.ts`：Docker 镜像列表、拉取、流式拉取和删除。`pullStream()` 需要原生 `fetch`，因为调用方要消费响应流。
 - `alertApi.ts`：告警规则、告警历史、SMTP 设置和 SMTP 测试。
 - `backupApi.ts`：备份下载、备份上传和备份信息查询。
@@ -60,3 +60,4 @@
 - 401 会触发全局事件，公开页面不应随意走 `request()`。
 - `types.ts` 是共享契约文件，新增字段可以是可选字段，删除字段需要先全局搜索使用点。
 - `botshepherdApi` 同时服务 BotShepherd 页面和 Bot 后端端点页面，改连接或端点结构要同时检查两个模块。
+- 用户 API Key 明文只应出现在重置接口响应中，不应加入用户列表、日志、持久化前端状态或全局 store。

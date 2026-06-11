@@ -7,7 +7,7 @@ import services.database as database
 from main import app
 from middleware.auth import require_admin
 from middleware.rate_limiter import rate_limiter
-from routers import auth_router, container_public_router, operation_logs_router
+from routers import auth_router, container_public_router, operation_logs_router, user_router
 
 
 @pytest.fixture(autouse=True)
@@ -168,6 +168,34 @@ def test_operation_logs_query_is_admin_contract(client: TestClient, monkeypatch:
     assert payload["status"] == "ok"
     assert payload["total"] == 1
     assert payload["items"][0]["id"] == "log-1"
+
+
+def test_user_apikey_regeneration_returns_one_time_token(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    app.dependency_overrides[require_admin] = lambda: {
+        "uuid": "admin",
+        "userName": "admin",
+        "permission": 10,
+    }
+    captured: dict[str, str] = {}
+    logs: list[tuple[str, dict]] = []
+
+    def fake_edit_user(user_uuid: str, **kwargs):
+        captured["user_uuid"] = user_uuid
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(user_router.user_manager, "edit_user", fake_edit_user)
+    monkeypatch.setattr(user_router.operation_logger, "info", lambda event, payload: logs.append((event, payload)))
+
+    response = client.put("/api/users/test-user/apikey")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert len(payload["apiKey"]) == 32
+    assert captured == {"user_uuid": "test-user", "apiKey": payload["apiKey"]}
+    assert logs[0][0] == "user_regenerate_apikey"
+    assert payload["apiKey"] not in str(logs[0][1])
 
 
 def test_container_runtime_split_routes_stay_registered():

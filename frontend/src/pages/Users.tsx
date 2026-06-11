@@ -6,11 +6,19 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
 import KeyIcon from '@mui/icons-material/Key';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import SettingsIcon from '@mui/icons-material/Settings';
 import SearchIcon from '@mui/icons-material/Search';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useTranslate } from '../i18n';
 import { containerApi, userApi, type User, type Container, type InstanceRef, type UserEditPayload } from '../services/api';
+
+type KeyDialogState = {
+    open: boolean;
+    uuid: string;
+    apiKey: string;
+    copied: boolean;
+};
 
 export default function Users() {
     const theme = useTheme();
@@ -28,9 +36,11 @@ export default function Users() {
         uuid: '',
         name: '',
     });
-    const [keyDialog, setKeyDialog] = useState<{ open: boolean; uuid: string }>({
+    const [keyDialog, setKeyDialog] = useState<KeyDialogState>({
         open: false,
         uuid: '',
+        apiKey: '',
+        copied: false,
     });
 
     // Form state
@@ -113,12 +123,28 @@ export default function Users() {
         } catch (e) { console.error(e); }
     };
 
+    const handleOpenKeyDialog = (uuid: string) => {
+        setKeyDialog({ open: true, uuid, apiKey: '', copied: false });
+    };
+
+    const handleCloseKeyDialog = () => {
+        setKeyDialog({ open: false, uuid: '', apiKey: '', copied: false });
+    };
+
     const handleRegenerateKey = async () => {
         if (!keyDialog.uuid) return;
         try {
-            await userApi.regenerateApiKey(keyDialog.uuid);
-            setKeyDialog({ open: false, uuid: '' });
+            const result = await userApi.regenerateApiKey(keyDialog.uuid);
+            setKeyDialog(prev => ({ ...prev, apiKey: result.apiKey, copied: false }));
             fetchUsers();
+        } catch (e) { console.error(e); }
+    };
+
+    const handleCopyApiKey = async () => {
+        if (!keyDialog.apiKey) return;
+        try {
+            await navigator.clipboard.writeText(keyDialog.apiKey);
+            setKeyDialog(prev => ({ ...prev, copied: true }));
         } catch (e) { console.error(e); }
     };
 
@@ -209,7 +235,7 @@ export default function Users() {
                                         {u.hasApiKey ? t('userMgmt.apiKeySet') : t('userMgmt.apiKeyNotSet')}
                                         <IconButton
                                             size="small"
-                                            onClick={() => setKeyDialog({ open: true, uuid: u.uuid })}
+                                            onClick={() => handleOpenKeyDialog(u.uuid)}
                                             sx={{ color: '#3b82f6' }}
                                         >
                                             <KeyIcon fontSize="small" />
@@ -399,25 +425,54 @@ export default function Users() {
 
             <Dialog
                 open={keyDialog.open}
-                onClose={() => setKeyDialog({ open: false, uuid: '' })}
-                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 420 } }}
+                onClose={handleCloseKeyDialog}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: { xs: 'calc(100vw - 32px)', sm: 420 } } }}
             >
                 <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <WarningAmberIcon sx={{ color: '#ef4444' }} />
-                    {t('userMgmt.apiKeyHint')}
+                    {keyDialog.apiKey ? <KeyIcon color="primary" /> : <WarningAmberIcon sx={{ color: '#ef4444' }} />}
+                    {keyDialog.apiKey ? t('userMgmt.apiKeyGeneratedTitle') : t('userMgmt.apiKeyHint')}
                 </DialogTitle>
-                <DialogContent>
-                    <Typography variant="body2">
-                        {t('user.confirmRegenerateKey')}
-                    </Typography>
+                <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {keyDialog.apiKey ? (
+                        <>
+                            <Typography variant="body2" sx={{ color: 'warning.main' }}>
+                                {t('userMgmt.apiKeyOneTimeWarning')}
+                            </Typography>
+                            <TextField
+                                label={t('userMgmt.apiKeyTokenLabel')}
+                                value={keyDialog.apiKey}
+                                fullWidth
+                                size="small"
+                                InputProps={{ readOnly: true }}
+                                sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+                            />
+                        </>
+                    ) : (
+                        <Typography variant="body2">
+                            {t('user.confirmRegenerateKey')}
+                        </Typography>
+                    )}
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
-                    <Button onClick={() => setKeyDialog({ open: false, uuid: '' })} color="inherit" sx={{ borderRadius: 2 }}>
-                        {t('userMgmt.cancel')}
-                    </Button>
-                    <Button onClick={handleRegenerateKey} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
-                        {t('userMgmt.regenerateKey')}
-                    </Button>
+                    {keyDialog.apiKey ? (
+                        <>
+                            <Button onClick={handleCopyApiKey} startIcon={<ContentCopyIcon />} sx={{ borderRadius: 2 }}>
+                                {keyDialog.copied ? t('userMgmt.copied') : t('userMgmt.copyApiKey')}
+                            </Button>
+                            <Button onClick={handleCloseKeyDialog} variant="contained" disableElevation sx={{ borderRadius: 2 }}>
+                                {t('userMgmt.close')}
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <Button onClick={handleCloseKeyDialog} color="inherit" sx={{ borderRadius: 2 }}>
+                                {t('userMgmt.cancel')}
+                            </Button>
+                            <Button onClick={handleRegenerateKey} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
+                                {t('userMgmt.regenerateKey')}
+                            </Button>
+                        </>
+                    )}
                 </DialogActions>
             </Dialog>
         </Box>
