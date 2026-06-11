@@ -8,6 +8,7 @@ export const imageManager = {
     "pullFailed": "镜像拉取失败",
     "pullLogsTitle": "拉取日志",
     "updateLatest": "更新 latest",
+    "overallProgress": "整体进度",
     "layerStatus": "Docker 分层状态",
     "rawLogs": "原始日志",
     "noLayersYet": "等待分层日志...",

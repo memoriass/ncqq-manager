@@ -84,7 +84,14 @@ async def pull_image_stream(
             })
         yield json.dumps({"event": "done", "ok": not has_error, "image": req.image}, ensure_ascii=False) + "\n"
 
-    return StreamingResponse(stream_events(), media_type="application/x-ndjson")
+    return StreamingResponse(
+        stream_events(),
+        media_type="application/x-ndjson",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.delete("/images/{image_id}", dependencies=[Depends(speed_limit(3.0))])

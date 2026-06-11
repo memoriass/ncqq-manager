@@ -17,7 +17,7 @@
 - `containerApi.ts`：容器列表、统计、日志、生命周期动作、创建、二维码、配置文件、文件列表和文件删除。
 - `nodeApi.ts`：集群配置、节点增删改查、节点日志和主机监控。
 - `userApi.ts`：用户列表、创建、编辑、删除、实例授权和 API Key 重新生成。`regenerateApiKey()` 返回的 `apiKey` 只用于前端一次性展示；列表 DTO 只暴露 `hasApiKey`。
-- `imageApi.ts`：Docker 镜像列表、拉取、流式拉取和删除。`pullStream()` 需要原生 `fetch`，因为调用方要消费响应流。
+- `imageApi.ts`：Docker 镜像列表、拉取、流式拉取和删除。`pullStream()` 需要原生 `fetch`，因为调用方要消费 NDJSON 响应流，并用 Docker `progressDetail.current/total` 渲染实时分层进度。
 - `alertApi.ts`：告警规则、告警历史、SMTP 设置和 SMTP 测试。
 - `backupApi.ts`：备份下载、备份上传和备份信息查询。
 - `authApi.ts`：登录、登出和认证状态。
@@ -57,6 +57,7 @@
 ## 常见风险
 
 - `request()` 自动解析 JSON；如果后端返回文件、流或非 JSON，需要像 `imageApi.pullStream()` 那样单独处理。
+- 镜像拉取流依赖后端 `Cache-Control: no-cache` 和 `X-Accel-Buffering: no`，不要改回普通 JSON 响应，否则右下角进度窗口会失去实时反馈。
 - 401 会触发全局事件，公开页面不应随意走 `request()`。
 - `types.ts` 是共享契约文件，新增字段可以是可选字段，删除字段需要先全局搜索使用点。
 - `botshepherdApi` 同时服务 BotShepherd 页面和 Bot 后端端点页面，改连接或端点结构要同时检查两个模块。

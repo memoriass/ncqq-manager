@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
 
 import services.database as database
 from main import app
-from middleware.auth import require_admin
+from middleware.auth import get_current_user, require_admin
 from middleware.rate_limiter import rate_limiter
-from routers import auth_router, container_public_router, operation_logs_router, user_router
+from routers import auth_router, container_public_router, image_router, operation_logs_router, user_router
 
 
 @pytest.fixture(autouse=True)
@@ -196,6 +198,48 @@ def test_user_apikey_regeneration_returns_one_time_token(client: TestClient, mon
     assert captured == {"user_uuid": "test-user", "apiKey": payload["apiKey"]}
     assert logs[0][0] == "user_regenerate_apikey"
     assert payload["apiKey"] not in str(logs[0][1])
+
+
+def test_image_pull_stream_keeps_progress_detail_and_no_buffer_headers(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    admin_session = {
+        "uuid": "admin",
+        "userName": "admin",
+        "permission": 10,
+    }
+    app.dependency_overrides[require_admin] = lambda: admin_session
+    app.dependency_overrides[get_current_user] = lambda: admin_session
+    logs: list[tuple[str, dict]] = []
+
+    async def fake_pull_image_stream(image_name: str):
+        assert image_name == "repo/test:latest"
+        yield {
+            "id": "layer-1",
+            "status": "Downloading",
+            "progress": "5.0 MB / 10.0 MB",
+            "progressDetail": {"current": 5_000_000, "total": 10_000_000},
+        }
+        yield {
+            "id": "layer-1",
+            "status": "Pull complete",
+            "progressDetail": {"current": 10_000_000, "total": 10_000_000},
+        }
+
+    monkeypatch.setattr(image_router.async_docker_manager, "pull_image_stream", fake_pull_image_stream)
+    monkeypatch.setattr(image_router.operation_logger, "info", lambda event, payload: logs.append((event, payload)))
+
+    response = client.post("/api/images/pull/stream", json={"image": "repo/test:latest"})
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["x-accel-buffering"] == "no"
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events[0]["status"] == "Downloading"
+    assert events[0]["progressDetail"] == {"current": 5_000_000, "total": 10_000_000}
+    assert events[-1] == {"event": "done", "ok": True, "image": "repo/test:latest"}
+    assert logs[0][0] == "image_pull"
 
 
 def test_container_runtime_split_routes_stay_registered():

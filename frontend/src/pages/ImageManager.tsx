@@ -19,7 +19,65 @@ interface PullLayerState {
     id: string;
     status: string;
     progress: string;
+    current?: number;
+    total?: number;
+    percent?: number;
 }
+
+interface PullProgressDetail {
+    current?: number;
+    total?: number;
+}
+
+interface PullStreamEvent {
+    event?: string;
+    ok?: boolean;
+    id?: string;
+    status?: string;
+    progress?: string;
+    progressDetail?: PullProgressDetail;
+    error?: string;
+}
+
+const isCompleteLayerStatus = (status: string) => ['Pull complete', 'Already exists'].includes(status);
+
+const clampPercent = (value: number) => Math.min(100, Math.max(0, Math.round(value)));
+
+const getLayerPercent = (status: string, detail?: PullProgressDetail) => {
+    if (detail && typeof detail.current === 'number' && typeof detail.total === 'number' && detail.total > 0) {
+        return clampPercent((detail.current / detail.total) * 100);
+    }
+    return isCompleteLayerStatus(status) ? 100 : undefined;
+};
+
+const formatBytes = (bytes?: number) => {
+    if (typeof bytes !== 'number' || !Number.isFinite(bytes)) return '';
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let value = bytes;
+    let unitIndex = 0;
+    while (value >= 1024 && unitIndex < units.length - 1) {
+        value /= 1024;
+        unitIndex += 1;
+    }
+    return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+};
+
+const getLayerProgressText = (layer: PullLayerState) => {
+    if (typeof layer.current === 'number' && typeof layer.total === 'number' && layer.total > 0) {
+        return `${layer.percent ?? 0}% · ${formatBytes(layer.current)} / ${formatBytes(layer.total)}`;
+    }
+    return layer.progress || (typeof layer.percent === 'number' ? `${layer.percent}%` : '');
+};
+
+const getAggregatePercent = (layers: PullLayerState[]) => {
+    const measurable = layers.filter(
+        (layer) => typeof layer.current === 'number' && typeof layer.total === 'number' && layer.total > 0,
+    );
+    if (measurable.length === 0) return undefined;
+    const current = measurable.reduce((sum, layer) => sum + Math.min(layer.current as number, layer.total as number), 0);
+    const total = measurable.reduce((sum, layer) => sum + (layer.total as number), 0);
+    return total > 0 ? clampPercent((current / total) * 100) : undefined;
+};
 
 export default function ImageManager() {
     const theme = useTheme();
@@ -59,14 +117,16 @@ export default function ImageManager() {
     };
 
     const startPullWithLogs = async (imageName: string) => {
-        if (!imageName.trim()) return;
-        setPullingImageName(imageName.trim());
+        const normalizedImage = imageName.trim();
+        if (!normalizedImage) return;
+        setPullDialog(false);
+        setPullingImageName(normalizedImage);
         setPullLayers({});
         setPullLogs([]);
         setPullWindowOpen(true);
         setPulling(true);
         try {
-            const response = await imageApi.pullStream(imageName.trim());
+            const response = await imageApi.pullStream(normalizedImage);
             if (!response.ok || !response.body) {
                 throw new Error(`HTTP ${response.status}`);
             }
@@ -85,32 +145,40 @@ export default function ImageManager() {
 
                 for (const line of lines) {
                     if (!line.trim()) continue;
-                    const event = JSON.parse(line) as {
-                        event?: string;
-                        ok?: boolean;
-                        id?: string;
-                        status?: string;
-                        progress?: string;
-                        error?: string;
-                    };
+                    const event = JSON.parse(line) as PullStreamEvent;
 
                     if (event.event === 'done') {
                         pullOk = Boolean(event.ok);
                         continue;
                     }
 
-                    if (event.id && event.status) {
+                    if (event.id && (event.status || event.progress || event.progressDetail)) {
+                        const status = event.status || '';
+                        const progressDetail = event.progressDetail || {};
+                        const percent = getLayerPercent(status, progressDetail);
                         setPullLayers((prev) => ({
                             ...prev,
                             [event.id as string]: {
+                                ...prev[event.id as string],
                                 id: event.id as string,
-                                status: event.status as string,
-                                progress: event.progress || '',
+                                status: status || prev[event.id as string]?.status || '',
+                                progress: event.progress || prev[event.id as string]?.progress || '',
+                                current: typeof progressDetail.current === 'number'
+                                    ? progressDetail.current
+                                    : prev[event.id as string]?.current,
+                                total: typeof progressDetail.total === 'number'
+                                    ? progressDetail.total
+                                    : prev[event.id as string]?.total,
+                                percent: typeof percent === 'number'
+                                    ? percent
+                                    : prev[event.id as string]?.percent,
                             },
                         }));
                     }
 
-                    const text = [event.id, event.status, event.progress].filter(Boolean).join(' ');
+                    const percent = getLayerPercent(event.status || '', event.progressDetail);
+                    const progressText = typeof percent === 'number' ? `${percent}%` : event.progress;
+                    const text = [event.id, event.status, progressText].filter(Boolean).join(' ');
                     if (text) {
                         appendLog(text);
                     }
@@ -122,12 +190,11 @@ export default function ImageManager() {
             }
 
             if (pullOk) {
-                toast.success(`${imageName.trim()} pull ✓`);
+                toast.success(`${normalizedImage} pull ✓`);
                 await fetchImages();
             } else {
                 toast.error(t('imageManager.pullFailed'));
             }
-            setPullDialog(false);
             setPullImage('');
         } catch (e) {
             toast.error(`Pull ✗: ${e}`);
@@ -155,6 +222,8 @@ export default function ImageManager() {
     };
 
     const formatSize = (mb: number) => mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
+    const layerList = Object.values(pullLayers);
+    const aggregatePercent = getAggregatePercent(layerList);
 
     return (
         <Box sx={{ p: 3 }}>
@@ -174,6 +243,7 @@ export default function ImageManager() {
                     </IconButton>
                     <Button variant="contained" startIcon={<DownloadIcon />}
                         onClick={() => setPullDialog(true)}
+                        disabled={pulling}
                         sx={{ borderRadius: 2, background: '#2563eb', boxShadow: 'none', '&:hover': { background: '#1d4ed8' } }}>
                         {t('imageManager.pullImage')}
                     </Button>
@@ -211,6 +281,7 @@ export default function ImageManager() {
                                 <Tooltip title={t('imageManager.updateLatest')}>
                                     <IconButton
                                         onClick={() => handleUpdateLatest(img.tags.find((tag) => tag.endsWith(':latest')) as string)}
+                                        disabled={pulling}
                                         size="small"
                                         sx={{ color: 'primary.main' }}
                                     >
@@ -291,7 +362,7 @@ export default function ImageManager() {
                     position: 'fixed',
                     right: 24,
                     bottom: 24,
-                    width: { xs: 'calc(100vw - 24px)', sm: 460 },
+                    width: { xs: 'calc(100vw - 48px)', sm: 460 },
                     maxHeight: '70vh',
                     zIndex: 1600,
                     borderRadius: 2,
@@ -310,18 +381,41 @@ export default function ImageManager() {
                         </IconButton>
                     </Box>
 
-                    {pulling && <LinearProgress />}
+                    {typeof aggregatePercent === 'number' ? (
+                        <Box sx={{ px: 1.5, py: 1, borderBottom: `1px solid ${theme.palette.divider}` }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Typography variant="caption" color="text.secondary">{t('imageManager.overallProgress')}</Typography>
+                                <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{aggregatePercent}%</Typography>
+                            </Box>
+                            <LinearProgress variant="determinate" value={aggregatePercent} sx={{ borderRadius: 1 }} />
+                        </Box>
+                    ) : pulling && <LinearProgress />}
 
                     <Box sx={{ p: 1.5, overflow: 'auto' }}>
                         <Typography variant="caption" color="text.secondary">{t('imageManager.layerStatus')}</Typography>
                         <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                            {Object.values(pullLayers).length === 0 ? (
+                            {layerList.length === 0 ? (
                                 <Typography variant="caption" color="text.secondary">{t('imageManager.noLayersYet')}</Typography>
                             ) : (
-                                Object.values(pullLayers).slice(-40).map((layer) => (
-                                    <Typography key={layer.id} variant="caption" sx={{ fontFamily: 'monospace' }}>
-                                        {`${layer.id.slice(0, 12)}  ${layer.status} ${layer.progress}`}
-                                    </Typography>
+                                layerList.slice(-40).map((layer) => (
+                                    <Box key={layer.id} sx={{ py: 0.5 }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mb: 0.25 }}>
+                                            <Typography variant="caption" sx={{ fontFamily: 'monospace', minWidth: 92 }}>
+                                                {layer.id.slice(0, 12)}
+                                            </Typography>
+                                            <Typography variant="caption" sx={{ flex: 1, minWidth: 0 }} noWrap>
+                                                {layer.status}
+                                            </Typography>
+                                            <Typography variant="caption" sx={{ fontFamily: 'monospace', textAlign: 'right', minWidth: 72 }}>
+                                                {getLayerProgressText(layer)}
+                                            </Typography>
+                                        </Box>
+                                        {typeof layer.percent === 'number' ? (
+                                            <LinearProgress variant="determinate" value={layer.percent} sx={{ borderRadius: 1, height: 4 }} />
+                                        ) : pulling && ['Downloading', 'Extracting'].includes(layer.status) ? (
+                                            <LinearProgress sx={{ borderRadius: 1, height: 4 }} />
+                                        ) : null}
+                                    </Box>
                                 ))
                             )}
                         </Box>

@@ -8,6 +8,7 @@ export const imageManager = {
     "pullFailed": "Image pull failed",
     "pullLogsTitle": "Pull Logs",
     "updateLatest": "Update latest",
+    "overallProgress": "Overall progress",
     "layerStatus": "Docker Layer Status",
     "rawLogs": "Raw Logs",
     "noLayersYet": "Waiting for layer logs...",
