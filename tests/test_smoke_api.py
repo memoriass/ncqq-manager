@@ -378,6 +378,64 @@ def test_admin_node_detail_ensures_api_key_for_edit_dialog(
     assert payload["node"]["api_key"] == "node-secret"
 
 
+def test_cluster_manager_creates_missing_local_node_with_real_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    import services.cluster_manager as cluster_manager_module
+    import services.config as config_module
+    from services.cluster_manager import ClusterManager
+
+    rows: dict[str, dict] = {}
+
+    class FakeConfig:
+        values = {"api_key": "***"}
+
+        def get(self, key: str, default=None):
+            return self.values.get(key, default)
+
+        def set(self, key: str, value):
+            self.values[key] = value
+
+    fake_config = FakeConfig()
+
+    def fake_fetchone(sql: str, params: tuple):
+        return rows.get(params[0])
+
+    def fake_execute(sql: str, params: tuple):
+        if sql.startswith("INSERT INTO nodes"):
+            node_id, name, address, api_key = params
+            rows[node_id] = {
+                "id": node_id,
+                "name": name,
+                "address": address,
+                "api_key": api_key,
+            }
+        elif sql.startswith("UPDATE nodes SET api_key"):
+            api_key, node_id = params
+            rows[node_id]["api_key"] = api_key
+
+        class Cursor:
+            rowcount = 1
+
+        return Cursor()
+
+    monkeypatch.setattr(config_module, "app_config", fake_config)
+    monkeypatch.setattr(cluster_manager_module.db, "fetchone", fake_fetchone)
+    monkeypatch.setattr(cluster_manager_module.db, "row_to_dict", lambda row: row.copy() if row else None)
+    monkeypatch.setattr(cluster_manager_module.db, "execute", fake_execute)
+    monkeypatch.setattr(cluster_manager_module.db, "commit", lambda: None)
+
+    manager = ClusterManager("test-config")
+    node = manager.ensure_node_api_key("local")
+
+    assert node is not None
+    assert node["id"] == "local"
+    assert node["api_key"] != "***"
+    assert len(node["api_key"]) == 32
+    assert rows["local"]["api_key"] == node["api_key"]
+    assert fake_config.values["api_key"] == node["api_key"]
+
+
 def test_image_pull_stream_keeps_progress_detail_and_no_buffer_headers(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

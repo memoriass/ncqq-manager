@@ -16,6 +16,7 @@ import services.database as db
 
 
 _NODES_CACHE_TTL = 10  # 节点状态缓存有效期（秒）
+API_KEY_MASK = "***"
 
 
 class ClusterManager:
@@ -56,14 +57,28 @@ class ClusterManager:
         """启动时同步 local 节点的 api_key 与 config.json 保持一致"""
         from services.config import app_config
         node = self._get_node("local")
-        config_key = app_config.get("api_key") or ""
+        config_key = self._usable_api_key(app_config.get("api_key") or "")
         if not config_key:
-            config_key = (node or {}).get("api_key") or uuid.uuid4().hex
+            config_key = self._usable_api_key((node or {}).get("api_key") or "") or uuid.uuid4().hex
             app_config.set("api_key", config_key)
+        if not node:
+            db.execute(
+                "INSERT INTO nodes (id,name,address,api_key) VALUES (?,?,?,?)",
+                ("local", "本地节点", "127.0.0.1", config_key),
+            )
+            db.commit()
+            self._invalidate_cache()
+            logger.info("已创建 local 节点并生成 api_key")
+            return
         if node and node.get("api_key", "") != config_key:
             db.execute("UPDATE nodes SET api_key=? WHERE id='local'", (config_key,))
             db.commit()
             logger.info("已同步 local 节点 api_key 与 config.json")
+
+    @staticmethod
+    def _usable_api_key(value: str) -> str:
+        value = (value or "").strip()
+        return "" if value in ("", API_KEY_MASK) else value
 
     @staticmethod
     def _get_node(node_id: str) -> Optional[dict]:
@@ -72,15 +87,28 @@ class ClusterManager:
 
     def ensure_node_api_key(self, node_id: str) -> Optional[Dict]:
         node = self._get_node(node_id)
+        if not node and node_id == "local":
+            from services.config import app_config
+            api_key = self._usable_api_key(app_config.get("api_key") or "") or uuid.uuid4().hex
+            app_config.set("api_key", api_key)
+            node = {"id": "local", "name": "本地节点", "address": "127.0.0.1", "api_key": api_key}
+            db.execute(
+                "INSERT INTO nodes (id,name,address,api_key) VALUES (?,?,?,?)",
+                (node["id"], node["name"], node["address"], node["api_key"]),
+            )
+            db.commit()
+            self._invalidate_cache()
+            logger.info("已创建 local 节点并生成 api_key")
+            return node.copy()
         if not node:
             return None
-        api_key = (node.get("api_key") or "").strip()
+        api_key = self._usable_api_key(node.get("api_key") or "")
         if api_key:
             return node.copy()
 
         if node_id == "local":
             from services.config import app_config
-            api_key = (app_config.get("api_key") or "").strip() or uuid.uuid4().hex
+            api_key = self._usable_api_key(app_config.get("api_key") or "") or uuid.uuid4().hex
             app_config.set("api_key", api_key)
         else:
             api_key = uuid.uuid4().hex
