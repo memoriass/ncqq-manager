@@ -15,6 +15,7 @@ from services.operation_logger import operation_logger
 from services.operation_log_context import build_operator_payload
 
 router = APIRouter(prefix="/api", tags=["nodes"])
+API_KEY_MASK = "***"
 
 
 class NodeRequest(BaseModel):
@@ -37,7 +38,8 @@ async def get_cluster_config(session: dict = Depends(get_current_user)):
             "webui_base_port": app_config.get("webui_base_port"),
             "http_base_port": app_config.get("http_base_port"),
             "ws_base_port": app_config.get("ws_base_port"),
-            "api_key": ("***" if app_config.get("api_key") else ""),
+            "api_key": (API_KEY_MASK if app_config.get("api_key") else ""),
+            "has_api_key": bool(app_config.get("api_key")),
             "data_dir": app_config.get("data_dir"),
             "init_ws_client_url": app_config.get("init_ws_client_url", "ws://127.0.0.1:5100/onebot/v11/ws"),
             "init_ws_client_token": app_config.get("init_ws_client_token", ""),
@@ -101,7 +103,18 @@ async def save_cluster_config(
         if not isinstance(img, str) or not img.strip():
             raise HTTPException(status_code=400, detail="docker_image must be a non-empty string")
 
+    if "api_key" in updates:
+        key = updates["api_key"]
+        if key in ("", API_KEY_MASK):
+            updates.pop("api_key")
+        elif not isinstance(key, str) or not key.strip():
+            raise HTTPException(status_code=400, detail="api_key must be a non-empty string")
+        else:
+            updates["api_key"] = key.strip()
+
     app_config.update(updates)
+    if "api_key" in updates:
+        cluster_manager.sync_local_node_key()
     operation_logger.info(
         "cluster_config_save",
         build_operator_payload(
@@ -114,6 +127,25 @@ async def save_cluster_config(
         ),
     )
     return {"status": "ok"}
+
+
+@router.put("/cluster/config/api-key", dependencies=[Depends(speed_limit(5.0))])
+async def regenerate_cluster_api_key(
+    request: Request,
+    session: dict = Depends(require_admin),
+):
+    new_key = uuid_mod.uuid4().hex
+    app_config.set("api_key", new_key)
+    cluster_manager.sync_local_node_key()
+    operation_logger.info(
+        "cluster_api_key_regenerate",
+        build_operator_payload(
+            request,
+            session,
+            {"api_key_regenerated": True},
+        ),
+    )
+    return {"status": "ok", "apiKey": new_key, "has_api_key": True}
 
 
 @router.get("/cluster/status", dependencies=[Depends(speed_limit(2.0))])

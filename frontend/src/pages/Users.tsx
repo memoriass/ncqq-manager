@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Box, Typography, Button, TextField, Skeleton, IconButton, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Chip, Checkbox, InputAdornment, Pagination } from '@mui/material';
+import { Alert, Box, Typography, Button, TextField, Skeleton, IconButton, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Chip, Checkbox, InputAdornment, Pagination, CircularProgress } from '@mui/material';
 import PeopleIcon from '@mui/icons-material/People';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import AddIcon from '@mui/icons-material/Add';
@@ -18,6 +18,8 @@ type KeyDialogState = {
     uuid: string;
     apiKey: string;
     copied: boolean;
+    loading: boolean;
+    error: string;
 };
 
 export default function Users() {
@@ -41,6 +43,8 @@ export default function Users() {
         uuid: '',
         apiKey: '',
         copied: false,
+        loading: false,
+        error: '',
     });
 
     // Form state
@@ -124,20 +128,28 @@ export default function Users() {
     };
 
     const handleOpenKeyDialog = (uuid: string) => {
-        setKeyDialog({ open: true, uuid, apiKey: '', copied: false });
+        setKeyDialog({ open: true, uuid, apiKey: '', copied: false, loading: false, error: '' });
     };
 
     const handleCloseKeyDialog = () => {
-        setKeyDialog({ open: false, uuid: '', apiKey: '', copied: false });
+        setKeyDialog({ open: false, uuid: '', apiKey: '', copied: false, loading: false, error: '' });
     };
 
     const handleRegenerateKey = async () => {
-        if (!keyDialog.uuid) return;
+        if (!keyDialog.uuid || keyDialog.loading) return;
+        setKeyDialog(prev => ({ ...prev, loading: true, error: '' }));
         try {
             const result = await userApi.regenerateApiKey(keyDialog.uuid);
-            setKeyDialog(prev => ({ ...prev, apiKey: result.apiKey, copied: false }));
+            setKeyDialog(prev => ({ ...prev, apiKey: result.apiKey, copied: false, loading: false, error: '' }));
             fetchUsers();
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+            setKeyDialog(prev => ({
+                ...prev,
+                loading: false,
+                error: t('userMgmt.apiKeyGenerateFailed'),
+            }));
+        }
     };
 
     const handleCopyApiKey = async () => {
@@ -448,9 +460,16 @@ export default function Users() {
                             />
                         </>
                     ) : (
-                        <Typography variant="body2">
-                            {t('user.confirmRegenerateKey')}
-                        </Typography>
+                        <>
+                            <Typography variant="body2">
+                                {t('user.confirmRegenerateKey')}
+                            </Typography>
+                            {keyDialog.error && (
+                                <Alert severity="error" sx={{ borderRadius: 2 }}>
+                                    {keyDialog.error}
+                                </Alert>
+                            )}
+                        </>
                     )}
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
@@ -468,8 +487,16 @@ export default function Users() {
                             <Button onClick={handleCloseKeyDialog} color="inherit" sx={{ borderRadius: 2 }}>
                                 {t('userMgmt.cancel')}
                             </Button>
-                            <Button onClick={handleRegenerateKey} variant="contained" color="error" disableElevation sx={{ borderRadius: 2 }}>
-                                {t('userMgmt.regenerateKey')}
+                            <Button
+                                onClick={handleRegenerateKey}
+                                variant="contained"
+                                color="error"
+                                disableElevation
+                                disabled={keyDialog.loading}
+                                startIcon={keyDialog.loading ? <CircularProgress size={16} color="inherit" /> : undefined}
+                                sx={{ borderRadius: 2 }}
+                            >
+                                {keyDialog.loading ? t('userMgmt.apiKeyGenerating') : t('userMgmt.regenerateKey')}
                             </Button>
                         </>
                     )}

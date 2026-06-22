@@ -18,7 +18,7 @@
 - `container_runtime_router.py`：容器运行态路由兼容入口，仅导出 `routers/container_runtime/` 聚合 router，保持 `main.py` 旧导入路径不变。
 - `container_runtime/`：容器数据清理/重建、生命周期动作、统计日志二维码、内部事件、事件流的分层实现。先读 `container_runtime/CONTAINER_RUNTIME_ROUTER_GUIDE.md`，再按目标能力读取 `data_recreate.py`、`actions.py`、`status.py`、`internal.py`、`events.py`。
 - `container_config_router.py`：实例配置文件读取/保存、文件列表、文件删除。负责路径安全检查。
-- `node_router.py`：集群配置、节点增删改查、节点日志、远程节点代理。依赖 `services/cluster_manager.py` 和 `services/config.py`。
+- `node_router.py`：集群配置、集群 API Key 一次性轮换展示、节点增删改查、节点日志、远程节点代理。依赖 `services/cluster_manager.py` 和 `services/config.py`。
 - `operation_logs_router.py`：操作日志查询和下载。依赖 `services/operation_logger.py`。
 - `image_router.py`：Docker 镜像列表、拉取、流式拉取、删除。依赖 `services/docker_async.py`。
 - `alert_router.py`：告警设置、规则、历史、SMTP 测试。依赖 `services/alert_manager.py` 和 `services/database.py`。

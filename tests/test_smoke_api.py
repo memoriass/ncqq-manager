@@ -9,7 +9,7 @@ import services.database as database
 from main import app
 from middleware.auth import get_current_user, require_admin
 from middleware.rate_limiter import rate_limiter
-from routers import auth_router, container_public_router, image_router, operation_logs_router, user_router
+from routers import auth_router, container_public_router, image_router, node_router, operation_logs_router, user_router
 
 
 @pytest.fixture(autouse=True)
@@ -197,6 +197,108 @@ def test_user_apikey_regeneration_returns_one_time_token(client: TestClient, mon
     assert len(payload["apiKey"]) == 32
     assert captured == {"user_uuid": "test-user", "apiKey": payload["apiKey"]}
     assert logs[0][0] == "user_regenerate_apikey"
+    assert payload["apiKey"] not in str(logs[0][1])
+
+
+def test_cluster_config_masks_and_preserves_api_key_on_save(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app.dependency_overrides[get_current_user] = lambda: {
+        "uuid": "admin",
+        "userName": "admin",
+        "permission": 10,
+    }
+    app.dependency_overrides[require_admin] = lambda: {
+        "uuid": "admin",
+        "userName": "admin",
+        "permission": 10,
+    }
+    updates: list[dict] = []
+
+    class FakeConfig:
+        values = {
+            "api_key": "real-cluster-key",
+            "docker_image": "repo/old:latest",
+            "webui_base_port": 6000,
+            "http_base_port": 3000,
+            "ws_base_port": 3001,
+            "data_dir": "data",
+        }
+
+        def get(self, key: str, default=None):
+            return self.values.get(key, default)
+
+        def update(self, data: dict):
+            updates.append(data.copy())
+            self.values.update(data)
+
+    sync_calls: list[bool] = []
+    logs: list[tuple[str, dict]] = []
+
+    monkeypatch.setattr(node_router, "app_config", FakeConfig())
+    monkeypatch.setattr(node_router.cluster_manager, "sync_local_node_key", lambda: sync_calls.append(True))
+    monkeypatch.setattr(node_router.operation_logger, "info", lambda event, payload: logs.append((event, payload)))
+
+    get_response = client.get("/api/cluster/config")
+    assert get_response.status_code == 200
+    config = get_response.json()["config"]
+    assert config["api_key"] == "***"
+    assert config["has_api_key"] is True
+
+    save_response = client.post(
+        "/api/cluster/config",
+        json={"api_key": "***", "docker_image": "repo/new:latest"},
+    )
+
+    assert save_response.status_code == 200
+    assert updates == [{"docker_image": "repo/new:latest"}]
+    assert sync_calls == []
+    assert logs[0][0] == "cluster_config_save"
+    assert "real-cluster-key" not in str(logs[0][1])
+
+
+def test_cluster_apikey_regeneration_returns_one_time_token(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    app.dependency_overrides[get_current_user] = lambda: {
+        "uuid": "admin",
+        "userName": "admin",
+        "permission": 10,
+    }
+    app.dependency_overrides[require_admin] = lambda: {
+        "uuid": "admin",
+        "userName": "admin",
+        "permission": 10,
+    }
+    values = {"api_key": "old-key"}
+    set_calls: list[tuple[str, str]] = []
+    sync_calls: list[bool] = []
+    logs: list[tuple[str, dict]] = []
+
+    class FakeConfig:
+        def get(self, key: str, default=None):
+            return values.get(key, default)
+
+        def set(self, key: str, value):
+            values[key] = value
+            set_calls.append((key, value))
+
+    monkeypatch.setattr(node_router, "app_config", FakeConfig())
+    monkeypatch.setattr(node_router.cluster_manager, "sync_local_node_key", lambda: sync_calls.append(True))
+    monkeypatch.setattr(node_router.operation_logger, "info", lambda event, payload: logs.append((event, payload)))
+
+    response = client.put("/api/cluster/config/api-key")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert len(payload["apiKey"]) == 32
+    assert payload["has_api_key"] is True
+    assert set_calls == [("api_key", payload["apiKey"])]
+    assert sync_calls == [True]
+    assert logs[0][0] == "cluster_api_key_regenerate"
     assert payload["apiKey"] not in str(logs[0][1])
 
 

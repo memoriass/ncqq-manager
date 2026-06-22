@@ -13,6 +13,8 @@ export const userMgmt = {
     "apiKeyTokenLabel": "本次生成的 API Key",
     "copyApiKey": "复制 API Key",
     "copied": "已复制",
+    "apiKeyGenerateFailed": "API Key 生成失败，请重试",
+    "apiKeyGenerating": "正在重置...",
     "close": "关闭",
     "assignedInstances": "分配的实例",
     "instanceCount": "{count} 个实例",

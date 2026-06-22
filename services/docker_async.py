@@ -10,6 +10,7 @@ import time
 from collections import defaultdict
 from typing import AsyncIterator, Dict, List, Optional
 
+import aiohttp
 import aiodocker
 
 from services.log import logger
@@ -39,13 +40,34 @@ class AsyncDockerManager:
         self._port_lock = asyncio.Lock()
         self._event_task: Optional[asyncio.Task] = None
         self._event_callbacks: List = []
+        self._last_error: str = ""
         # SSE 订阅分发（从 docker_events.py 迁移）
         self._subscribers: dict[str, list[asyncio.Queue]] = defaultdict(list)
         self._last_event: dict[str, dict] = {}
 
     async def start(self):
         """创建 aiodocker 连接（自动探测 Windows npipe / Linux socket）。"""
-        self._docker = aiodocker.Docker()
+        if self._docker:
+            return
+        docker_client: Optional[aiodocker.Docker] = None
+        try:
+            docker_client = aiodocker.Docker(
+                timeout=aiohttp.ClientTimeout(total=3, connect=2, sock_connect=2),
+            )
+            await asyncio.wait_for(docker_client.version(), timeout=3)
+        except Exception as e:
+            self._last_error = str(e)
+            if docker_client:
+                try:
+                    await docker_client.close()
+                except Exception:
+                    pass
+            self._docker = None
+            logger.warning("Docker engine 不可用，容器管理功能已降级: %s", e)
+            return
+
+        self._docker = docker_client
+        self._last_error = ""
         # 启动时清理过期的端口预留（>5分钟未释放视为泄漏）
         self._cleanup_stale_reservations()
         # 启动 Docker Events 监听
@@ -150,6 +172,10 @@ class AsyncDockerManager:
     @property
     def connected(self) -> bool:
         return self._docker is not None
+
+    @property
+    def last_error(self) -> str:
+        return self._last_error
 
     # ---- 1. 容器列表（替代 docker_manager.list_containers） ----
 

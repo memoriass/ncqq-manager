@@ -15,6 +15,7 @@ import subprocess
 import argparse
 import shutil
 import re
+import asyncio
 
 if sys.platform != "win32":
     os.environ.setdefault("LANG", "C.UTF-8")
@@ -292,7 +293,7 @@ def check_docker():
     if not docker:
         warn("未检测到 Docker，容器管理功能将不可用")
         warn("请安装 Docker >= 20.10: https://docs.docker.com/get-docker/")
-        return
+        return False
     r = subprocess.run(
         ["docker", "info"],
         capture_output=True,
@@ -302,7 +303,10 @@ def check_docker():
     )
     if r.returncode != 0:
         warn("Docker 已安装但未运行或无权限")
-        return
+        detail = (r.stderr or r.stdout or "").strip()
+        if detail:
+            warn(detail.splitlines()[0])
+        return False
     # 检查版本号
     rv = subprocess.run(
         ["docker", "version", "--format", "{{.Server.Version}}"],
@@ -321,6 +325,7 @@ def check_docker():
             info(f"Docker {ver_str}")
     else:
         info("Docker 运行正常")
+    return True
 
 
 BOTSHEPHERD_DIR = _resolve_botshepherd_dir()
@@ -469,6 +474,9 @@ def start_server(port: int, dev: bool):
     try:
         import uvicorn
 
+        if sys.platform == "win32":
+            asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+
         uvicorn.run(
             "main:app",
             host=host,
@@ -478,6 +486,19 @@ def start_server(port: int, dev: bool):
         )
     except KeyboardInterrupt:
         info("\n服务已停止")
+
+
+def pause_on_windows_error() -> None:
+    """Keep a double-clicked Windows console open long enough to read failures."""
+    if sys.platform != "win32":
+        return
+    if os.environ.get("CI") or os.environ.get("NCQQ_NO_ERROR_PAUSE") == "1":
+        return
+    try:
+        if sys.stdin and sys.stdin.isatty():
+            input("\n启动失败，按 Enter 退出...")
+    except (EOFError, OSError):
+        pass
 
 
 # ─── 主流程 ───
@@ -497,7 +518,9 @@ def main():
     ensure_uv_runtime()
     check_python()
     check_pip_deps()
-    check_docker()
+    docker_available = check_docker()
+    if not docker_available:
+        warn("将继续启动管理面板；容器、镜像和 Docker 事件功能会以降级状态运行")
 
     if not args.skip_build:
         if check_node():
@@ -513,4 +536,14 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        info("\n服务已停止")
+    except Exception as exc:
+        import traceback
+
+        fail(f"启动失败: {exc}")
+        traceback.print_exc()
+        pause_on_windows_error()
+        sys.exit(1)

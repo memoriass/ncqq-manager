@@ -44,6 +44,10 @@ class ClusterManager:
 
     def init(self):
         """启动后初始化：同步 local 节点 api_key"""
+        self.sync_local_node_key()
+
+    def sync_local_node_key(self):
+        """同步 local 节点的 api_key 与运行时配置保持一致。"""
         self._sync_local_node_key()
 
     def _sync_local_node_key(self):

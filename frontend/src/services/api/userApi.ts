@@ -34,10 +34,16 @@ export const userApi = {
         }),
 
     // 重新生成 API Key
-    regenerateApiKey: (uuid: string) =>
-        request<{ status: string; apiKey: string }>(`/users/${uuid}/apikey`, {
+    regenerateApiKey: async (uuid: string) => {
+        const result = await request<{ status: string; apiKey?: string; api_key?: string }>(`/users/${uuid}/apikey`, {
             method: 'PUT',
-        }),
+        });
+        const apiKey = result.apiKey ?? result.api_key;
+        if (!apiKey) {
+            throw new Error('API key missing in response');
+        }
+        return { status: result.status, apiKey };
+    },
 };
 
 // ============ 操作日志 API ============

@@ -41,5 +41,18 @@ export const clusterConfig = {
     "autoJoinGroupsDesc": "When a Bot logs in, automatically send an online notification to the configured group chats.",
     "autoJoinGroupsHint": "The bot must already be in the group.",
     "autoJoinGroupsPlaceholder": "123456789",
-    "autoJoinGroupsAdd": "Add Group"
+    "autoJoinGroupsAdd": "Add Group",
+    "apiKeyTitle": "Manager API Key",
+    "apiKeyDesc": "Used by other manager nodes to access this manager through x-request-api-key. Existing keys are not revealed; regenerate and save the new key when connecting a production node.",
+    "apiKeyConfigured": "Configured",
+    "apiKeyNotConfigured": "Not configured",
+    "apiKeyRegenerate": "Regenerate and show",
+    "apiKeyRegenerateConfirm": "Regenerating the manager API Key immediately invalidates the old key. Remote nodes connected to this manager must be updated. Continue?",
+    "apiKeyGenerated": "API Key generated",
+    "apiKeyGenerateFailed": "API Key generation failed",
+    "apiKeyCopyFailed": "Copy failed",
+    "apiKeyOneTimeWarning": "Copy and save it now. After closing or refreshing this page, it cannot be viewed again and must be regenerated.",
+    "apiKeyTokenLabel": "Generated API Key",
+    "apiKeyCopy": "Copy",
+    "apiKeyCopied": "Copied"
 } as const;

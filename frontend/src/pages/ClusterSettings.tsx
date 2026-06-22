@@ -7,6 +7,8 @@ import CableIcon from '@mui/icons-material/Cable';
 import HubIcon from '@mui/icons-material/Hub';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
+import KeyIcon from '@mui/icons-material/Key';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useTranslate } from '../i18n';
 import { useToast } from '../components/Toast';
 import { nodeApi } from '../services/api';
@@ -17,6 +19,7 @@ interface ClusterConfig {
     http_base_port: number;
     ws_base_port: number;
     api_key: string;
+    has_api_key?: boolean;
     data_dir: string;
     init_ws_client_enabled: boolean;
     init_ws_client_url: string;
@@ -33,7 +36,7 @@ interface ClusterConfig {
 const DEFAULT_CONFIG: ClusterConfig = {
     docker_image: "mlikiowa/napcat-docker:latest",
     webui_base_port: 6000, http_base_port: 3000, ws_base_port: 3001,
-    api_key: "", data_dir: "",
+    api_key: "", has_api_key: false, data_dir: "",
     init_ws_client_enabled: false,
     init_ws_client_url: "ws://127.0.0.1:5100/onebot/v11/ws",
     init_ws_client_token: "",
@@ -57,12 +60,15 @@ export default function ClusterSettings() {
     const [bsTargets, setBsTargets] = useState<string[]>([]);
     // 自动加群通知：逐条列表，每个群号一项
     const [autoGroups, setAutoGroups] = useState<string[]>([]);
+    const [generatedApiKey, setGeneratedApiKey] = useState('');
+    const [apiKeyCopied, setApiKeyCopied] = useState(false);
+    const [apiKeySaving, setApiKeySaving] = useState(false);
 
     useEffect(() => {
         const fetchConfig = async () => {
             try {
                 const data = await nodeApi.getClusterConfig();
-                const fetched = (data as Record<string, unknown>).config as Partial<ClusterConfig>;
+                const fetched = data.config as Partial<ClusterConfig>;
                 const merged = { ...DEFAULT_CONFIG, ...fetched };
                 setConfig(merged);
                 // 从 JSON 字符串还原目标端点列表
@@ -102,7 +108,14 @@ export default function ClusterSettings() {
                 init_bs_targets: JSON.stringify(bsTargets.filter(Boolean)),
                 init_auto_join_groups: JSON.stringify(autoGroups.filter(Boolean)),
             };
-            await nodeApi.saveClusterConfig(saveConfig);
+            const payload: Partial<ClusterConfig> = { ...saveConfig };
+            delete payload.has_api_key;
+            if (!payload.api_key || payload.api_key === '***') {
+                delete payload.api_key;
+            } else {
+                payload.api_key = payload.api_key.trim();
+            }
+            await nodeApi.saveClusterConfig(payload);
             toast.success(t('config.saved') || 'Saved Successfully');
         } catch (e) {
             console.error(e);
@@ -123,6 +136,34 @@ export default function ClusterSettings() {
         setBsTargets(prev => prev.filter((_, i) => i !== index));
     };
 
+    const handleRegenerateClusterApiKey = async () => {
+        if (!window.confirm(t('clusterConfig.apiKeyRegenerateConfirm'))) return;
+        setApiKeySaving(true);
+        try {
+            const result = await nodeApi.regenerateClusterApiKey();
+            setGeneratedApiKey(result.apiKey);
+            setApiKeyCopied(false);
+            setConfig(prev => ({ ...prev, api_key: '***', has_api_key: result.hasApiKey }));
+            toast.success(t('clusterConfig.apiKeyGenerated') || 'API Key generated');
+        } catch (e) {
+            console.error(e);
+            toast.error(t('clusterConfig.apiKeyGenerateFailed') || 'API Key generation failed');
+        } finally {
+            setApiKeySaving(false);
+        }
+    };
+
+    const handleCopyClusterApiKey = async () => {
+        if (!generatedApiKey) return;
+        try {
+            await navigator.clipboard.writeText(generatedApiKey);
+            setApiKeyCopied(true);
+        } catch (e) {
+            console.error(e);
+            toast.error(t('clusterConfig.apiKeyCopyFailed') || 'Copy failed');
+        }
+    };
+
     if (loading) {
         return <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularProgress /></Box>;
     }
@@ -137,6 +178,73 @@ export default function ClusterSettings() {
                     {t('clusterConfig.description')}
                 </Typography>
             </Box>
+
+            <Card variant="outlined" sx={{
+                borderRadius: 4, mb: 3,
+                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
+                backdropFilter: 'blur(16px) saturate(1.2)',
+                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
+                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
+                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)'
+            }}>
+                <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+                    <Box sx={{ display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+                        <Box sx={{ minWidth: 0 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2, mb: 1 }}>
+                                <KeyIcon color="primary" />
+                                <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                                    {t('clusterConfig.apiKeyTitle')}
+                                </Typography>
+                                <Chip
+                                    size="small"
+                                    label={config.has_api_key ? t('clusterConfig.apiKeyConfigured') : t('clusterConfig.apiKeyNotConfigured')}
+                                    color={config.has_api_key ? 'success' : 'default'}
+                                    variant={config.has_api_key ? 'filled' : 'outlined'}
+                                />
+                            </Box>
+                            <Typography variant="body2" color="text.secondary">
+                                {t('clusterConfig.apiKeyDesc')}
+                            </Typography>
+                        </Box>
+                        <Button
+                            variant="outlined"
+                            startIcon={apiKeySaving ? <CircularProgress size={18} /> : <KeyIcon />}
+                            onClick={handleRegenerateClusterApiKey}
+                            disabled={apiKeySaving}
+                            sx={{ borderRadius: 2, flexShrink: 0 }}
+                        >
+                            {t('clusterConfig.apiKeyRegenerate')}
+                        </Button>
+                    </Box>
+
+                    {generatedApiKey && (
+                        <Box sx={{ mt: 2.5 }}>
+                            <Alert severity="warning" sx={{ borderRadius: 2, mb: 1.5 }}>
+                                {t('clusterConfig.apiKeyOneTimeWarning')}
+                            </Alert>
+                            <Box sx={{ display: 'flex', gap: 1, flexDirection: { xs: 'column', sm: 'row' } }}>
+                                <TextField
+                                    fullWidth
+                                    size="small"
+                                    label={t('clusterConfig.apiKeyTokenLabel')}
+                                    value={generatedApiKey}
+                                    InputProps={{ readOnly: true }}
+                                    sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
+                                />
+                                <Button
+                                    variant="contained"
+                                    startIcon={<ContentCopyIcon />}
+                                    onClick={handleCopyClusterApiKey}
+                                    disableElevation
+                                    sx={{ borderRadius: 2, whiteSpace: 'nowrap' }}
+                                >
+                                    {apiKeyCopied ? t('clusterConfig.apiKeyCopied') : t('clusterConfig.apiKeyCopy')}
+                                </Button>
+                            </Box>
+                        </Box>
+                    )}
+                </CardContent>
+            </Card>
 
             <Card variant="outlined" sx={{
                 borderRadius: 4,

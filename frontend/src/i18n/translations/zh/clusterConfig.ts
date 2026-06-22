@@ -41,5 +41,18 @@ export const clusterConfig = {
     "autoJoinGroupsDesc": "Bot 登录成功后，自动向配置的群聊发送上线通知消息。",
     "autoJoinGroupsHint": "每行填写一个群号，Bot 必须已在群内才能发送消息。",
     "autoJoinGroupsPlaceholder": "123456789",
-    "autoJoinGroupsAdd": "添加群号"
+    "autoJoinGroupsAdd": "添加群号",
+    "apiKeyTitle": "管理器 API Key",
+    "apiKeyDesc": "供其他管理器节点通过 x-request-api-key 访问本机集群接口。出于安全考虑，现有 Key 不会回显；需要接入生产端时请重置并保存新 Key。",
+    "apiKeyConfigured": "已配置",
+    "apiKeyNotConfigured": "未配置",
+    "apiKeyRegenerate": "重置并显示",
+    "apiKeyRegenerateConfirm": "重置管理器 API Key 会让旧 Key 立即失效，已接入该管理器的远程节点需要同步更新。确认继续？",
+    "apiKeyGenerated": "API Key 已生成",
+    "apiKeyGenerateFailed": "API Key 生成失败",
+    "apiKeyCopyFailed": "复制失败",
+    "apiKeyOneTimeWarning": "请立即复制保存。关闭或刷新页面后无法再次查看，只能重新生成。",
+    "apiKeyTokenLabel": "本次生成的 API Key",
+    "apiKeyCopy": "复制",
+    "apiKeyCopied": "已复制"
 } as const;

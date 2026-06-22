@@ -93,10 +93,25 @@ export interface FolderItem {
 }
 
 export interface ClusterConfig {
-    base_port: number;
     docker_image: string;
+    webui_base_port: number;
+    http_base_port: number;
+    ws_base_port: number;
     data_dir: string;
     api_key: string;
+    has_api_key?: boolean;
+}
+
+export interface ClusterConfigResponse {
+    status: string;
+    config: ClusterConfig;
+    system?: {
+        cpu_percent: number;
+        mem_percent: number;
+        platform: string;
+        python_version: string;
+        app_version?: string;
+    };
 }
 
 export interface CreateContainerRequest {

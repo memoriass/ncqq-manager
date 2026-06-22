@@ -13,6 +13,8 @@ export const userMgmt = {
     "apiKeyTokenLabel": "Generated API Key",
     "copyApiKey": "Copy API Key",
     "copied": "Copied",
+    "apiKeyGenerateFailed": "API Key generation failed, please retry",
+    "apiKeyGenerating": "Regenerating...",
     "close": "Close",
     "assignedInstances": "Assigned Instances",
     "instanceCount": "{count} instance(s)",
