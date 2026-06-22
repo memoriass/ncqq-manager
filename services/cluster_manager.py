@@ -4,6 +4,7 @@
 import json
 import time
 import asyncio
+import uuid
 from typing import List, Dict, Optional, Tuple
 
 import aiohttp
@@ -45,6 +46,7 @@ class ClusterManager:
     def init(self):
         """启动后初始化：同步 local 节点 api_key"""
         self.sync_local_node_key()
+        self.ensure_node_api_keys()
 
     def sync_local_node_key(self):
         """同步 local 节点的 api_key 与运行时配置保持一致。"""
@@ -53,8 +55,11 @@ class ClusterManager:
     def _sync_local_node_key(self):
         """启动时同步 local 节点的 api_key 与 config.json 保持一致"""
         from services.config import app_config
-        config_key = app_config.get("api_key") or ""
         node = self._get_node("local")
+        config_key = app_config.get("api_key") or ""
+        if not config_key:
+            config_key = (node or {}).get("api_key") or uuid.uuid4().hex
+            app_config.set("api_key", config_key)
         if node and node.get("api_key", "") != config_key:
             db.execute("UPDATE nodes SET api_key=? WHERE id='local'", (config_key,))
             db.commit()
@@ -64,6 +69,32 @@ class ClusterManager:
     def _get_node(node_id: str) -> Optional[dict]:
         row = db.fetchone("SELECT * FROM nodes WHERE id=?", (node_id,))
         return db.row_to_dict(row)
+
+    def ensure_node_api_key(self, node_id: str) -> Optional[Dict]:
+        node = self._get_node(node_id)
+        if not node:
+            return None
+        api_key = (node.get("api_key") or "").strip()
+        if api_key:
+            return node.copy()
+
+        if node_id == "local":
+            from services.config import app_config
+            api_key = (app_config.get("api_key") or "").strip() or uuid.uuid4().hex
+            app_config.set("api_key", api_key)
+        else:
+            api_key = uuid.uuid4().hex
+
+        db.execute("UPDATE nodes SET api_key=? WHERE id=?", (api_key, node_id))
+        db.commit()
+        self._invalidate_cache()
+        node["api_key"] = api_key
+        logger.info("已为节点 %s 自动生成 api_key", node_id)
+        return node.copy()
+
+    def ensure_node_api_keys(self):
+        for node in self.get_nodes():
+            self.ensure_node_api_key(node["id"])
 
     def get_node(self, node_id: str, include_secret: bool = False) -> Optional[Dict]:
         node = self._get_node(node_id)

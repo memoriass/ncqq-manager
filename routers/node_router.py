@@ -184,7 +184,7 @@ async def api_get_node(
     node_id: str,
     session: dict = Depends(require_admin),
 ):
-    node = cluster_manager.get_node(node_id, include_secret=True)
+    node = cluster_manager.ensure_node_api_key(node_id)
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
     return {"status": "ok", "node": node}

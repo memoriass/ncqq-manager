@@ -346,7 +346,7 @@ def test_node_create_generates_api_key_when_blank(
     assert payload["api_key"] not in str(logs[0][1])
 
 
-def test_admin_node_detail_returns_api_key_for_edit_dialog(
+def test_admin_node_detail_ensures_api_key_for_edit_dialog(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -359,9 +359,8 @@ def test_admin_node_detail_returns_api_key_for_edit_dialog(
     app.dependency_overrides[require_admin] = lambda: admin_session
 
     class FakeClusterManager:
-        def get_node(self, node_id: str, include_secret: bool = False):
+        def ensure_node_api_key(self, node_id: str):
             assert node_id == "node-1"
-            assert include_secret is True
             return {
                 "id": "node-1",
                 "name": "remote",
