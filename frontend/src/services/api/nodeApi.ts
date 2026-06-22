@@ -35,18 +35,6 @@ export const nodeApi = {
             body: JSON.stringify(config),
         }),
 
-    regenerateClusterApiKey: async () => {
-        const result = await request<{ status: string; apiKey?: string; api_key?: string; has_api_key?: boolean }>(
-            '/cluster/config/api-key',
-            { method: 'PUT' },
-        );
-        const apiKey = result.apiKey ?? result.api_key;
-        if (!apiKey) {
-            throw new Error('API key missing in response');
-        }
-        return { status: result.status, apiKey, hasApiKey: result.has_api_key ?? true };
-    },
-
     // 获取节点程序日志
     getLogs: (nodeId: string = 'local', lines: number = 500) =>
         request<{ status: string; logs: string }>(`/node/logs?node_id=${nodeId}&lines=${lines}`),

@@ -15,7 +15,7 @@
 - `types.ts`：定义容器、节点、用户、告警、初始化、BotShepherd、Bot 后端端点、网络注入和 Bot 消息等共享类型。
 - `publicApi.ts`：处理不希望触发全局 401 的公开或半公开接口，例如用户面板容器列表、二维码状态、刷新登录状态。
 - `containerApi.ts`：容器列表、统计、日志、生命周期动作、创建、二维码、配置文件、文件列表和文件删除。
-- `nodeApi.ts`：集群配置、集群 API Key 重新生成、节点增删改查、节点日志和主机监控。`regenerateClusterApiKey()` 返回的 `apiKey` 只用于前端一次性展示；配置读取接口只暴露 `has_api_key` 和掩码。
+- `nodeApi.ts`：集群配置、节点增删改查、节点日志和主机监控。生产端管理器对外调用凭证从用户管理中的管理员用户 API Key 获取，不在初始化设置中单独提供入口。
 - `userApi.ts`：用户列表、创建、编辑、删除、实例授权和 API Key 重新生成。`regenerateApiKey()` 返回的 `apiKey` 只用于前端一次性展示；列表 DTO 只暴露 `hasApiKey`。
 - `imageApi.ts`：Docker 镜像列表、拉取、流式拉取和删除。`pullStream()` 需要原生 `fetch`，因为调用方要消费 NDJSON 响应流，并用 Docker `progressDetail.current/total` 渲染实时分层进度。
 - `alertApi.ts`：告警规则、告警历史、SMTP 设置和 SMTP 测试。

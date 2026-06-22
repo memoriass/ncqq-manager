@@ -19,25 +19,25 @@
 <h3>添加远程节点</h3>
 <ol>
 <li>在远程服务器安装 NapCat Manager</li>
-<li>记录远程服务的 <strong>地址:端口</strong> 和集群设置页面中重新生成后显示的 <code>api_key</code></li>
+<li>记录远程服务的 <strong>地址:端口</strong> 和用户管理页面中管理员用户重新生成后显示的 <code>apiKey</code></li>
 <li>在本机管理面板 → 节点管理 → 添加节点，填入地址和 API Key</li>
 </ol>
 
 <h3>获取生产端 API Key</h3>
-<p>集群 <code>api_key</code> 属于敏感凭证，页面不会回显已有明文。需要把生产端管理器接入其他节点时，请登录生产端管理面板，进入 <strong>集群设置</strong>，在“管理器 API Key”区域点击“重置并显示”，立即复制保存新 Key。</p>
-<p>重置后旧 Key 会失效，已经添加过该生产端的其他管理器节点需要同步更新节点凭证。若是旧版本部署且必须读取当前已保存的 Key，可在服务器上查询 SQLite：<code>sqlite3 config/app.db "select value from settings where key='api_key';"</code></p>
+<p>生产端管理器对外调用使用管理员用户的 <code>apiKey</code>。登录生产端管理面板，进入 <strong>用户管理</strong>，点击管理员用户卡片中 API Key 右侧的钥匙按钮，确认重置后立即复制保存新 Key。</p>
+<p>API Key 属于敏感凭证，页面不会回显已有明文；重置后旧 Key 会失效，已经添加过该生产端的其他管理器节点需要同步更新节点凭证。</p>
 
 <h2>密钥体系</h2>
 <div class="card">
 <table>
 <tr><th>存储位置</th><th>字段</th><th>作用</th></tr>
-<tr><td><code>SQLite settings 表</code></td><td><code>api_key</code></td><td>本机集群通信密钥 — 其他节点访问本机时使用此 Key 认证（可在集群设置页面重置并一次性显示）</td></tr>
+<tr><td><code>SQLite settings 表</code></td><td><code>api_key</code></td><td>历史兼容的本机集群通信密钥 — 仍可用于认证，但不作为管理面板推荐获取入口</td></tr>
 <tr><td><code>SQLite nodes 表</code></td><td><code>api_key</code></td><td>节点代理凭证 — 本机访问远程节点时携带对方的 Key</td></tr>
-<tr><td><code>SQLite users 表</code></td><td><code>apiKey</code></td><td>用户 API Key — 用于免登录 API 调用认证</td></tr>
+<tr><td><code>SQLite users 表</code></td><td><code>apiKey</code></td><td>用户 API Key — 推荐用管理员用户 Key 作为生产端管理器对外调用凭证</td></tr>
 </table>
 </div>
 
-<div class="warning">远程节点的 <code>api_key</code> 必须与对方节点集群设置中的 <code>api_key</code> 一致，否则代理请求会被拒绝（401）。</div>
+<div class="warning">远程节点的 <code>api_key</code> 建议填写对方管理器中管理员用户的 <code>apiKey</code>；填写错误会导致代理请求被拒绝（401）。</div>
 
 <h2>全局设置</h2>
 <table>

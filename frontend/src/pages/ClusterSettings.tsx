@@ -7,8 +7,6 @@ import CableIcon from '@mui/icons-material/Cable';
 import HubIcon from '@mui/icons-material/Hub';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
-import KeyIcon from '@mui/icons-material/Key';
-import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useTranslate } from '../i18n';
 import { useToast } from '../components/Toast';
 import { nodeApi } from '../services/api';
@@ -60,9 +58,6 @@ export default function ClusterSettings() {
     const [bsTargets, setBsTargets] = useState<string[]>([]);
     // 自动加群通知：逐条列表，每个群号一项
     const [autoGroups, setAutoGroups] = useState<string[]>([]);
-    const [generatedApiKey, setGeneratedApiKey] = useState('');
-    const [apiKeyCopied, setApiKeyCopied] = useState(false);
-    const [apiKeySaving, setApiKeySaving] = useState(false);
 
     useEffect(() => {
         const fetchConfig = async () => {
@@ -136,34 +131,6 @@ export default function ClusterSettings() {
         setBsTargets(prev => prev.filter((_, i) => i !== index));
     };
 
-    const handleRegenerateClusterApiKey = async () => {
-        if (!window.confirm(t('clusterConfig.apiKeyRegenerateConfirm'))) return;
-        setApiKeySaving(true);
-        try {
-            const result = await nodeApi.regenerateClusterApiKey();
-            setGeneratedApiKey(result.apiKey);
-            setApiKeyCopied(false);
-            setConfig(prev => ({ ...prev, api_key: '***', has_api_key: result.hasApiKey }));
-            toast.success(t('clusterConfig.apiKeyGenerated') || 'API Key generated');
-        } catch (e) {
-            console.error(e);
-            toast.error(t('clusterConfig.apiKeyGenerateFailed') || 'API Key generation failed');
-        } finally {
-            setApiKeySaving(false);
-        }
-    };
-
-    const handleCopyClusterApiKey = async () => {
-        if (!generatedApiKey) return;
-        try {
-            await navigator.clipboard.writeText(generatedApiKey);
-            setApiKeyCopied(true);
-        } catch (e) {
-            console.error(e);
-            toast.error(t('clusterConfig.apiKeyCopyFailed') || 'Copy failed');
-        }
-    };
-
     if (loading) {
         return <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}><CircularProgress /></Box>;
     }
@@ -178,73 +145,6 @@ export default function ClusterSettings() {
                     {t('clusterConfig.description')}
                 </Typography>
             </Box>
-
-            <Card variant="outlined" sx={{
-                borderRadius: 4, mb: 3,
-                bgcolor: theme.palette.mode === 'dark' ? 'rgba(30,30,32,0.35)' : 'rgba(255,255,255,0.25)',
-                backdropFilter: 'blur(16px) saturate(1.2)',
-                WebkitBackdropFilter: 'blur(16px) saturate(1.2)',
-                border: `1px solid ${theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'}`,
-                boxShadow: theme.palette.mode === 'dark' ? 'none' : '0 2px 12px rgba(0,0,0,0.06)'
-            }}>
-                <CardContent sx={{ p: { xs: 3, md: 4 } }}>
-                    <Box sx={{ display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-                        <Box sx={{ minWidth: 0 }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2, mb: 1 }}>
-                                <KeyIcon color="primary" />
-                                <Typography variant="h6" sx={{ fontWeight: 700 }}>
-                                    {t('clusterConfig.apiKeyTitle')}
-                                </Typography>
-                                <Chip
-                                    size="small"
-                                    label={config.has_api_key ? t('clusterConfig.apiKeyConfigured') : t('clusterConfig.apiKeyNotConfigured')}
-                                    color={config.has_api_key ? 'success' : 'default'}
-                                    variant={config.has_api_key ? 'filled' : 'outlined'}
-                                />
-                            </Box>
-                            <Typography variant="body2" color="text.secondary">
-                                {t('clusterConfig.apiKeyDesc')}
-                            </Typography>
-                        </Box>
-                        <Button
-                            variant="outlined"
-                            startIcon={apiKeySaving ? <CircularProgress size={18} /> : <KeyIcon />}
-                            onClick={handleRegenerateClusterApiKey}
-                            disabled={apiKeySaving}
-                            sx={{ borderRadius: 2, flexShrink: 0 }}
-                        >
-                            {t('clusterConfig.apiKeyRegenerate')}
-                        </Button>
-                    </Box>
-
-                    {generatedApiKey && (
-                        <Box sx={{ mt: 2.5 }}>
-                            <Alert severity="warning" sx={{ borderRadius: 2, mb: 1.5 }}>
-                                {t('clusterConfig.apiKeyOneTimeWarning')}
-                            </Alert>
-                            <Box sx={{ display: 'flex', gap: 1, flexDirection: { xs: 'column', sm: 'row' } }}>
-                                <TextField
-                                    fullWidth
-                                    size="small"
-                                    label={t('clusterConfig.apiKeyTokenLabel')}
-                                    value={generatedApiKey}
-                                    InputProps={{ readOnly: true }}
-                                    sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
-                                />
-                                <Button
-                                    variant="contained"
-                                    startIcon={<ContentCopyIcon />}
-                                    onClick={handleCopyClusterApiKey}
-                                    disableElevation
-                                    sx={{ borderRadius: 2, whiteSpace: 'nowrap' }}
-                                >
-                                    {apiKeyCopied ? t('clusterConfig.apiKeyCopied') : t('clusterConfig.apiKeyCopy')}
-                                </Button>
-                            </Box>
-                        </Box>
-                    )}
-                </CardContent>
-            </Card>
 
             <Card variant="outlined" sx={{
                 borderRadius: 4,
