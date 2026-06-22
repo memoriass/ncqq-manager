@@ -65,6 +65,14 @@ class ClusterManager:
         row = db.fetchone("SELECT * FROM nodes WHERE id=?", (node_id,))
         return db.row_to_dict(row)
 
+    def get_node(self, node_id: str, include_secret: bool = False) -> Optional[Dict]:
+        node = self._get_node(node_id)
+        if not node:
+            return None
+        if include_secret:
+            return node.copy()
+        return self._safe_node(node)
+
     def get_nodes(self) -> List[Dict]:
         rows = db.fetchall("SELECT * FROM nodes")
         return db.rows_to_list(rows)

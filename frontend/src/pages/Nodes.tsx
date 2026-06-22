@@ -15,6 +15,16 @@ import { nodeApi, type Node } from '../services/api';
 import { useTranslate } from '../i18n';
 import { useToast } from '../components/Toast';
 import MiniChart from '../components/MiniChart';
+import NodeFormDialog from './nodes/NodeFormDialog';
+
+const generateNodeApiKey = () => {
+    const bytes = new Uint8Array(16);
+    if (globalThis.crypto?.getRandomValues) {
+        globalThis.crypto.getRandomValues(bytes);
+        return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+    return `${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`.padEnd(32, '0').slice(0, 32);
+};
 
 export default function Nodes() {
     const theme = useTheme();
@@ -31,6 +41,7 @@ export default function Nodes() {
     const [nodeName, setNodeName] = useState('');
     const [nodeAddress, setNodeAddress] = useState('');
     const [nodeApiKey, setNodeApiKey] = useState('');
+    const [nodeApiKeyLoading, setNodeApiKeyLoading] = useState(false);
 
     // console log dialog state
     const [logDialogOpen, setLogDialogOpen] = useState(false);
@@ -128,16 +139,35 @@ export default function Nodes() {
         setEditNodeId(null);
         setNodeName('');
         setNodeAddress('127.0.0.1:8000');
-        setNodeApiKey('');
+        setNodeApiKey(generateNodeApiKey());
+        setNodeApiKeyLoading(false);
         setOpenDialog(true);
     };
 
-    const handleOpenEdit = (node: Node) => {
+    const handleOpenEdit = async (node: Node) => {
         setEditNodeId(node.id);
         setNodeName(node.name);
         setNodeAddress(node.address);
-        setNodeApiKey(''); // Don't show existing key
+        setNodeApiKey('');
+        setNodeApiKeyLoading(true);
         setOpenDialog(true);
+        try {
+            const data = await nodeApi.get(node.id);
+            setNodeName(data.node.name);
+            setNodeAddress(data.node.address);
+            setNodeApiKey(data.node.api_key || '');
+        } catch (e) {
+            console.error(e);
+            toast.error(t('nodePanel.apiKeyLoadFailed'));
+        } finally {
+            setNodeApiKeyLoading(false);
+        }
+    };
+
+    const handleCopyNodeApiKey = async () => {
+        if (!nodeApiKey) return;
+        await navigator.clipboard.writeText(nodeApiKey);
+        toast.success(t('nodePanel.copied'));
     };
 
     const handleDelete = async () => {
@@ -307,37 +337,21 @@ export default function Nodes() {
                 })}
             </Box>
 
-            <Dialog open={openDialog} onClose={() => setOpenDialog(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none', bgcolor: theme.palette.mode === 'dark' ? '#1e1e1e' : '#fff' } }}>
-                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, fontWeight: 700 }}>
-                    <SettingsIcon color="primary" /> {editNodeId ? t('nodePanel.editNode') : t('nodePanel.addNodeConfig')}
-                </DialogTitle>
-                <DialogContent>
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mt: 1 }}>
-                        <Box>
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('nodePanel.remarkInfo')}</Typography>
-                            <TextField fullWidth size="small" placeholder={t('nodePanel.remarkPlaceholder')} value={nodeName} onChange={e => setNodeName(e.target.value)} />
-                        </Box>
-                        <Box>
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('nodePanel.remoteAddress')}</Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                                {t('nodePanel.remoteAddressHelp')}
-                            </Typography>
-                            <TextField fullWidth size="small" placeholder={t('nodePanel.remoteAddressPlaceholder')} value={nodeAddress} onChange={e => setNodeAddress(e.target.value)} />
-                        </Box>
-                        <Box>
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('nodePanel.apiKeyLabel')}</Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                                {t('nodePanel.apiKeyHelp')}
-                            </Typography>
-                            <TextField fullWidth size="small" type="password" placeholder={t('nodePanel.apiKeyPlaceholder')} value={nodeApiKey} onChange={e => setNodeApiKey(e.target.value)} />
-                        </Box>
-                    </Box>
-                </DialogContent>
-                <DialogActions sx={{ p: 3, pt: 0 }}>
-                    <Button onClick={() => setOpenDialog(false)} color="inherit" sx={{ borderRadius: 2 }}>{t('nodePanel.cancel')}</Button>
-                    <Button variant="contained" onClick={handleSave} disabled={!nodeName || !nodeAddress} sx={{ borderRadius: 2, boxShadow: 'none' }}>{t('nodePanel.saveNode')}</Button>
-                </DialogActions>
-            </Dialog>
+            <NodeFormDialog
+                open={openDialog}
+                editNodeId={editNodeId}
+                nodeName={nodeName}
+                nodeAddress={nodeAddress}
+                nodeApiKey={nodeApiKey}
+                nodeApiKeyLoading={nodeApiKeyLoading}
+                onClose={() => setOpenDialog(false)}
+                onSave={handleSave}
+                onNodeNameChange={setNodeName}
+                onNodeAddressChange={setNodeAddress}
+                onNodeApiKeyChange={setNodeApiKey}
+                onCopyApiKey={handleCopyNodeApiKey}
+                onGenerateApiKey={() => setNodeApiKey(generateNodeApiKey())}
+            />
 
             {/* ============ Console Log Dialog ============ */}
             <Dialog open={logDialogOpen} onClose={handleCloseConsole} maxWidth="lg" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none', bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : '#fff', height: '80vh' } }}>

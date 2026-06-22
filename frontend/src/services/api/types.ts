@@ -36,7 +36,7 @@ export interface Node {
     id: string;
     name: string;
     address: string;
-    api_key?: string; // 服务端不再下发，前端仅供编辑表单暂存
+    api_key?: string; // 列表接口不下发；管理员节点详情接口用于编辑弹窗展示
     status?: string;
     container_count?: number;
     ping?: number;

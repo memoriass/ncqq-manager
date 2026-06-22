@@ -21,7 +21,7 @@ API_KEY_MASK = "***"
 class NodeRequest(BaseModel):
     name: str
     address: str
-    api_key: str
+    api_key: str = ""
     node_id: str = "local"
 
 
@@ -179,13 +179,25 @@ async def api_get_nodes(quick: bool = False, session: dict = Depends(get_current
     return {"status": "ok", "nodes": nodes}
 
 
+@router.get("/nodes/{node_id}", dependencies=[Depends(speed_limit(2.0))])
+async def api_get_node(
+    node_id: str,
+    session: dict = Depends(require_admin),
+):
+    node = cluster_manager.get_node(node_id, include_secret=True)
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    return {"status": "ok", "node": node}
+
+
 @router.post("/nodes", dependencies=[Depends(speed_limit(5.0))])
 async def api_add_node(
     req: NodeRequest, request: Request,
     session: dict = Depends(require_admin),
 ):
     new_id = "node-" + uuid_mod.uuid4().hex[:8]
-    cluster_manager.add_node(new_id, req.name, req.address, req.api_key)
+    api_key = req.api_key.strip() or uuid_mod.uuid4().hex
+    cluster_manager.add_node(new_id, req.name, req.address, api_key)
     operation_logger.info(
         "node_add",
         build_operator_payload(
@@ -198,7 +210,7 @@ async def api_add_node(
             },
         ),
     )
-    return {"status": "ok", "node_id": new_id}
+    return {"status": "ok", "node_id": new_id, "api_key": api_key}
 
 
 @router.put("/nodes/{node_id}", dependencies=[Depends(speed_limit(5.0))])
@@ -206,9 +218,10 @@ async def api_edit_node(
     node_id: str, req: NodeRequest, request: Request,
     session: dict = Depends(require_admin),
 ):
-    cluster_manager.update_node(node_id, req.name, req.address, req.api_key or None)
-    if node_id == "local" and req.api_key:
-        app_config.set("api_key", req.api_key)
+    api_key = req.api_key.strip()
+    cluster_manager.update_node(node_id, req.name, req.address, api_key or None)
+    if node_id == "local" and api_key:
+        app_config.set("api_key", api_key)
     operation_logger.info(
         "node_edit",
         build_operator_payload(

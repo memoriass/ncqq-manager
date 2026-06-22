@@ -302,6 +302,83 @@ def test_cluster_apikey_regeneration_returns_one_time_token(
     assert payload["apiKey"] not in str(logs[0][1])
 
 
+def test_node_create_generates_api_key_when_blank(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    admin_session = {
+        "uuid": "admin",
+        "userName": "admin",
+        "permission": 10,
+    }
+    app.dependency_overrides[get_current_user] = lambda: admin_session
+    app.dependency_overrides[require_admin] = lambda: admin_session
+    captured: dict[str, str] = {}
+    logs: list[tuple[str, dict]] = []
+
+    class FakeClusterManager:
+        def add_node(self, node_id: str, name: str, address: str, api_key: str):
+            captured.update(
+                {
+                    "node_id": node_id,
+                    "name": name,
+                    "address": address,
+                    "api_key": api_key,
+                }
+            )
+
+    monkeypatch.setattr(node_router, "cluster_manager", FakeClusterManager())
+    monkeypatch.setattr(node_router.operation_logger, "info", lambda event, payload: logs.append((event, payload)))
+
+    response = client.post(
+        "/api/nodes",
+        json={"name": "remote", "address": "127.0.0.1:8001", "api_key": ""},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert len(payload["api_key"]) == 32
+    assert captured["api_key"] == payload["api_key"]
+    assert captured["name"] == "remote"
+    assert captured["address"] == "127.0.0.1:8001"
+    assert logs[0][0] == "node_add"
+    assert payload["api_key"] not in str(logs[0][1])
+
+
+def test_admin_node_detail_returns_api_key_for_edit_dialog(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    admin_session = {
+        "uuid": "admin",
+        "userName": "admin",
+        "permission": 10,
+    }
+    app.dependency_overrides[get_current_user] = lambda: admin_session
+    app.dependency_overrides[require_admin] = lambda: admin_session
+
+    class FakeClusterManager:
+        def get_node(self, node_id: str, include_secret: bool = False):
+            assert node_id == "node-1"
+            assert include_secret is True
+            return {
+                "id": "node-1",
+                "name": "remote",
+                "address": "127.0.0.1:8001",
+                "api_key": "node-secret",
+            }
+
+    monkeypatch.setattr(node_router, "cluster_manager", FakeClusterManager())
+
+    response = client.get("/api/nodes/node-1")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["node"]["api_key"] == "node-secret"
+
+
 def test_image_pull_stream_keeps_progress_detail_and_no_buffer_headers(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

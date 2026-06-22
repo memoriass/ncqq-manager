@@ -24,6 +24,7 @@
 - `alert-settings/`：告警设置的默认值、类型和 controller。详细见 `alert-settings/ALERT_SETTINGS_MODULE_GUIDE.md`。
 - `bot-backend/`：Bot 后端端点雷达和注入页面。详细见 `bot-backend/BOT_BACKEND_MODULE_GUIDE.md`。
 - `bot-shepherd/`：BotShepherd 页面辅助组件。详细见 `bot-shepherd/BOT_SHEPHERD_UI_MODULE_GUIDE.md`。
+- `nodes/`：节点管理页面的表单弹窗等辅助组件，避免 `Nodes.tsx` 承担过多 JSX。
 
 ## 页面层边界
 
