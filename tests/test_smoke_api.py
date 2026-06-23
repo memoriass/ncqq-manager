@@ -9,7 +9,15 @@ import services.database as database
 from main import app
 from middleware.auth import get_current_user, require_admin
 from middleware.rate_limiter import rate_limiter
-from routers import auth_router, container_public_router, image_router, node_router, operation_logs_router, user_router
+from routers import (
+    auth_router,
+    container_public_router,
+    container_runtime_router,
+    image_router,
+    node_router,
+    operation_logs_router,
+    user_router,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -495,7 +503,7 @@ def test_container_runtime_split_routes_stay_registered():
 
     actual_routes = {
         (method, route.path)
-        for route in app.routes
+        for route in container_runtime_router.router.routes
         for method in getattr(route, "methods", set())
     }
 
