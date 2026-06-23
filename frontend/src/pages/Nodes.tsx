@@ -16,6 +16,7 @@ import { useTranslate } from '../i18n';
 import { useToast } from '../components/Toast';
 import MiniChart from '../components/MiniChart';
 import NodeFormDialog from './nodes/NodeFormDialog';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 const generateNodeApiKey = () => {
     const bytes = new Uint8Array(16);
@@ -164,10 +165,27 @@ export default function Nodes() {
         }
     };
 
-    const handleCopyNodeApiKey = async () => {
-        if (!nodeApiKey) return;
-        await navigator.clipboard.writeText(nodeApiKey);
-        toast.success(t('nodePanel.copied'));
+    const handleCopyNodeApiKey = async (): Promise<boolean> => {
+        if (!nodeApiKey) return false;
+        try {
+            await copyTextToClipboard(nodeApiKey);
+            toast.success(t('nodePanel.copied'));
+            return true;
+        } catch (e) {
+            console.error(e);
+            toast.error('浏览器阻止自动复制，已选中内容时请按 Ctrl+C');
+            return false;
+        }
+    };
+
+    const handleCopyNodeId = async (nodeId: string) => {
+        try {
+            await copyTextToClipboard(nodeId);
+            toast.success(t('nodePanel.copied'));
+        } catch (e) {
+            console.error(e);
+            toast.error('复制失败，请手动复制');
+        }
     };
 
     const handleDelete = async () => {
@@ -311,7 +329,7 @@ export default function Nodes() {
                                 </Box>
                                 <Box sx={{ gridColumn: 'span 2' }}>
                                     <Typography variant="caption" color="text.secondary" display="block">Node ID</Typography>
-                                    <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#3b82f6', cursor: 'pointer' }} onClick={() => { navigator.clipboard.writeText(node.id); toast.success(t('nodePanel.copied')); }}>
+                                    <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#3b82f6', cursor: 'pointer' }} onClick={() => handleCopyNodeId(node.id)}>
                                         {node.id} <ContentCopyIcon sx={{ fontSize: 12 }} />
                                     </Typography>
                                 </Box>

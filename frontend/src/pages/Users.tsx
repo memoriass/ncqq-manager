@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Alert, Box, Typography, Button, TextField, Skeleton, IconButton, useTheme, Dialog, DialogTitle, DialogContent, DialogActions, Select, MenuItem, FormControl, InputLabel, Chip, Checkbox, InputAdornment, Pagination, CircularProgress } from '@mui/material';
 import PeopleIcon from '@mui/icons-material/People';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -12,6 +12,7 @@ import SearchIcon from '@mui/icons-material/Search';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useTranslate } from '../i18n';
 import { containerApi, userApi, type User, type Container, type InstanceRef, type UserEditPayload } from '../services/api';
+import { copyTextToClipboard, selectTextInput } from '../utils/clipboard';
 
 type KeyDialogState = {
     open: boolean;
@@ -46,6 +47,7 @@ export default function Users() {
         loading: false,
         error: '',
     });
+    const apiKeyInputRef = useRef<HTMLInputElement | null>(null);
 
     // Form state
     const [username, setUsername] = useState('');
@@ -155,9 +157,19 @@ export default function Users() {
     const handleCopyApiKey = async () => {
         if (!keyDialog.apiKey) return;
         try {
-            await navigator.clipboard.writeText(keyDialog.apiKey);
-            setKeyDialog(prev => ({ ...prev, copied: true }));
-        } catch (e) { console.error(e); }
+            await copyTextToClipboard(keyDialog.apiKey);
+            setKeyDialog(prev => ({ ...prev, copied: true, error: '' }));
+        } catch (e) {
+            console.error(e);
+            const selected = selectTextInput(apiKeyInputRef.current);
+            setKeyDialog(prev => ({
+                ...prev,
+                copied: false,
+                error: selected
+                    ? '浏览器阻止自动复制，已选中 API Key，请按 Ctrl+C 复制'
+                    : '浏览器阻止自动复制，请手动选中 API Key 后复制',
+            }));
+        }
     };
 
     const handleSaveInstances = async () => {
@@ -455,9 +467,15 @@ export default function Users() {
                                 value={keyDialog.apiKey}
                                 fullWidth
                                 size="small"
+                                inputRef={apiKeyInputRef}
                                 InputProps={{ readOnly: true }}
                                 sx={{ '& .MuiInputBase-input': { fontFamily: 'monospace' } }}
                             />
+                            {keyDialog.error && (
+                                <Alert severity="error" sx={{ borderRadius: 2 }}>
+                                    {keyDialog.error}
+                                </Alert>
+                            )}
                         </>
                     ) : (
                         <>

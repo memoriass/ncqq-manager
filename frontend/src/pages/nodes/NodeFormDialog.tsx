@@ -2,7 +2,9 @@ import { Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogT
 import SettingsIcon from '@mui/icons-material/Settings';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import { useRef } from 'react';
 import { useTranslate } from '../../i18n';
+import { selectTextInput } from '../../utils/clipboard';
 
 interface NodeFormDialogProps {
     open: boolean;
@@ -16,7 +18,7 @@ interface NodeFormDialogProps {
     onNodeNameChange: (value: string) => void;
     onNodeAddressChange: (value: string) => void;
     onNodeApiKeyChange: (value: string) => void;
-    onCopyApiKey: () => void;
+    onCopyApiKey: () => Promise<boolean>;
     onGenerateApiKey: () => void;
 }
 
@@ -37,6 +39,14 @@ export default function NodeFormDialog({
 }: NodeFormDialogProps) {
     const theme = useTheme();
     const t = useTranslate();
+    const apiKeyInputRef = useRef<HTMLInputElement | null>(null);
+
+    const handleCopyApiKey = async () => {
+        const copied = await onCopyApiKey();
+        if (!copied) {
+            selectTextInput(apiKeyInputRef.current);
+        }
+    };
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3, backgroundImage: 'none', bgcolor: theme.palette.mode === 'dark' ? '#1e1e1e' : '#fff' } }}>
@@ -68,6 +78,7 @@ export default function NodeFormDialog({
                             value={nodeApiKey}
                             onChange={e => onNodeApiKeyChange(e.target.value.trim())}
                             disabled={nodeApiKeyLoading}
+                            inputRef={apiKeyInputRef}
                             inputProps={{ style: { fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace' } }}
                             InputProps={{
                                 endAdornment: (
@@ -78,7 +89,7 @@ export default function NodeFormDialog({
                                             <>
                                                 <Tooltip title={t('nodePanel.copyApiKey')}>
                                                     <span>
-                                                        <IconButton size="small" edge="end" onClick={onCopyApiKey} disabled={!nodeApiKey} aria-label={t('nodePanel.copyApiKey')}>
+                                                        <IconButton size="small" edge="end" onClick={handleCopyApiKey} disabled={!nodeApiKey} aria-label={t('nodePanel.copyApiKey')}>
                                                             <ContentCopyIcon fontSize="small" />
                                                         </IconButton>
                                                     </span>
