@@ -148,7 +148,10 @@ export default function BotShepherd() {
             } else {
                 const payload = { ...data }; delete (payload as any)._copyNewId; delete (payload as any)._copyNewName; delete (payload as any)._editId;
                 const r = await botshepherdApi.updateConnection(id, payload);
-                if ((r as any).success) toast.success(t('botshepherd.connSaveSuccess'));
+                if ((r as any).success) {
+                    if ((r as any).warning) toast.warning(String((r as any).warning));
+                    else toast.success(t('botshepherd.connSaveSuccess'));
+                }
                 else toast.error((r as any).error ?? 'Failed');
             }
             setConnDlg(null); await refreshConnections();

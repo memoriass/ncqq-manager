@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 from fastapi.testclient import TestClient
 
+import services.botshepherd as botshepherd_module
 import services.database as database
 from main import app
 from middleware.auth import get_current_user, require_admin
@@ -508,3 +510,46 @@ def test_container_runtime_split_routes_stay_registered():
     }
 
     assert expected_routes <= actual_routes
+
+
+def test_botshepherd_mutation_errors_are_normalized():
+    manager = botshepherd_module.BotShepherdManager()
+
+    result = manager._normalize_bs_mutation_response(
+        {"_error": True, "status": 400, "error": "bad config"},
+        "down",
+    )
+
+    assert result == {"success": False, "error": "bad config", "status": 400}
+
+
+def test_botshepherd_connection_snapshot_reports_reload_warning(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    manager = botshepherd_module.BotShepherdManager()
+
+    async def fake_sleep(_seconds: float):
+        return None
+
+    async def fake_get_connections():
+        return {
+            "source": "api",
+            "connections": {
+                "bs1": {
+                    "enabled": True,
+                    "status": {
+                        "client_status": "error",
+                        "error": "port already in use",
+                    },
+                }
+            },
+        }
+
+    monkeypatch.setattr(botshepherd_module.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(manager, "get_connections", fake_get_connections)
+
+    result = asyncio.run(manager._attach_connection_snapshot({"success": True}, "bs1"))
+
+    assert result["connection_source"] == "api"
+    assert result["connection"]["status"]["client_status"] == "error"
+    assert result["warning"] == "port already in use"

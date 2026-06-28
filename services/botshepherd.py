@@ -534,23 +534,73 @@ class BotShepherdManager:
     async def update_connection(self, conn_id: str, config: dict) -> Dict[str, Any]:
         api = self._ensure_api()
         r = await api.request("PUT", f"/api/connections/{conn_id}", json=config)
-        if r is None:
-            return {"success": False, "error": "BS 未运行或无法连接"}
-        return r
+        result = self._normalize_bs_mutation_response(r, "BS 未运行或无法连接")
+        return await self._attach_connection_snapshot(result, conn_id)
 
     async def copy_connection(self, conn_id: str, body: dict) -> Dict[str, Any]:
         api = self._ensure_api()
         r = await api.request("POST", f"/api/connections/{conn_id}/copy", json=body)
-        if r is None:
-            return {"success": False, "error": "BS 未运行或无法连接"}
-        return r
+        return self._normalize_bs_mutation_response(r, "BS 未运行或无法连接")
 
     async def delete_connection(self, conn_id: str) -> Dict[str, Any]:
         api = self._ensure_api()
         r = await api.request("DELETE", f"/api/connections/{conn_id}")
-        if r is None:
-            return {"success": False, "error": "BS 未运行或无法连接"}
-        return r
+        return self._normalize_bs_mutation_response(r, "BS 未运行或无法连接")
+
+    def _normalize_bs_mutation_response(
+        self, response: Optional[Any], unavailable_message: str
+    ) -> Dict[str, Any]:
+        """Normalize BotShepherd mutation responses for the manager UI."""
+        if response is None:
+            return {"success": False, "error": unavailable_message}
+        if not isinstance(response, dict):
+            return {
+                "success": False,
+                "error": "BS API 返回了非预期响应",
+                "detail": response,
+            }
+        if response.get("_error"):
+            status = response.get("status")
+            error = (
+                response.get("error")
+                or response.get("detail")
+                or response.get("message")
+                or f"BS API HTTP {status}"
+            )
+            return {"success": False, "error": str(error), "status": status}
+        if response.get("error") and not response.get("success"):
+            return {"success": False, "error": str(response.get("error"))}
+        return response
+
+    async def _attach_connection_snapshot(
+        self, result: Dict[str, Any], conn_id: str
+    ) -> Dict[str, Any]:
+        if not result.get("success"):
+            return result
+        await asyncio.sleep(0.5)
+        try:
+            conn_resp = await self.get_connections()
+            connections = conn_resp.get("connections") or {}
+            if not isinstance(connections, dict) or conn_id not in connections:
+                return result
+            connection = connections[conn_id]
+            enriched = {
+                **result,
+                "connection": connection,
+                "connection_source": conn_resp.get("source"),
+            }
+            if isinstance(connection, dict):
+                status = connection.get("status")
+                if isinstance(status, dict) and status.get("client_status") == "error":
+                    enriched["warning"] = (
+                        status.get("error") or "BS 连接重载后仍处于错误状态"
+                    )
+            return enriched
+        except Exception as e:
+            return {
+                **result,
+                "warning": f"配置已保存，但刷新 BS 连接状态失败: {e}",
+            }
 
     # ---- 账号管理 ----
 
@@ -564,16 +614,12 @@ class BotShepherdManager:
     async def update_account(self, account_id: str, config: dict) -> Dict[str, Any]:
         api = self._ensure_api()
         r = await api.request("PUT", f"/api/accounts/{account_id}", json=config)
-        if r is None:
-            return {"success": False, "error": "BS 未运行或无法连接"}
-        return r
+        return self._normalize_bs_mutation_response(r, "BS 未运行或无法连接")
 
     async def delete_account(self, account_id: str) -> Dict[str, Any]:
         api = self._ensure_api()
         r = await api.request("DELETE", f"/api/accounts/{account_id}")
-        if r is None:
-            return {"success": False, "error": "BS 未运行或无法连接"}
-        return r
+        return self._normalize_bs_mutation_response(r, "BS 未运行或无法连接")
 
     async def get_account_online(self, account_id: str) -> Dict[str, Any]:
         api = self._ensure_api()
