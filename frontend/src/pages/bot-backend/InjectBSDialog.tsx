@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Pagination, TextField, Typography } from '@mui/material';
 import { useTranslate } from '../../i18n';
 import type { BSConnection } from '../../services/api';
+import { INJECT_DIALOG_PAGE_SIZE } from './constants';
 import type { EndpointEntry } from './types';
 
 interface InjectBSDialogProps {
@@ -11,8 +12,6 @@ interface InjectBSDialogProps {
     onClose: () => void;
     onConfirm: (connIds: string[]) => Promise<void>;
 }
-
-const PAGE_SIZE = 8;
 
 export function InjectBSDialog({ open, entry, bsConnections, onClose, onConfirm }: InjectBSDialogProps) {
     const t = useTranslate();
@@ -29,8 +28,11 @@ export function InjectBSDialog({ open, entry, bsConnections, onClose, onConfirm 
     const filtered = allOptions.filter(o =>
         o.label.toLowerCase().includes(search.toLowerCase())
     );
-    const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-    const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const pageCount = Math.max(1, Math.ceil(filtered.length / INJECT_DIALOG_PAGE_SIZE));
+    const pageItems = filtered.slice(
+        (page - 1) * INJECT_DIALOG_PAGE_SIZE,
+        page * INJECT_DIALOG_PAGE_SIZE,
+    );
 
     const toggle = (id: string) => {
         setSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);

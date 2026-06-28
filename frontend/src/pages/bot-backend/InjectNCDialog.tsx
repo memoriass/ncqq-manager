@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Pagination, TextField, Typography } from '@mui/material';
 import { useTranslate } from '../../i18n';
 import type { Container } from '../../services/api';
+import { INJECT_DIALOG_PAGE_SIZE } from './constants';
 import type { EndpointEntry } from './types';
 
 interface InjectNCDialogProps {
@@ -27,8 +28,11 @@ export function InjectNCDialog({ open, entry, containers, onClose, onConfirm }: 
     const filtered = allOptions.filter(o =>
         o.label.toLowerCase().includes(search.toLowerCase())
     );
-    const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-    const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const pageCount = Math.max(1, Math.ceil(filtered.length / INJECT_DIALOG_PAGE_SIZE));
+    const pageItems = filtered.slice(
+        (page - 1) * INJECT_DIALOG_PAGE_SIZE,
+        page * INJECT_DIALOG_PAGE_SIZE,
+    );
 
     const toggle = (name: string) => {
         setSelected(prev => prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]);
