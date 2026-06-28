@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
+import services.alert_manager as alert_manager_module
 import services.botshepherd as botshepherd_module
 import services.database as database
+import services.instance_subsystem as instance_subsystem_module
 from main import app
 from middleware.auth import get_current_user, require_admin
 from middleware.rate_limiter import rate_limiter
@@ -510,6 +513,188 @@ def test_container_runtime_split_routes_stay_registered():
     }
 
     assert expected_routes <= actual_routes
+
+
+def test_qq_bot_rules_are_scoped_to_monitor_instances(monkeypatch: pytest.MonkeyPatch):
+    manager = alert_manager_module.alert_manager
+    rules = [
+        {
+            "id": "rule-a",
+            "type": "qq_bot",
+            "enabled": True,
+            "config": {
+                "instances": ["napcat-a"],
+                "sender_bots": ["sender-a"],
+                "targets": [{"msg_type": "group", "target_id": "10001"}],
+            },
+        },
+        {
+            "id": "rule-b",
+            "type": "qq_bot",
+            "enabled": True,
+            "config": {
+                "instances": ["napcat-b"],
+                "sender_bots": ["sender-b"],
+                "targets": [{"msg_type": "group", "target_id": "10002"}],
+            },
+        },
+        {
+            "id": "legacy-global",
+            "type": "qq_bot",
+            "enabled": True,
+            "config": {
+                "sender_bots": ["sender-c"],
+                "targets": [{"msg_type": "group", "target_id": "10003"}],
+            },
+        },
+    ]
+    calls: list[tuple[str, str, str, str]] = []
+
+    monkeypatch.setattr(manager, "list_rules", lambda: rules)
+    monkeypatch.setattr(
+        instance_subsystem_module.instance_subsystem,
+        "get",
+        lambda _name: SimpleNamespace(bot_online=True),
+    )
+
+    async def fake_notify_via_bot(sender_name: str, msg_type: str, target_id: str, message: str) -> bool:
+        calls.append((sender_name, msg_type, target_id, message))
+        return True
+
+    monkeypatch.setattr(manager, "notify_via_bot", fake_notify_via_bot)
+
+    asyncio.run(manager._dispatch_qq_bot_rules(
+        "login lost",
+        {"event": "login_lost", "instance": "napcat-a", "node_id": "local"},
+    ))
+
+    assert calls == [("sender-a", "group", "10001", "login lost")]
+
+
+def test_plugin_api_rules_use_qq_rule_switch_and_post_payload(monkeypatch: pytest.MonkeyPatch):
+    manager = alert_manager_module.alert_manager
+    rules = [
+        {
+            "id": "qq-a",
+            "type": "qq_bot",
+            "enabled": True,
+            "webhook_url": "",
+            "config": {
+                "instances": ["napcat-a"],
+                "api_fallback_enabled": True,
+                "sender_bots": ["sender-a"],
+                "targets": [{"msg_type": "group", "target_id": "10001"}],
+            },
+        },
+        {
+            "id": "qq-b",
+            "type": "qq_bot",
+            "enabled": True,
+            "webhook_url": "",
+            "config": {
+                "instances": ["napcat-b"],
+                "api_fallback_enabled": False,
+                "sender_bots": ["sender-b"],
+                "targets": [{"msg_type": "group", "target_id": "10002"}],
+            },
+        },
+        {
+            "id": "api-a",
+            "name": "api fallback a",
+            "type": "plugin_api",
+            "enabled": True,
+            "webhook_url": "https://example.com/api-a",
+            "config": {},
+        },
+        {
+            "id": "api-b",
+            "name": "api fallback b",
+            "type": "plugin_api",
+            "enabled": True,
+            "webhook_url": "https://example.com/api-b",
+            "config": {},
+        },
+        {
+            "id": "api-disabled",
+            "name": "disabled api",
+            "type": "plugin_api",
+            "enabled": False,
+            "webhook_url": "https://example.com/disabled",
+            "config": {},
+        },
+    ]
+    writes: list[tuple[tuple, dict]] = []
+    posts: list[tuple[str, str, str, dict]] = []
+
+    monkeypatch.setattr(manager, "list_rules", lambda: rules)
+    monkeypatch.setattr(
+        alert_manager_module.db,
+        "execute",
+        lambda *args, **kwargs: writes.append((args, kwargs)),
+    )
+    monkeypatch.setattr(alert_manager_module.db, "commit", lambda: None)
+
+    async def fake_send(url: str, message: str, level: str, extra: dict | None = None):
+        posts.append((url, message, level, extra or {}))
+
+    monkeypatch.setattr(manager, "_send_webhook_async", fake_send)
+
+    asyncio.run(manager._dispatch_plugin_api_rules(
+        "login lost",
+        "critical",
+        {"event": "login_lost", "instance": "napcat-a", "node_id": "local"},
+    ))
+
+    assert len(writes) == 2
+    assert len(posts) == 2
+    assert posts[0][0] == "https://example.com/api-a"
+    assert posts[0][1] == "login lost"
+    assert posts[0][2] == "critical"
+    assert posts[0][3]["channel"] == "plugin_api"
+    assert posts[0][3]["instance"] == "napcat-a"
+    assert posts[1][0] == "https://example.com/api-b"
+
+
+def test_plugin_api_rules_skip_when_qq_rule_switch_is_off(monkeypatch: pytest.MonkeyPatch):
+    manager = alert_manager_module.alert_manager
+    rules = [
+        {
+            "id": "qq-a",
+            "type": "qq_bot",
+            "enabled": True,
+            "webhook_url": "",
+            "config": {
+                "instances": ["napcat-a"],
+                "api_fallback_enabled": False,
+                "sender_bots": ["sender-a"],
+                "targets": [{"msg_type": "group", "target_id": "10001"}],
+            },
+        },
+        {
+            "id": "api-a",
+            "name": "api fallback a",
+            "type": "plugin_api",
+            "enabled": True,
+            "webhook_url": "https://example.com/api-a",
+            "config": {},
+        },
+    ]
+    posts: list[tuple[str, str, str, dict]] = []
+
+    monkeypatch.setattr(manager, "list_rules", lambda: rules)
+
+    async def fake_send(url: str, message: str, level: str, extra: dict | None = None):
+        posts.append((url, message, level, extra or {}))
+
+    monkeypatch.setattr(manager, "_send_webhook_async", fake_send)
+
+    asyncio.run(manager._dispatch_plugin_api_rules(
+        "login lost",
+        "critical",
+        {"event": "login_lost", "instance": "napcat-a", "node_id": "local"},
+    ))
+
+    assert posts == []
 
 
 def test_botshepherd_mutation_errors_are_normalized():

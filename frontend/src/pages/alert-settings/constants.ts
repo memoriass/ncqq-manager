@@ -38,12 +38,18 @@ export const SMTP_PROVIDER_PRESETS: Record<string, { host: string; port: number;
 };
 
 export const EMPTY_QQ_NOTIFY = {
+    monitorNames: [] as string[],
     selectedNames: [] as string[],
     msg_type: 'private' as string,
     target_id: '',
+    apiFallbackEnabled: false,
 };
 
 export const EMPTY_SMTP_NOTIFY = {
     selectedNames: [] as string[],
     recipients: '',
+};
+
+export const EMPTY_API_FALLBACK = {
+    api_url: '',
 };

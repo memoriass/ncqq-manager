@@ -297,6 +297,29 @@ class AlertManager:
             return False
         return True
 
+    @staticmethod
+    def _configured_instances(cfg: Dict[str, Any]) -> List[str]:
+        values = cfg.get("instances") or cfg.get("instance_names") or []
+        if isinstance(values, str):
+            values = [x.strip() for x in values.replace(";", ",").split(",")]
+        if not isinstance(values, list):
+            values = []
+        legacy = cfg.get("instance_name") or cfg.get("instance")
+        if legacy:
+            values = [*values, str(legacy)]
+        return [str(x).strip() for x in values if str(x).strip()]
+
+    @staticmethod
+    def _rule_matches_instance(rule: Dict, extra: Dict[str, Any], require_scope: bool = False) -> bool:
+        cfg = rule.get("config", {}) or {}
+        targets = AlertManager._configured_instances(cfg)
+        if not targets:
+            return not require_scope
+        current = str((extra or {}).get("instance") or "").strip()
+        if not current:
+            return False
+        return current in targets
+
     async def _dispatch_smtp_rules(self, event_type: str, name: str, node_id: str, message: str, level: str, extra: dict) -> None:
         """Dispatch SMTP alert rules.
 
@@ -350,6 +373,8 @@ class AlertManager:
                 await self.trigger_alert_async(rule["id"], message, "critical", extra)
         # qq_bot 哨兵渠道：容器停止也推 QQ 消息
         await self._dispatch_qq_bot_rules(message, extra)
+        # 外部插件 API 兜底：由对接插件自行广播到群聊等可达通道
+        await self._dispatch_plugin_api_rules(message, "critical", extra)
         # SMTP 独立规则渠道
         await self._dispatch_smtp_rules("instance_offline", name, node_id, message, "critical", extra)
 
@@ -493,6 +518,8 @@ class AlertManager:
 
         # qq_bot 通知渠道：通过哨兵 Bot 发 QQ 消息
         await self._dispatch_qq_bot_rules(message, extra)
+        # 外部插件 API 兜底：内置插件不负责发送消息，这里只调用用户配置的 HTTP API
+        await self._dispatch_plugin_api_rules(message, "critical", extra)
         # SMTP 独立规则渠道
         await self._dispatch_smtp_rules("login_lost", name, node_id, message, "critical", extra)
 
@@ -550,6 +577,12 @@ class AlertManager:
             if not (rule.get("type") == "qq_bot" and rule.get("enabled")):
                 continue
             cfg = rule.get("config", {})
+            if not self._rule_matches_instance(rule, extra, require_scope=True):
+                logger.debug(
+                    "qq_bot 通知跳过: 规则未命中监听实例 rule_id=%s instance=%s",
+                    rule.get("id"), (extra or {}).get("instance"),
+                )
+                continue
 
             # ---- 解析哨兵列表（新字段 sender_bots 优先；旧字段 sender_bot 兼容）----
             raw_senders = cfg.get("sender_bots")
@@ -594,6 +627,49 @@ class AlertManager:
             logger.info("qq_bot 通知完成: rule_id=%s sender=%s targets=%d sent=%d",
                         rule.get("id"), sender, len(targets), sent)
 
+    def _plugin_api_enabled_for_instance(self, extra: dict) -> bool:
+        for rule in self.list_rules():
+            if not (rule.get("type") == "qq_bot" and rule.get("enabled")):
+                continue
+            cfg = rule.get("config", {}) or {}
+            if not cfg.get("api_fallback_enabled"):
+                continue
+            if self._rule_matches_instance(rule, extra, require_scope=True):
+                return True
+        return False
+
+    async def _dispatch_plugin_api_rules(self, message: str, level: str, extra: dict) -> None:
+        """Dispatch external plugin API fallback rules for offline/login-lost alerts.
+
+        The bundled ncqq-interlink plugin only reports state into the manager. It is not
+        a message-sending channel, so fallback broadcast goes through a user-provided
+        HTTP API endpoint instead.
+        """
+        if not self._plugin_api_enabled_for_instance(extra):
+            logger.debug(
+                "plugin_api 通知跳过: 未在匹配的 QQ 通知规则中启用 API 兜底 instance=%s",
+                (extra or {}).get("instance"),
+            )
+            return
+
+        for rule in self.list_rules():
+            if not (rule.get("type") == "plugin_api" and rule.get("enabled")):
+                continue
+            if not rule.get("webhook_url"):
+                continue
+            db.execute(
+                "INSERT INTO alert_history (rule_id,message,level,created_at) VALUES (?,?,?,?)",
+                (rule["id"], message, level, time.time()),
+            )
+            db.commit()
+            api_extra = {
+                **(extra or {}),
+                "channel": "plugin_api",
+                "rule_id": rule.get("id"),
+                "rule_name": rule.get("name", ""),
+            }
+            await self._send_webhook_async(rule["webhook_url"], message, level, api_extra)
+
     def _fire_webhook_task(self, url: str, message: str, level: str):
         """在当前事件循环中创建异步 webhook 发送任务；无事件循环时回退到后台线程执行。"""
         try:
@@ -618,6 +694,7 @@ class AlertManager:
         """异步发送 Webhook 通知 — aiohttp，零线程。extra 字段合并到 payload。"""
         payload: Dict[str, Any] = {
             "text": message,
+            "message": message,
             "level": level,
             "timestamp": int(time.time()),
             "source": "NapCat Manager",

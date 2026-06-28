@@ -9,6 +9,7 @@ import NotificationsActiveIcon from '@mui/icons-material/NotificationsActive';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EmailIcon from '@mui/icons-material/Email';
+import ApiIcon from '@mui/icons-material/Api';
 
 import { alertApi } from '../services/api';
 import { useTranslate } from '../i18n';
@@ -33,9 +34,11 @@ export default function AlertSettings() {
         rules, loading, createOpen, setCreateOpen, form, setForm, allowAllIp, webhookBaseUrl, setWebhookBaseUrl,
         smtpForm, setSmtpForm, smtpPasswordSet, smtpAdvancedOpen, setSmtpAdvancedOpen, smtpProvider,
         qqNotifyOpen, setQqNotifyOpen, qqNotifyForm, setQqNotifyForm, qqNotifyEditId, setQqNotifyEditId,
+        apiFallbackOpen, setApiFallbackOpen, apiFallbackForm, setApiFallbackForm, apiFallbackEditId, setApiFallbackEditId,
         smtpNotifyOpen, setSmtpNotifyOpen, smtpNotifyForm, setSmtpNotifyForm, instances, deleteConfirmId,
-        setDeleteConfirmId, applyQqDefaultsIfMissing, openQqNotifyDialog, openSmtpNotifyDialog, handleCreate,
-        handleQqNotifySave, handleSmtpNotifyCreate, handleToggle, handleDelete, confirmDelete,
+        setDeleteConfirmId, applyQqDefaultsIfMissing, readInstanceNames, openQqNotifyDialog, openApiFallbackDialog,
+        openSmtpNotifyDialog, handleCreate, handleQqNotifySave, handleApiFallbackSave, handleSmtpNotifyCreate,
+        handleToggle, handleDelete, confirmDelete,
         handleAllowAllIpToggle, saveSmtpSettings, applyProviderPreset,
     } = useAlertSettingsController();
 
@@ -47,12 +50,14 @@ export default function AlertSettings() {
         high_cpu: t('alerts.typeHighCpu'),
         high_mem: t('alerts.typeHighMem'),
         login_failure: t('alerts.typeLoginFailure'),
+        plugin_api: t('alerts.typePluginApi'),
     };
 
     if (loading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress /></Box>;
 
     const qqBotRules = rules.filter(r => r.type === 'qq_bot');
-    const webhookRules = rules.filter(r => r.type !== 'qq_bot' && !(r.type === 'login_lost' && (r.config as Record<string, unknown>)?.smtp_recipients && !r.webhook_url));
+    const apiFallbackRules = rules.filter(r => r.type === 'plugin_api');
+    const webhookRules = rules.filter(r => r.type !== 'qq_bot' && r.type !== 'plugin_api' && !(r.type === 'login_lost' && (r.config as Record<string, unknown>)?.smtp_recipients && !r.webhook_url));
     const smtpRules = rules.filter(r => r.type === 'login_lost' && (r.config as Record<string, unknown>)?.smtp_recipients && !r.webhook_url);
 
     const rowSx = {
@@ -97,6 +102,7 @@ export default function AlertSettings() {
                             {qqBotRules.map(rule => {
                                 const cfg = rule.config as Record<string, unknown>;
                                 const bots = (cfg.sender_bots as string[] | undefined) ?? [];
+                                const monitorNames = readInstanceNames(cfg);
                                 const targets = (cfg.targets as QqBotTarget[] | undefined) ?? [];
                                 const tgt = targets[0];
                                 const isGroup = tgt?.msg_type === 'group';
@@ -106,7 +112,7 @@ export default function AlertSettings() {
                                         : `/api/resource/avatar/${tgt.target_id}`
                                     : undefined;
                                 return (
-                                    <Grid item key={rule.id} xs={6} sm={4} md={3} lg={2}>
+                                <Grid item key={rule.id} xs={6} sm={4} md={3} lg={2}>
                                         <Paper elevation={0} onClick={() => openQqNotifyDialog(rule)}
                                             sx={{
                                                 p: 1.5, borderRadius: 2, cursor: 'pointer', textAlign: 'center',
@@ -128,7 +134,13 @@ export default function AlertSettings() {
                                                 {tgt?.target_id ?? '-'}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
-                                                {bots[0] ?? '-'}
+                                                {t('alerts.monitorInstances')}: {monitorNames.length ? monitorNames.join(', ') : t('alerts.monitorUnset')}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
+                                                {t('alerts.senderBotsShort')}: {bots[0] ?? '-'}
+                                            </Typography>
+                                            <Typography variant="caption" color={cfg.api_fallback_enabled ? 'info.main' : 'text.secondary'} sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
+                                                {t('alerts.apiFallbackShort')}: {cfg.api_fallback_enabled ? t('alerts.enabled') : t('alerts.disabled')}
                                             </Typography>
                                             <IconButton size="small" sx={{ color: 'error.main', mt: 0.5, p: 0.25 }}
                                                 onClick={e => { e.stopPropagation(); handleDelete(rule.id); }}>
@@ -139,6 +151,54 @@ export default function AlertSettings() {
                                 );
                             })}
                         </Grid>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* ── 外部 API 兜底通知 section ── */}
+            <Card elevation={0} sx={{ borderRadius: 3, mb: 3, ...glass }}>
+                <CardContent>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <ApiIcon sx={{ color: '#0891b2' }} />
+                            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{t('alerts.apiFallbackSection')}</Typography>
+                        </Box>
+                        <Button variant="outlined" size="small" startIcon={<AddIcon />}
+                            onClick={() => openApiFallbackDialog()}
+                            sx={{ borderRadius: 2, borderColor: '#0891b2', color: '#0891b2', textTransform: 'none',
+                                '&:hover': { borderColor: '#0e7490', bgcolor: 'rgba(8,145,178,0.06)' } }}>
+                            {t('alerts.addApiFallback')}
+                        </Button>
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                        {t('alerts.apiFallbackHint')}
+                    </Typography>
+                    {apiFallbackRules.length === 0 ? (
+                        <Typography color="text.secondary" variant="body2" sx={{ textAlign: 'center', py: 2 }}>
+                            {t('alerts.noRules')}
+                        </Typography>
+                    ) : (
+                        <Stack spacing={1}>
+                            {apiFallbackRules.map(rule => {
+                                return (
+                                    <Paper key={rule.id} elevation={0} onClick={() => openApiFallbackDialog(rule)}
+                                        sx={{ ...rowSx, cursor: 'pointer' }}>
+                                        <Box sx={{ minWidth: 0 }}>
+                                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{rule.name}</Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-all' }}>
+                                                {rule.webhook_url || '-'}
+                                            </Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                            <Switch checked={rule.enabled} onClick={e => e.stopPropagation()} onChange={() => handleToggle(rule)} size="small" />
+                                            <IconButton size="small" onClick={e => { e.stopPropagation(); handleDelete(rule.id); }} sx={{ color: 'error.main' }}>
+                                                <DeleteOutlineIcon fontSize="small" />
+                                            </IconButton>
+                                        </Box>
+                                    </Paper>
+                                );
+                            })}
+                        </Stack>
                     )}
                 </CardContent>
             </Card>
@@ -445,7 +505,8 @@ export default function AlertSettings() {
                             ))}
                         </Select>
                     </FormControl>
-                    <TextField size="small" label="Webhook URL" placeholder="http://<IP>:60071/common-webhook"
+                    <TextField size="small" label="Webhook URL" placeholder={t('alerts.webhookUrlPlaceholder')}
+                        InputLabelProps={{ shrink: true }}
                         value={form.webhook_url}
                         onChange={e => setForm({ ...form, webhook_url: e.target.value })}
                         helperText={t('alerts.webhookHint')}
@@ -463,6 +524,39 @@ export default function AlertSettings() {
                 PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 480 } }}>
                 <DialogTitle sx={{ fontWeight: 700 }}>{qqNotifyEditId ? t('alerts.editQqNotify') : t('alerts.addQqNotify')}</DialogTitle>
                 <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
+                    <FormControl size="small">
+                        <InputLabel>{t('alerts.monitorInstances')}</InputLabel>
+                        <Select multiple value={qqNotifyForm.monitorNames}
+                            onChange={e => setQqNotifyForm({ ...qqNotifyForm, monitorNames: e.target.value as string[] })}
+                            input={<OutlinedInput label={t('alerts.monitorInstances')} sx={{ borderRadius: 2 }} />}
+                            renderValue={selected => (selected as string[]).join(', ')}
+                            sx={{ borderRadius: 2 }}>
+                            {instances.length === 0 ? (
+                                <MenuItem disabled>
+                                    <Typography variant="caption" color="text.secondary">{t('alerts.noInstances')}</Typography>
+                                </MenuItem>
+                            ) : instances.map(inst => (
+                                <MenuItem key={inst.name} value={inst.name}>
+                                    <ListItemIcon sx={{ minWidth: 36 }}>
+                                        <Checkbox checked={qqNotifyForm.monitorNames.includes(inst.name)} size="small" />
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <span>{inst.name}</span>
+                                                <Box component="span" sx={{
+                                                    display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
+                                                    bgcolor: inst.bot_online ? 'success.main' : 'text.disabled', ml: 0.5,
+                                                }} />
+                                            </Box>
+                                        }
+                                        secondary={inst.uin ? `QQ: ${inst.uin}` : undefined}
+                                    />
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+
                     {/* 多选 sender bots */}
                     <FormControl size="small">
                         <InputLabel>{t('alerts.senderBots')}</InputLabel>
@@ -515,14 +609,57 @@ export default function AlertSettings() {
                         value={qqNotifyForm.target_id}
                         onChange={e => setQqNotifyForm({ ...qqNotifyForm, target_id: e.target.value })}
                         sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                    <FormControlLabel
+                        control={<Switch checked={qqNotifyForm.apiFallbackEnabled}
+                            onChange={e => setQqNotifyForm({ ...qqNotifyForm, apiFallbackEnabled: e.target.checked })}
+                            color="primary" />}
+                        label={<Box>
+                            <Typography variant="body2" sx={{ fontWeight: 600 }}>{t('alerts.enableApiFallbackForRule')}</Typography>
+                            <Typography variant="caption" color="text.secondary">{t('alerts.enableApiFallbackForRuleHint')}</Typography>
+                        </Box>}
+                        sx={{
+                            m: 0,
+                            px: 1.5,
+                            py: 1,
+                            borderRadius: 2,
+                            border: `1px solid ${isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)'}`,
+                            bgcolor: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                            alignItems: 'flex-start',
+                        }}
+                    />
                 </DialogContent>
                 <DialogActions sx={{ p: 2, pt: 0 }}>
                     <Button onClick={() => { setQqNotifyOpen(false); setQqNotifyEditId(null); }} color="inherit" sx={{ borderRadius: 2 }}>{t('admin.cancelText')}</Button>
                     <Button onClick={handleQqNotifySave}
-                        disabled={qqNotifyForm.selectedNames.length === 0 || !qqNotifyForm.target_id}
+                        disabled={qqNotifyForm.monitorNames.length === 0 || qqNotifyForm.selectedNames.length === 0 || !qqNotifyForm.target_id}
                         variant="contained" disableElevation
                         sx={{ borderRadius: 2, background: '#7c3aed' }}>
                         {qqNotifyEditId ? t('alerts.saveBtn') : t('alerts.addQqNotify')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ── 外部 API 兜底通知对话框 ── */}
+            <Dialog open={apiFallbackOpen} onClose={() => { setApiFallbackOpen(false); setApiFallbackEditId(null); }}
+                PaperProps={{ sx: { borderRadius: 3, p: 1, minWidth: 480 } }}>
+                <DialogTitle sx={{ fontWeight: 700 }}>{apiFallbackEditId ? t('alerts.editApiFallback') : t('alerts.addApiFallback')}</DialogTitle>
+                <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: '8px !important' }}>
+                    <TextField size="small" fullWidth
+                        label={t('alerts.apiUrl')}
+                        placeholder={t('alerts.apiUrlPlaceholder')}
+                        InputLabelProps={{ shrink: true }}
+                        helperText={t('alerts.apiFallbackDialogHint')}
+                        value={apiFallbackForm.api_url}
+                        onChange={e => setApiFallbackForm({ ...apiFallbackForm, api_url: e.target.value })}
+                        sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }} />
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0 }}>
+                    <Button onClick={() => { setApiFallbackOpen(false); setApiFallbackEditId(null); }} color="inherit" sx={{ borderRadius: 2 }}>{t('admin.cancelText')}</Button>
+                    <Button onClick={handleApiFallbackSave}
+                        disabled={!apiFallbackForm.api_url}
+                        variant="contained" disableElevation
+                        sx={{ borderRadius: 2, background: '#0891b2' }}>
+                        {apiFallbackEditId ? t('alerts.saveBtn') : t('alerts.addApiFallback')}
                     </Button>
                 </DialogActions>
             </Dialog>

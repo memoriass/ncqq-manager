@@ -3,7 +3,7 @@ import { alertApi, containerApi, type AlertRule, type Container } from '../../se
 import { useTranslate } from '../../i18n';
 import { useToast } from '../../components/Toast';
 import {
-    EMPTY_FORM, EMPTY_QQ_NOTIFY, EMPTY_SMTP, EMPTY_SMTP_NOTIFY,
+    EMPTY_API_FALLBACK, EMPTY_FORM, EMPTY_QQ_NOTIFY, EMPTY_SMTP, EMPTY_SMTP_NOTIFY,
     QQ_SMTP_DEFAULTS, SMTP_PROVIDER_PRESETS,
 } from './constants';
 import type { QqBotTarget } from './types';
@@ -25,10 +25,28 @@ export function useAlertSettingsController() {
     const [qqNotifyOpen, setQqNotifyOpen] = useState(false);
     const [qqNotifyForm, setQqNotifyForm] = useState({ ...EMPTY_QQ_NOTIFY });
     const [qqNotifyEditId, setQqNotifyEditId] = useState<string | null>(null);
+    const [apiFallbackOpen, setApiFallbackOpen] = useState(false);
+    const [apiFallbackForm, setApiFallbackForm] = useState({ ...EMPTY_API_FALLBACK });
+    const [apiFallbackEditId, setApiFallbackEditId] = useState<string | null>(null);
     const [smtpNotifyOpen, setSmtpNotifyOpen] = useState(false);
     const [smtpNotifyForm, setSmtpNotifyForm] = useState({ ...EMPTY_SMTP_NOTIFY });
     const [instances, setInstances] = useState<Container[]>([]);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+    const readInstanceNames = (cfg: Record<string, unknown>): string[] => {
+        const raw = cfg.instances ?? cfg.instance_names;
+        let names: string[] = [];
+        if (Array.isArray(raw)) {
+            names = raw.map(String);
+        } else if (typeof raw === 'string') {
+            names = raw.split(/[;,]/);
+        }
+        const legacy = cfg.instance_name ?? cfg.instance;
+        if (typeof legacy === 'string' && legacy) {
+            names.push(legacy);
+        }
+        return Array.from(new Set(names.map(name => name.trim()).filter(Boolean)));
+    };
 
     const applyQqDefaultsIfMissing = (prev: typeof EMPTY_SMTP) => {
         if (prev.smtp_host && prev.smtp_port) return prev;
@@ -84,16 +102,43 @@ export function useAlertSettingsController() {
     const openQqNotifyDialog = async (rule?: AlertRule) => {
         if (rule) {
             const cfg = rule.config as Record<string, unknown>;
-            const bots = (cfg.sender_bots as string[] | undefined) ?? [];
-            const targets = (cfg.targets as QqBotTarget[] | undefined) ?? [{ msg_type: 'private', target_id: '' }];
+            const bots = Array.isArray(cfg.sender_bots)
+                ? cfg.sender_bots.map(String)
+                : typeof cfg.sender_bot === 'string' && cfg.sender_bot
+                    ? [cfg.sender_bot]
+                    : [];
+            const targets = Array.isArray(cfg.targets)
+                ? cfg.targets as QqBotTarget[]
+                : [{ msg_type: String(cfg.msg_type || 'private'), target_id: String(cfg.target_id || '') }];
             const tgt = targets[0] ?? { msg_type: 'private', target_id: '' };
-            setQqNotifyForm({ selectedNames: bots, msg_type: tgt.msg_type, target_id: tgt.target_id });
+            setQqNotifyForm({
+                monitorNames: readInstanceNames(cfg),
+                selectedNames: bots,
+                msg_type: tgt.msg_type,
+                target_id: tgt.target_id,
+                apiFallbackEnabled: Boolean(cfg.api_fallback_enabled),
+            });
             setQqNotifyEditId(rule.id);
         } else {
             setQqNotifyForm({ ...EMPTY_QQ_NOTIFY });
             setQqNotifyEditId(null);
         }
         setQqNotifyOpen(true);
+        await loadInstances();
+    };
+
+    const openApiFallbackDialog = async (rule?: AlertRule) => {
+        if (rule) {
+            const cfg = rule.config as Record<string, unknown>;
+            setApiFallbackForm({
+                api_url: rule.webhook_url || String(cfg.api_url || ''),
+            });
+            setApiFallbackEditId(rule.id);
+        } else {
+            setApiFallbackForm({ ...EMPTY_API_FALLBACK });
+            setApiFallbackEditId(null);
+        }
+        setApiFallbackOpen(true);
         await loadInstances();
     };
 
@@ -119,10 +164,12 @@ export function useAlertSettingsController() {
     };
 
     const handleQqNotifySave = async () => {
-        if (qqNotifyForm.selectedNames.length === 0 || !qqNotifyForm.target_id) return;
+        if (qqNotifyForm.monitorNames.length === 0 || qqNotifyForm.selectedNames.length === 0 || !qqNotifyForm.target_id) return;
         const config = {
+            instances: qqNotifyForm.monitorNames,
             sender_bots: qqNotifyForm.selectedNames,
             targets: [{ msg_type: qqNotifyForm.msg_type, target_id: qqNotifyForm.target_id }],
+            api_fallback_enabled: qqNotifyForm.apiFallbackEnabled,
         };
         try {
             if (qqNotifyEditId) {
@@ -134,6 +181,31 @@ export function useAlertSettingsController() {
             setQqNotifyOpen(false);
             setQqNotifyForm({ ...EMPTY_QQ_NOTIFY });
             setQqNotifyEditId(null);
+            fetchData();
+        } catch (e) { console.error(e); }
+    };
+
+    const handleApiFallbackSave = async () => {
+        if (!apiFallbackForm.api_url) return;
+        const config = {};
+        try {
+            if (apiFallbackEditId) {
+                await alertApi.updateRule(apiFallbackEditId, {
+                    config,
+                    webhook_url: apiFallbackForm.api_url,
+                });
+            } else {
+                const autoName = `plugin_api_${Date.now()}`;
+                await alertApi.createRule({
+                    name: autoName,
+                    type: 'plugin_api',
+                    config,
+                    webhook_url: apiFallbackForm.api_url,
+                });
+            }
+            setApiFallbackOpen(false);
+            setApiFallbackForm({ ...EMPTY_API_FALLBACK });
+            setApiFallbackEditId(null);
             fetchData();
         } catch (e) { console.error(e); }
     };
@@ -230,6 +302,12 @@ export function useAlertSettingsController() {
         setQqNotifyForm,
         qqNotifyEditId,
         setQqNotifyEditId,
+        apiFallbackOpen,
+        setApiFallbackOpen,
+        apiFallbackForm,
+        setApiFallbackForm,
+        apiFallbackEditId,
+        setApiFallbackEditId,
         smtpNotifyOpen,
         setSmtpNotifyOpen,
         smtpNotifyForm,
@@ -238,10 +316,13 @@ export function useAlertSettingsController() {
         deleteConfirmId,
         setDeleteConfirmId,
         applyQqDefaultsIfMissing,
+        readInstanceNames,
         openQqNotifyDialog,
+        openApiFallbackDialog,
         openSmtpNotifyDialog,
         handleCreate,
         handleQqNotifySave,
+        handleApiFallbackSave,
         handleSmtpNotifyCreate,
         handleToggle,
         handleDelete,

@@ -11,16 +11,17 @@
 
 ## 文件用途
 
-- `constants.ts`：`EMPTY_FORM`、`EMPTY_SMTP`、`QQ_SMTP_DEFAULTS`、`SMTP_PROVIDER_PRESETS`、`EMPTY_QQ_NOTIFY`、`EMPTY_SMTP_NOTIFY`。新增表单字段时先更新这里。
-- `types.ts`：`QqBotTarget`，描述 QQ bot 通知目标。
-- `useAlertSettingsController.ts`：读取告警规则和设置，维护 create/QQ notify/SMTP notify/delete/advanced SMTP 等弹窗状态，执行创建、更新、删除、切换、保存 SMTP、应用 provider preset。
+- `constants.ts`：`EMPTY_FORM`、`EMPTY_SMTP`、`QQ_SMTP_DEFAULTS`、`SMTP_PROVIDER_PRESETS`、`EMPTY_QQ_NOTIFY`、`EMPTY_SMTP_NOTIFY`、`EMPTY_API_FALLBACK`。新增表单字段时先更新这里。
+- `types.ts`：`QqBotTarget`、QQ 通知和 API 兜底表单类型。
+- `useAlertSettingsController.ts`：读取告警规则和设置，维护 create/QQ notify/API fallback/SMTP notify/delete/advanced SMTP 等弹窗状态，执行创建、更新、删除、切换、保存 SMTP、应用 provider preset。
 
 ## 页面数据流
 
 - 首次加载调用 `alertApi.listRules()` 和 `alertApi.getSettings()`。
 - QQ 通知弹窗会调用 `containerApi.list()` 获取实例，作为 sender bot 候选。
 - Webhook 规则通过 `alertApi.createRule()`、`updateRule()`、`deleteRule()` 管理。
-- QQ bot 通知本质上创建或更新 type 为 `qq_bot` 的规则，config 中包含 `sender_bots` 和 `targets`。
+- QQ bot 通知本质上创建或更新 type 为 `qq_bot` 的规则，config 中包含 `instances`、`sender_bots`、`targets` 和 `api_fallback_enabled`，后端会按 `instances` 过滤，并由该开关决定是否触发 API 兜底。
+- API 兜底通知创建或更新 type 为 `plugin_api` 的规则，URL 存在 `webhook_url`，config 不绑定实例，只维护 POST 地址。
 - SMTP 通知会为选中的实例创建 type 为 `login_lost` 且 config 含 `smtp_recipients` 的规则。
 - SMTP 全局设置通过 `alertApi.updateSettings()` 保存。
 - 允许本地 webhook 的开关直接更新 `allow_local_webhook`，失败时回滚前端状态。

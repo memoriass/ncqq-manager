@@ -45,7 +45,7 @@
 
 ## 告警与通知服务
 
-- `alert_manager.py`：告警规则、设置、历史、Webhook 校验、SMTP 设置和发送、登录丢失等通知流程。
+- `alert_manager.py`：告警规则、设置、历史、Webhook 校验、SMTP 设置和发送、登录丢失等通知流程；`qq_bot` 通道按规则绑定的实例过滤，`plugin_api` 兜底通道由匹配的 QQ 规则开关启用。
 
 ## 路由关联
 
