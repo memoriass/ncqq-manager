@@ -1,3 +1,5 @@
+已迭代新管理器  該項目作爲其他管理器參考留檔
+
 # NapCat QQ Manager
 
 <p align="center">
